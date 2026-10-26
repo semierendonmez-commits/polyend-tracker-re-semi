@@ -15,7 +15,33 @@ Image: `PolyendTrackerOTs221.ptf` (installs like the upstream image, see Install
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
-### Latest update (2.2.1-semi.3)
+### Latest update (2.2.1-semi.4)
+
+| **Master 5/5: Sidechain (two sources, targets on the pads)** | **Theme: Acid House (animated)** |
+|---|---|
+| ![Master 5/5: Sidechain](screenshots/2.2.1-semi/master-sidechain.png) | ![Theme: Acid House](screenshots/2.2.1-semi/theme-acidhouse.png) |
+| **Theme: Plasma (animated)** | **Theme: Colour Wheel (animated)** |
+| ![Theme: Plasma](screenshots/2.2.1-semi/theme-plasma.png) | ![Theme: Colour Wheel](screenshots/2.2.1-semi/theme-colourwheel.png) |
+| **Theme: Ember (animated)** | **Theme: Night Drive (animated)** |
+| ![Theme: Ember](screenshots/2.2.1-semi/theme-ember.png) | ![Theme: Night Drive](screenshots/2.2.1-semi/theme-nightdrive.png) |
+| **Theme: Glitch (animated)** | |
+| ![Theme: Glitch](screenshots/2.2.1-semi/theme-glitch.png) | |
+
+- **Master 5/5 Sidechain:** two sidechains (SC 1 / SC 2), each with its own source (track 1..16
+  or line in L / R), mode (**Trigger** on notes, **Follow** on audio with a threshold),
+  attack / hold / release / depth, and its own **targets**: tracks 1..8, synth slots 1..3,
+  delay and reverb returns, line in. The pads toggle the targets, Shift + pad picks the source
+  track; nothing is ducked unless it is a target. Saved with the project (`otfork.bin`).
+- **BBCut Mutate / random seeds:** every re-cut takes a fresh seed, the Perform BBCut A / B
+  offsets steer the next cuts, the first play after boot re-cuts, and the Generate popup's
+  random draws differ after every boot.
+- **Call+Resp:** the form repeats over the whole selection (odd lengths too, 3 x 10 steps say),
+  repeats swap the two answers, Auto picks 32 / 16 / 8 / 4 / 2 steps per part, and the default
+  answer is "Q + closure".
+- **Six new animated themes:** Acid House, Plasma, Colour Wheel, Ember, Night Drive, Glitch
+  (29 themes in all).
+
+### Previous update (2.2.1-semi.3)
 
 | **Perform: generator controls, Genotype G2, wavetable FM** | **Perform: FX chooser (Shift + encoder) with help** |
 |---|---|
@@ -104,7 +130,8 @@ explains the selected parameter. One undo step per Generate; Seed 0 is random.
 - **Perform recording:** Insert writes the playing Perform FX into FX 2 of the pattern.
 
 ### Master
-- **Master 4/4 Dynamics:** limiter mode, stereo link and ceiling, saturation drive, mix and tone.
+- **Master 4/5 Dynamics:** limiter mode, stereo link and ceiling, saturation drive, mix and tone.
+- **Master 5/5 Sidechain:** two sidechains with their own source, envelope and targets (pads).
 - **Reverb models** Hall, Shimmer, Gated and **delay models** Tape, Lo-fi (own designs, in the
   stock effects' memory, a few percent of the audio block more than stock).
 
@@ -117,7 +144,8 @@ explains the selected parameter. One undo step per Generate; Seed 0 is random.
 ### Config, Mixer, Song, Pattern
 - **Shift lock** (double tap Shift), **Scale lock** (notes step through the project scale),
   **screen saver** (the Data screen), **title level meter**.
-- **23 display themes** (20 new), two of them animated (Cyber Pulse, Spectrum), and a third
+- **29 display themes** (26 new), eight of them animated (Cyber Pulse, Spectrum, Acid House,
+  Plasma, Colour Wheel, Ember, Night Drive, Glitch), and a third
   display font, **Pixel** (Departure Mono, OFL).
 - **Auto slice: Breaks** (finds every hit of a fast break) and **Beat Slice thru** (a Beat
   Slice note plays on past its slice).

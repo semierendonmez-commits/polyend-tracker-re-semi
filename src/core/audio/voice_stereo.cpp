@@ -496,6 +496,8 @@ OT_FASTRUN_FN bool Voice::renderSt(const VoiceControl& c, VoiceOut& o, float* ds
     }
     if (done < kBlock) renderPlayerSt(xl + done, xr + done, kBlock - done);
     if (!playing_ && !pending_.valid) env_.stop();
+    if (duck_)   // OT fork sidechain
+        for (uint32_t i = 0; i < kBlock; ++i) eg[i] *= duck_[i];
     float* __restrict oa = o.amp;
     float* __restrict ol = o.l;
     float* __restrict orr = o.r;

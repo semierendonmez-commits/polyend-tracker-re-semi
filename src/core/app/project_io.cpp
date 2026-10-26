@@ -445,6 +445,8 @@ bool App::newProject() {
     f.mkdir("Workspace/patterns");
     f.mkdir("Workspace/samples");
     project.setDefault();
+    fork.setDefault();   // OT fork
+    forkDirty_ = false;
     project.setName("New Project");
     project.setFolder("");
     project.setCurrentPattern(1);
@@ -1521,6 +1523,8 @@ bool App::jobUnit(uint32_t& cost) {
                 return false;
             }
             project = p;
+            fork.load(f, kWorkspace);   // OT fork: defaults when missing
+            forkDirty_ = false;
             pj_.sizeMismatch = pinfo.sizeMismatch;
             pj_.slotReset = uint8_t(pj_.slotReset | pinfo.synthSlotsReset);   // Open: also the source file's check
             std::memset(extKeep_, 0, sizeof(extKeep_));
@@ -1753,6 +1757,12 @@ bool App::jobUnit(uint32_t& cost) {
                 jobFail();
                 return false;
             }
+            {
+                // OT fork: the source's otfork.bin (or none) into the Workspace.
+                ForkProject fp;
+                fp.load(f, pj_.dir);
+                fp.save(f, kWorkspace);
+            }
             cost += kJobSmallCost;
             // Steps 3-6 run inside the load (instruments, names, patterns).
             jobBeginLoad();
@@ -1848,6 +1858,14 @@ bool App::jobUnit(uint32_t& cost) {
                 }
                 cost += kJobSmallCost;
             }
+            if (forkDirty_) {   // OT fork
+                forkDirty_ = false;
+                if (!fork.save(f, kWorkspace)) {
+                    forkDirty_ = true;
+                    ++pj_.loadErrors;
+                }
+                cost += kJobSmallCost;
+            }
             pj_.stage = kAPatch;
             pj_.idx = 0;
             return true;
@@ -1905,6 +1923,7 @@ bool App::jobUnit(uint32_t& cost) {
             f.mkdir(dst);
             projectFilePath(dst, sizeof(dst), pj_.dir);
             if (saveProjectFile(f, dst, project) != FmtStatus::Ok) ++pj_.loadErrors;
+            if (!fork.save(f, pj_.dir)) ++pj_.loadErrors;   // OT fork
             cost += 4 * kJobSmallCost;
             pj_.stage = kSPatterns;
             pj_.idx = 1;
@@ -2156,7 +2175,7 @@ bool App::openProject(const char* folder, const char* name) {
 bool App::startAutosave() {
     if (pj_.op != JobOp::None) return false;
     lastAutosave_ = millis();
-    bool any = projectDirty_ || namesDirty_;
+    bool any = projectDirty_ || namesDirty_ || forkDirty_;
     for (int s = 0; s < kSynthSlotCount && !any; ++s) any = patchDirty_[s];
     for (int i = 0; i < 32 && !any; ++i) any = patDirty_[i] != 0;
     for (int i = 0; i < kSampleInstrumentCount && !any; ++i) any = instrHeaderDirty_[i] || instrSampleDirty_[i];

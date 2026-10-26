@@ -1057,6 +1057,8 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
     }
     // Sample end (one-shot/slice) with no retrigger pending: the voice is done.
     if (!playing_ && !pending_.valid) env_.stop();
+    if (duck_)   // OT fork sidechain: the gain rides on the envelope
+        for (uint32_t i = 0; i < kBlock; ++i) eg[i] *= duck_[i];
     float* __restrict oa = o.amp;
     if (hs == 1.0f && mask_ == 0xFFFF && !(odGain_ > 0.0f) && !filtOn_ && !filtXfade_ && mixL && mixR) {
         // No crusher / overdrive / filter: envelope, sends, volume, pan and

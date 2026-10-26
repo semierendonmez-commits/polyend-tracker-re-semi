@@ -1045,6 +1045,11 @@ OT_FASTRUN_FN float SynthBank::mixSlot(Slot& sl, float* mL, float* mR, float* ds
     float* bl = busL_;
     float* br = busR_;
     float blockPk = 0.0f;
+    if (const float* g = duck_[&sl - slots_])   // OT fork sidechain on the slot bus
+        for (uint32_t i = 0; i < kBlock; ++i) {
+            bl[i] *= g[i];
+            br[i] *= g[i];
+        }
     // Meter peak (Global Mixer 3/3, a UI reading): every 8th frame of the
     // bus at the block-end gains is enough and keeps the mix loops as they were.
     {

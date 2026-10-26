@@ -290,6 +290,12 @@ private:
     void startOn(int r, int track, int s, const SynthNote& n, float bend, float bendTarget, float bendStep);
     void releaseTrack(int track);
     float mixSlot(Slot& sl, float* mL, float* mR, float* dsend, float* rsend, int16_t* stem);   // block peak
+    const float* duck_[kSynthSlots] = {};   // OT fork sidechain gain per slot (null = none)
+public:
+    void setDuck(int slot, const float* g) {
+        if (slot >= 0 && slot < kSynthSlots) duck_[slot] = g;
+    }
+private:
     void notePitchFx(const SynthNoteOn& n, float prevPitch, bool hasPrev, float& bend, float& target, float& step) const;
 
     Voice voices_[kSynthMaxVoices];

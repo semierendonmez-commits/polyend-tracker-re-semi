@@ -772,6 +772,7 @@ void Sequencer::triggerNote(int t, const NoteRec& rec, bool chord, uint8_t chord
     vel = clampi(vel, 0, 127);
     tr.midiCh = ch;
     tr.midiCount = 0;
+    if (sink_) sink_->sidechainTrigger(uint8_t(t));   // OT fork
     const uint8_t status = uint8_t(0x90 | (ch - 1));
     if (chord && chordValue > 0 && chordValue < kChordCount) {
         for (int i = 0; i < kChordSize[chordValue]; ++i) {

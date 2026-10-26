@@ -46,7 +46,8 @@ item or spread over the range), **F8** Generate, **Pattern** or **Rec** closes.
   pattern plays. The **encoder push** draws a new random result.
 - The target is the selection, or the cursor track over the whole pattern with
   a single-cell cursor. One undo step per Generate. **Seed** 0 is random; any
-  other seed rebuilds the same result.
+  other seed rebuilds the same result. Seed 0 mixes in the time the popup
+  opened (and every encoder push), so two boots never draw the same result.
 
 | Generator | What it writes | Page 1 | Page 2 |
 |---|---|---|---|
@@ -67,7 +68,12 @@ ends it.
 
 **Call+Resp.** Form: C R, C R C R, C C R, C R R2 C, C C C R, C R C R2 (C = the
 call, R = the answer, R2 = a second answer). Steps: 4 / 8 / 16 / 32 per part,
-or Auto (the selection divided by the parts). **Two tracks** alternates: the
+or Auto: the largest of 32 / 16 / 8 / 4 / 2 that fits the parts in the
+selection (an odd selection, 3 x 10 steps say, falls back to an equal split).
+The form repeats until the selection is full, the last part cut short; on a
+repeat the answers swap (R <-> R2), so a long selection is not the same two
+bars again. The default answer strategy is "Q + closure" (a question, then a
+closing phrase), which makes R clearly an answer. **Two tracks** alternates: the
 call plays on the first track in the call parts, the answer on the second track
 in the answer parts. Ending: the style's way, on the root, open, rising,
 falling. The preview tags the parts C / R.
@@ -87,7 +93,9 @@ eighths: double snares, kick shifts, a repeated half, a snare fill every 1 / 2 /
 - CageCut and Timeline draw their forms, a rotation and shuffled blocks from
   the seed; Permute uses eight musical permutations in eighth groups; ThrashCut
   writes no volume or timing FX.
-- **Mutate:** new cuts every 1 / 2 / 4 / 8 loops while it plays.
+- **Mutate:** new cuts every 1 / 2 / 4 / 8 loops while it plays; every re-cut
+  takes a fresh seed (time mixed in), and the Perform **BBCut A / B** offsets
+  move the A / B of the next cuts. The first play after a boot re-cuts too.
 
 BBCut wants a sliced sample: Auto Slice (Breaks detector, below) or equal
 slices in Sample Playback. With Beat Slice the hits are notes 24 + slice; in
@@ -167,7 +175,7 @@ effect's random parts are seeded the same for both channels of a stereo sample.
 
 ## Master
 
-- **Master 4/4 Dynamics** (Master key, fourth page): limiter **mode** (Subtle /
+- **Master 4/5 Dynamics** (Master key, fourth page): limiter **mode** (Subtle /
   Extreme), stereo **link** (both sides limited from the louder one),
   **ceiling** (0..-12 dB after the limiter), the gain-reduction meter;
   **saturation** mode, **drive** (0..+24 dB into the curve, half of it made up),
@@ -186,13 +194,40 @@ effect's random parts are seeded the same for both channels of a stereo sample.
   (est. share of the audio block over the stock effect): Hall +1.6 %,
   Shimmer +5.2 %, Gated +2.6 %, Tape +1.8 %, Lo-fi +2.9 %.
 
+- **Master 5/5 Sidechain**: two sidechains, **SC 1** and **SC 2** (F1 switches),
+  each with its own source, envelope and targets, saved with the project
+  (`otfork.bin` next to `project.mt`; stock firmware ignores it).
+  - **Source** (F2): Track 1..16 or Line in L / R. **Mode** (F3): **Trigger**
+    (a note on the source track starts the envelope: sample, synth or MIDI
+    notes, so a muted kick or a MIDI track can drive it) or **Follow** (the
+    source's audio above the **Threshold**, F8, -60..0 dB; tracks 1..8 and
+    the line input).
+  - Envelope: **Attack** 0..100 ms, **Hold** 0..500 ms, **Release** 10 ms..1 s,
+    **Depth** 0..100 % (F4..F7).
+  - **Targets** (the pads): the top row toggles tracks 1..8 (pads 1..8) and
+    synth slots 1..3 (pads 9..11); the second row Delay return, Reverb return,
+    Line in (pads 13..15). Lit pads are the selected SC's targets, dim ones the
+    other's. **Shift + pad 1..8** sets the source to that track. Nothing is
+    ducked unless it is a target; a target of both SCs gets both.
+  - The left column shows both envelopes live and the 14 targets with a dot
+    per SC.
+  - The stock Limiter sidechain (Master Limiter) is unchanged.
+  - Cost: nothing while off; a trigger SC ducking four tracks about 0.7 % of
+    the audio block; the bench's worst case (both SCs following audio, all 14
+    targets) about 4 %.
+
 ## Config
 
-- **General > Display theme**: 23 themes. Original, Monochrome, Anniversary,
+- **General > Display theme**: 29 themes. Original, Monochrome, Anniversary,
   then Early Cyber, Corporate, Amber CRT, Green Phosphor, Thermal, Workstation,
   Datamatic, Dubplate, Rave Flyer, Jungle, Ice, Sunset, Teletext, Vaporwave,
   Blueprint, Game Boy, Sepia, Hi Contrast, and two animated ones: **Cyber Pulse**
-  (accent and cursor breathe) and **Spectrum** (the hue turns). The new ones
+  (accent and cursor breathe) and **Spectrum** (the hue turns), and six more
+  animated: **Acid House** (the accent pumps yellow to pink on a 120 BPM beat),
+  **Plasma** (the background drifts purple, blue, teal), **Colour Wheel** (the
+  four column colours rotate), **Ember** (accent and cursor flicker like a
+  fire), **Night Drive** (synthwave: the background pulses with the sun
+  colour), **Glitch** (a grey page with rare short colour flashes). The new ones
   recolour Original (Workstation: Monochrome) in RAM; the stock config byte
   keeps the base theme.
 - **General > Display font**: Original, New, **Pixel** (Departure Mono at its
@@ -209,7 +244,7 @@ effect's random parts are seeded the same for both channels of a stereo sample.
 
 ## Mixer, Song, Pattern
 
-- **Global Mixer 3/4**: the synth columns mute / unmute with a tap; Shift solos
+- **Global Mixer 3/5**: the synth columns mute / unmute with a tap; Shift solos
   one synth (again: unsolo). Session state, not saved in the project.
 - **Song**: hold **Note** (average pitch), **Instr** (most used instrument),
   **Fx1** / **Fx2** (how many steps carry that FX) to colour the blocks.

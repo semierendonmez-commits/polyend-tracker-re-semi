@@ -77,6 +77,9 @@ public:
     virtual void synthMacroFx(uint8_t slot, uint8_t macro, uint8_t value) { (void)slot; (void)macro; (void)value; }
     // Transport stop: macro overrides return to the page values.
     virtual void synthTransportStop() {}
+    // OT fork sidechain: a MIDI note started on `track` (tracks 9-16 have no
+    // engine voice; the sidechain's trigger source still sees the note).
+    virtual void sidechainTrigger(uint8_t track) { (void)track; }
 };
 
 // Routes a sink MIDI message onto the HAL ports (A = USB, B = DIN).

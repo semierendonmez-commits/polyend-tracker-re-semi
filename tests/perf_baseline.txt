@@ -51,6 +51,9 @@
 # TILT work had added ~290). wHall .. wLofi: the worst set with the fork's send-effect models
 # (src/core/audio/fx_models.h): est. +1.6 % (Hall), +5.2 % (Shimmer), +2.6 % (Gated), +1.8 %
 # (Tape), +2.9 % (Lo-fi) of the block over the stock reverb / delay.
+# wSidechain (OT fork Master 5/5): the worst set with both sidechains following audio
+# (track 1, line in) and ducking all 14 targets: +25.5k insn over worst (est. +4.1 % of the
+# block; a trigger SC ducking four tracks costs ~0.7 %). Sidechains off: +0.2 % (mix).
 # stream8 (SD streaming P1, docs/PLAN_SD_STREAMING.md): the stereo8 set with 3 s stereo
 # instruments streamed (resident head, the rest through the track rings; the refill is the
 # main loop's work and not timed). Gated absolutely by the stream.lim line: <= stereo8 + 5 %
@@ -64,6 +67,7 @@ wShimmer 274116
 wGated   274740
 wTape    272369
 wLofi    278016
+wSidechain 282012
 stereo8  174615
 stream8  182222
 synth4   66860

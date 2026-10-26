@@ -8,6 +8,7 @@
 #include "app/capture.h"
 #include "app/resample.h"
 #include "app/config.h"
+#include "app/fork_project.h"
 #include "app/midi_cc.h"
 #include "app/pattern_ops.h"
 #include "app/project_io.h"
@@ -176,6 +177,7 @@ public:
     audio::AudioEngine engine;
     audio::SampleBank& bank;          // engine.bank(): spec 02 §8.2 packing
     Config cfg;
+    ForkProject fork;   // OT fork per-project settings (otfork.bin)
     Sequencer seq;
     PadNotes padNotes;
     UndoRing undo;
@@ -276,6 +278,8 @@ public:
     void applySequencerSettings();
 
     // ---- dirty state / autosave (spec 02 §1.1) -----------------------------
+    // OT fork: a ForkProject change (sidechain); saved with the autosave.
+    void markForkDirty() { forkDirty_ = true; unsaved_ = true; engineDirty_ = true; }
     void markProjectDirty() { projectDirty_ = true; unsaved_ = true; engineDirty_ = true; }
     void markNamesDirty() { namesDirty_ = true; unsaved_ = true; }
     void markInstrumentDirty(int i, bool sample = false);
@@ -605,6 +609,7 @@ private:
     uint8_t synthLiveNext_ = 0;
     char loadNotice_[64] = {};      // first problem of the last load (one notice)
     uint8_t patDirty_[32] = {};
+    bool forkDirty_ = false;
     bool projectDirty_ = false, namesDirty_ = false, configDirty_ = false, configForce_ = false;
     uint8_t recShadow_[12] = {};                  // project bytes 0x134..0x13F last synced
     bool recShadowValid_ = false;

@@ -1238,6 +1238,18 @@ int main(int argc, char** argv) {
         m.delayModel = 2;
         report("wLofi", timeBlocks(r, 2000, lineNoise));
         m.delayModel = 0;
+        // OT fork sidechain: SC 1 follows track 1, SC 2 is a line-in follower;
+        // both duck all 14 targets (the worst case: every target multiplies).
+        m.sc[0].source = 1;
+        m.sc[0].mode = 1;
+        m.sc[0].thresh = 10;
+        m.sc[0].targets = 0x3FFF;
+        m.sc[1].source = SidechainSettings::kLineL;
+        m.sc[1].mode = 1;
+        m.sc[1].thresh = 10;
+        m.sc[1].targets = 0x3FFF;
+        report("wSidechain", timeBlocks(r, 2000, lineNoise));
+        m.sc[0] = m.sc[1] = SidechainSettings{};
     }
     {   // synth4: 4 test-engine voices in Synth 1 (sustained), reverb send
         Rig r;

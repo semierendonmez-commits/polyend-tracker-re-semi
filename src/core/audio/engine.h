@@ -14,6 +14,7 @@
 #include "audio/cpu_meter.h"
 #include "audio/effects.h"
 #include "audio/fx_models.h"
+#include "audio/sidechain.h"
 #include "audio/governor.h"
 #include "audio/stream_source.h"
 #include "audio/synth_bank.h"
@@ -135,6 +136,8 @@ struct MixerSettings {
     // OT fork send-effect models (config): 0 stock, reverb 1 Hall 2 Shimmer
     // 3 Gated, delay 1 Tape 2 Lo-fi (fx_models.h).
     uint8_t reverbModel = 0, delayModel = 0;
+    // OT fork sidechain (project, Master 5/5).
+    SidechainSettings sc[2];
     // line input (§1.3, §5.4, §5.5)
     uint8_t lineInChannel = 0;        // 0 stereo, 1 left->both, 2 right->both
     uint8_t lineInLevel = 86;
@@ -275,6 +278,11 @@ public:
     float busPeak(int ch, int side);
     // OT fork: peak of the master output after the limiter, side 0 L / 1 R,
     // since the last call (read and reset; main loop).
+    void sidechainTrigger(uint8_t track) override {
+        if (track < 16) scTrig_ |= 1u << track;
+    }
+    // OT fork: sidechain envelope 0..1 of source k (UI meter).
+    float sidechainLevel(int k) const { return k == 0 || k == 1 ? scLevel_[k] : 0.0f; }
     float masterPeak(int side) {
         const int s = side ? 1 : 0;
         const float p = masterPeak_[s];
@@ -380,6 +388,13 @@ private:
     Delay delay_;
     Reverb reverb_;
     FdnReverb fdn_;        // OT fork reverb models
+    SidechainEnv scEnv_[2];   // OT fork sidechain
+    float scGain_[2][kBlock] = {}, scBoth_[kBlock] = {};
+    volatile uint32_t scTrig_ = 0;
+    uint32_t scVoiceLive_ = 0;   // voices that rendered the last block
+    bool scLineLive_ = false;    // the last block had line input
+    bool scWasOn_ = false;       // a sidechain was set in the last block
+    volatile float scLevel_[2] = {};
     TapeDelay tape_;       // OT fork delay models
     uint8_t revModel_ = 0, dlyModel_ = 0;
     float cTapeHz_ = -1.0f;

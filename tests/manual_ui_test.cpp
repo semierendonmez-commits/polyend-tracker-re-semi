@@ -587,7 +587,7 @@ TEST(track_mixer_meters_restart_empty) {
     Harness h;
     App& a = *h.app;
     h.tap(btn::Master);
-    h.tap(btn::Master);   // Track Mixer 2/4
+    h.tap(btn::Master);   // Track Mixer 2/5
     auto& m = *static_cast<MixerScreen*>(a.ui.screen(kModMaster));
     m.meter[0] = 60;
     m.meterHold[0] = 70;

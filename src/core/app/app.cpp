@@ -229,6 +229,8 @@ void App::applyEngineSettings() {
     m.limLink = cfg.limLink != 0;
     m.reverbModel = cfg.reverbModel;   // OT fork send-effect models
     m.delayModel = cfg.delayModel;
+    m.sc[0] = fork.sc[0];   // OT fork sidechain (project)
+    m.sc[1] = fork.sc[1];
     m.metronomeVolume = cfg.metronomeVolume;
     m.previewVolume = cfg.previewVolume > 100 ? 100 : cfg.previewVolume;
     // Config "Line in channel" (spec 15 §2.2 #11): clamp > 2 -> 2 and push it

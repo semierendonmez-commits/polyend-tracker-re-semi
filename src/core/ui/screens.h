@@ -403,8 +403,17 @@ public:
 #endif
     bool ownsModuleKey(uint8_t id) const override { return id == btn::Master; }
 
-    int page = 0;           // 0 master, 1 track mixer, 2 global mixer, 3 dynamics (OT fork)
+    int page = 0;           // 0 master, 1 track mixer, 2 global mixer, 3 dynamics, 4 sidechain (OT fork)
     int dynParam = 0;       // OT fork Dynamics page: selected column 0..7
+    int scSel = 0;          // OT fork Sidechain page: SC 1 / SC 2
+    int scParam = 1;        // OT fork Sidechain page: selected column 0..7
+    float scMeter[2] = {};  // OT fork Sidechain page: envelope 0..1 (engine)
+    void onPad(uint8_t pad, uint8_t state) override;
+    void padLeds(uint8_t* levels) override;
+    // OT fork Sidechain page: target bit of pad `pad` (-1 = none). Row 1:
+    // tracks 1-8 (pads 1-8), synth slots 1-3 (pads 9-11); row 2: delay,
+    // reverb, line in (pads 13-15).
+    static int scTargetOfPad(int pad);
     int sub = 0;            // master sub-page: 0 main, 1 reverb, 2 delay, 3 limiter, 4 EQ
     int param = 0;          // selected parameter on the (sub-)page
     bool rename = false;
@@ -429,6 +438,7 @@ public:
     static constexpr float kGrRangeDb = 24.0f;
     static float reductionDb(float meanGain);
     void dynChange(int d);   // OT fork Dynamics page
+    void scChange(int d);    // OT fork Sidechain page
     float gainReduction = 0.0f;   // dB, >= 0
     // 2.x Global Mixer 3/3 synth meters (manual p.220, "right is the
     // actual"): mean of the last 10 slot-bus peaks (10 ms apart), -48..0 dBFS

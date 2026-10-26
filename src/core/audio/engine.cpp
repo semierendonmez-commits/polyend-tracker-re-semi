@@ -16,6 +16,11 @@ namespace ot {
 namespace audio {
 
 namespace {
+const float kScSilence[kBlock] = {};   // OT fork sidechain: an idle source
+}  // namespace
+
+
+namespace {
 inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 }  // namespace
 
@@ -320,6 +325,7 @@ struct NoteStamp {
 
 void AudioEngine::voiceNoteOn(uint8_t track, const VoiceNoteOn& n) {
     NoteStamp st(inHook_ ? &prof_.smpOn : nullptr);
+    if (track < 16) scTrig_ |= 1u << track;   // OT fork sidechain trigger
     if (!ready_ || track >= kVoices || n.instrument >= kSampleInstrumentCount) return;
     const Instrument& ins = instruments_[n.instrument];
     if (!ins.active || !bank_.loaded(n.instrument)) return;   // spec 03 §6: ignored if not loaded
@@ -382,6 +388,7 @@ void AudioEngine::resetAllVoiceFx() {
 // 2.x synth slots (synth_bank.h): instruments 64..66 on any track.
 void AudioEngine::synthNoteOn(uint8_t track, const SynthNoteOn& n) {
     NoteStamp st(inHook_ ? &prof_.synOn : nullptr);
+    if (track < 16) scTrig_ |= 1u << track;   // OT fork sidechain trigger
     if (ready_) synth_.noteOn(track, n);
 }
 void AudioEngine::synthNoteOff(uint8_t track, NoteOffMode mode) {
@@ -665,7 +672,51 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
     tapLast_ = int8_t(tapTrack);
     float* const tapL = tapTrack >= 0 ? vout_[tapTrack].l : nullptr;
     float* const tapR = tapTrack >= 0 ? vout_[tapTrack].r : nullptr;
+    // OT fork sidechain: the two envelopes of this block (sources: note-ons
+    // since the last block, the last block's track outputs, this block's
+    // line input), then the ducking pointers for the voices and synth slots.
+    const float* duckT[16] = {};   // per target bit (tracks 1-8, synth 1-3, delay, reverb, line)
+    const bool scOn = (mix_.sc[0].source && mix_.sc[0].targets) || (mix_.sc[1].source && mix_.sc[1].targets);
+    if (!scOn && !scWasOn_) {
+        scTrig_ = 0;   // both off (the usual case): nothing to compute
+    } else {
+        scWasOn_ = scOn;   // one more pass after switching off clears the synth pointers
+        const uint32_t trig = scTrig_;
+        scTrig_ = 0;
+        bool act[2] = {false, false};
+        for (int k = 0; k < 2; ++k) {
+            const SidechainSettings& sc = mix_.sc[k];
+            if (!sc.source || !sc.targets) {
+                scEnv_[k].reset();
+                scLevel_[k] = 0.0f;
+                continue;
+            }
+            const float* src = nullptr;
+            bool tr = false;
+            if (sc.source >= 1 && sc.source <= 16) {
+                tr = (trig >> (sc.source - 1)) & 1u;
+                if (sc.source <= kVoices)
+                    src = ((scVoiceLive_ >> (sc.source - 1)) & 1u) ? vout_[sc.source - 1].amp : kScSilence;
+            } else if (sc.source == SidechainSettings::kLineL) {
+                src = scLineLive_ ? lineL_ : kScSilence;   // the last block's line input
+            } else if (sc.source == SidechainSettings::kLineR) {
+                src = scLineLive_ ? lineR_ : kScSilence;
+            }
+            act[k] = scEnv_[k].process(sc, tr, src, scGain_[k]);
+            scLevel_[k] = scEnv_[k].envelope();
+        }
+        const uint16_t t0 = act[0] ? mix_.sc[0].targets : 0, t1 = act[1] ? mix_.sc[1].targets : 0;
+        if (t0 & t1)
+            for (uint32_t i = 0; i < kBlock; ++i) scBoth_[i] = scGain_[0][i] * scGain_[1][i];
+        for (int b = 0; b < kScTargetCount; ++b) {
+            const bool a0 = (t0 >> b) & 1u, a1 = (t1 >> b) & 1u;
+            duckT[b] = a0 && a1 ? scBoth_ : (a0 ? scGain_[0] : (a1 ? scGain_[1] : nullptr));
+        }
+        for (int s = 0; s < 3; ++s) synth_.setDuck(s, duckT[8 + s]);
+    }
+    uint32_t live = 0;
     for (int t = 0; t < kVoices; ++t) {
+        voices_[t].setDuck(duckT[t]);
         // OT fork wavetable FM: the source's output of this block (a track to
         // the left) or of the last block (to the right).
         const PerfOffsets& pf = voices_[t].perf();
@@ -678,6 +729,7 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
         if (voices_[t].render(vc_[t], vout_[t], dsend_, rsend_, mL_, mR_, stems != nullptr || t == tapTrack)) {
             if (t == tapTrack) tapVoiceOn = true;
             anyVoice = true;
+            live |= 1u << t;
             sendsTouched |= voices_[t].sendsTouched();
             float pk = peak_[t];
             const float b = voices_[t].blockPeak();
@@ -687,6 +739,7 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
         }
         head_[t] = voices_[t].playhead();
     }
+    scVoiceLive_ = live;
     if (tapTrack >= 0 && !tapVoiceOn) {   // a silent voice zeroes its output only once
         zeroFloats(tapL, kBlock);
         zeroFloats(tapR, kBlock);
@@ -731,6 +784,7 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
         }
         lineIn_ = nullptr;   // consumed
     }
+    scLineLive_ = line;   // OT fork sidechain source
     if (!line) {
         zeroWords(lineL_, sizeof(lineL_));
         zeroWords(lineR_, sizeof(lineR_));
@@ -778,6 +832,16 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
     const bool dly = dlyModel_ ? tape_.process(dsend_, dL_, dR_) : delay_.process(dsend_, dL_, dR_);
     const uint32_t pc6 = stamp();
     const bool rev = revModel_ ? fdn_.process(rsend_, rL_, rR_) : reverb_.process(rsend_, rL_, rR_);
+    // OT fork sidechain on the returns and the line input.
+    auto duckBus = [](float* a, float* b, const float* g) {
+        for (uint32_t i = 0; i < kBlock; ++i) {
+            a[i] *= g[i];
+            b[i] *= g[i];
+        }
+    };
+    if (dly && duckT[11]) duckBus(dL_, dR_, duckT[11]);
+    if (rev && duckT[12]) duckBus(rL_, rR_, duckT[12]);
+    if (line && duckT[13]) duckBus(lineL_, lineR_, duckT[13]);
     const uint32_t pc7 = stamp();
     // 6. DRY (shaped) + returns (MSUM gains 1/2 fixed at 1.0, spec 07 Q3)
     //    + line-in -> MSUM (shaped) (§5.4). All inputs zero -> zero (every

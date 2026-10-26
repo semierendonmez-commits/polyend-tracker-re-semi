@@ -333,12 +333,100 @@ namespace {
 void setBack(BottomBar& b) { b.set(7, "Back", " "); }
 }  // namespace
 
+// OT fork Sidechain 5/5.
+namespace {
+const char* const kScSrc[audio::SidechainSettings::kSourceCount] = {
+    "Off",      "Track 1",  "Track 2",  "Track 3",  "Track 4",  "Track 5",  "Track 6",
+    "Track 7",  "Track 8",  "Track 9",  "Track 10", "Track 11", "Track 12", "Track 13",
+    "Track 14", "Track 15", "Track 16", "Line L",   "Line R"};
+const char* const kScModes[2] = {"Trigger", "Follow"};
+const char* const kScTargets[audio::kScTargetCount] = {"Track 1", "Track 2", "Track 3", "Track 4", "Track 5",
+                                                       "Track 6", "Track 7", "Track 8", "Synth 1", "Synth 2",
+                                                       "Synth 3", "Delay",   "Reverb",  "Line In"};
+int scThreshDb(uint8_t t) { return -60 + (int(t > 100 ? 100 : t) * 6 + 5) / 10; }
+}  // namespace
+
+int MixerScreen::scTargetOfPad(int pad) {
+    const int r = pad / 12, c = pad % 12;
+    if (r == 0) return c < 11 ? c : -1;
+    if (r == 1) return c < 3 ? 11 + c : -1;
+    return -1;
+}
+
+void MixerScreen::scChange(int d) {
+    App& a = app_;
+    audio::SidechainSettings& s = a.fork.sc[scSel & 1];
+    switch (scParam) {
+        case 0: scSel = clampi(scSel + d, 0, 1); return;
+        case 1: s.source = uint8_t(clampi(s.source + d, 0, audio::SidechainSettings::kSourceCount - 1)); break;
+        case 2: s.mode = uint8_t(clampi(s.mode + d, 0, 1)); break;
+        case 3: s.attack = uint8_t(clampi(s.attack + d, 0, 100)); break;
+        case 4: s.hold = uint8_t(clampi(s.hold + d, 0, 100)); break;
+        case 5: s.release = uint8_t(clampi(s.release + d, 1, 100)); break;
+        case 6: s.depth = uint8_t(clampi(s.depth + d, 0, 100)); break;
+        case 7: s.thresh = uint8_t(clampi(s.thresh + d, 0, 100)); break;
+        default: return;
+    }
+    a.markForkDirty();
+}
+
+void MixerScreen::onPad(uint8_t pad, uint8_t state) {
+    if (page != 4) {
+        Screen::onPad(pad, state);
+        return;
+    }
+    if (state != kPress) return;
+    App& a = app_;
+    audio::SidechainSettings& s = a.fork.sc[scSel & 1];
+    // Shift + a pad of tracks 1-8: that track is the source.
+    if (ui_.shift() && pad < 8) {
+        s.source = uint8_t(pad + 1);
+    } else {
+        const int t = scTargetOfPad(pad);
+        if (t < 0) return;
+        s.targets = uint16_t(s.targets ^ (1u << t));
+    }
+    a.markForkDirty();
+    refreshBar();
+    ui_.dirty();
+}
+
+void MixerScreen::padLeds(uint8_t* lv) {
+    if (page != 4) return;
+    const App& a = app_;
+    const uint16_t mine = a.fork.sc[scSel & 1].targets, other = a.fork.sc[(scSel & 1) ^ 1].targets;
+    for (int pad = 0; pad < 24; ++pad) {
+        const int t = scTargetOfPad(pad);
+        if (t < 0) continue;
+        if ((mine >> t) & 1u) lv[pad] = a.cfg.padFull();
+        else if ((other >> t) & 1u) lv[pad] = a.cfg.padDim();
+    }
+}
+
 void MixerScreen::refreshBar() {
     BottomBar& b = ui_.bar;
     App& a = app_;
     Project& p = a.project;
     b.clear();
     char v[24];
+    if (page == 4) {   // OT fork Sidechain
+        const audio::SidechainSettings& s = a.fork.sc[scSel & 1];
+        b.set(0, "Sidechain", scSel ? "SC 2" : "SC 1");
+        b.set(1, "Source", kScSrc[s.source < audio::SidechainSettings::kSourceCount ? s.source : 0]);
+        b.set(2, "Mode", kScModes[s.mode ? 1 : 0]);
+        std::snprintf(v, sizeof(v), "%d ms", s.attack);
+        b.set(3, "Attack", v);
+        std::snprintf(v, sizeof(v), "%d ms", s.hold * 5);
+        b.set(4, "Hold", v);
+        std::snprintf(v, sizeof(v), "%d ms", s.release * 10);
+        b.set(5, "Release", v);
+        std::snprintf(v, sizeof(v), "%d%%", s.depth);
+        b.set(6, "Depth", v);
+        if (s.mode) std::snprintf(v, sizeof(v), "%d dB", scThreshDb(s.thresh));
+        else std::snprintf(v, sizeof(v), "Notes");
+        b.set(7, "Threshold", v);
+        return;
+    }
     if (page == 3) {   // OT fork Dynamics
         const Config& c = a.cfg;
         b.set(0, "Lim Mode", p.u8(pf::kLimiterMode) ? "Extreme" : "Subtle");
@@ -556,6 +644,10 @@ void MixerScreen::dynChange(int d) {
 
 void MixerScreen::change(int d) {
     App& a = app_;
+    if (page == 4) {   // OT fork Sidechain
+        scChange(d);
+        return;
+    }
     if (page == 3) {   // OT fork Dynamics: list columns move down with +
         dynChange((dynParam == 0 || dynParam == 1 || dynParam == 4) ? d : d);
         return;
@@ -676,12 +768,26 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                 ui_.switchTo(ui_.previous());
                 return;
             }
-            if (!masterHoldFired_) page = (page + 1) % 4;   // the hold already jumped; OT fork: + Dynamics
+            if (!masterHoldFired_) page = (page + 1) % 5;   // the hold already jumped; OT fork: + Dynamics, Sidechain
         }
         refreshBar();
         return;
     }
     if (masterPending_ && state == kPress && ui_.isDown(btn::Master)) otherKeyDuringMaster_ = true;
+    if (btn::isFKey(id) && page == 4) {   // OT fork Sidechain: F keys pick the column
+        if (state == kPress) {
+            if (id == 0) scSel ^= 1;                                        // F1: SC 1 <-> SC 2
+            else if (id == 2 && scParam == 2) {                              // Mode again: toggle
+                audio::SidechainSettings& s = app_.fork.sc[scSel & 1];
+                s.mode ^= 1;
+                app_.markForkDirty();
+            }
+            scParam = id;
+        }
+        refreshBar();
+        ui_.dirty();
+        return;
+    }
     if (btn::isFKey(id) && page == 3) {   // OT fork Dynamics: F keys pick the column (F4 is the meter)
         if (state == kPress && id != 3) {
             if (dynParam == id && (id == 0 || id == 1 || id == 4)) dynChange(1);   // lists: again = next
@@ -734,12 +840,15 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
             // encoder (+ = next item down) [S owner test on 1.9.2].
             int d = id == btn::Up ? 1 : -1;
             if (page == 0 && isListParam(sub, param)) d = -d;
+            if (page == 4 && scParam <= 2) d = -d;   // OT fork Sidechain lists
             change(d);
             break;
         }
         case btn::Left:
         case btn::Right:
-            if (page == 1) {
+            if (page == 4) {
+                scParam = clampi(scParam + (id == btn::Right ? 1 : -1), 0, 7);
+            } else if (page == 1) {
                 // 2.x Track Mixer bank: Left = tracks 1-8, Right = 9-16
                 // (unbound on the stock Track Mixer, 2x-01 §4).
                 const int nb = id == btn::Right ? 1 : 0;
@@ -793,6 +902,7 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
 #if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
 bool MixerScreen::encoderOnList() const {
     if (page == 3) return dynParam == 0 || dynParam == 1 || dynParam == 4;   // OT fork Dynamics lists
+    if (page == 4) return scParam <= 2;                                      // OT fork Sidechain lists
     return page == 0 && isListParam(sub, param);   // Master option lists
 }
 #endif
@@ -837,7 +947,7 @@ void MixerScreen::drawBankB(Gfx& g, uint32_t off) {
     App& a = app_;
     const Theme& th = ui_.th();
     const uint32_t green = th.slot(slot::kGreen);
-    ui_.drawTitle(g, "Track Mixer 2/4", rename ? "RENAME  Tracks 9-16" : kBankBText);
+    ui_.drawTitle(g, "Track Mixer 2/5", rename ? "RENAME  Tracks 9-16" : kBankBText);
     for (int i = 0; i < 8; ++i) {
         const int t = 8 + i, x = colX(i);
         char nm[24];
@@ -857,6 +967,20 @@ float MixerScreen::reductionDb(float meanGain) {
 }
 
 void MixerScreen::update(uint32_t now) {
+    if (page == 4) {   // OT fork Sidechain envelope meters
+        if (now - lastGr_ < 30) return;
+        lastGr_ = now;
+        bool ch = false;
+        for (int k = 0; k < 2; ++k) {
+            const float e = app_.engine.sidechainLevel(k);
+            if (std::fabs(e - scMeter[k]) >= 0.02f) {
+                scMeter[k] = e;
+                ch = true;
+            }
+        }
+        if (ch) ui_.dirty();
+        return;
+    }
     if ((page == 0 && sub == 3) || page == 3) {
         // Limiter gain-reduction meter (spec 06 §4.3), live.
         if (now - lastGr_ < 50) return;
@@ -930,11 +1054,58 @@ void MixerScreen::draw(Gfx& g) {
     App& a = app_;
     const Theme& th = ui_.th();
     Project& p = a.project;
-    static const char* kSub[5] = {"Master 1/4", "Master Reverb", "Master Delay", "Master Limiter", "Master EQ"};
+    static const char* kSub[5] = {"Master 1/5", "Master Reverb", "Master Delay", "Master Limiter", "Master EQ"};
+    if (page == 4) {
+        // OT fork "Sidechain 5/5": column 1 = SC 1 / SC 2 with their live
+        // envelopes and the 14 targets (a dot per SC), then the selected
+        // SC's source, mode and envelope.
+        const audio::SidechainSettings& s = a.fork.sc[scSel & 1];
+        ui_.drawTitle(g, "Sidechain 5/5", "Pads: targets");
+        column(g, th, 0);
+        const uint32_t on = th.slot(slot::kValueBar), well = th.slot(slot::kValueBarAlt);
+        const uint32_t text = th.slot(slot::kList + 4), dim = th.slot(slot::kGrey), frame = th.slot(slot::kList);
+        const int x0 = colX(0);
+        for (int k = 0; k < 2; ++k) {
+            const int y = 38 + k * 42;
+            if (k == (scSel & 1)) {   // the selected SC: the list's selection frame
+                g.fill(x0 + 3, y - 2, 90, 2, frame);
+                g.fill(x0 + 3, y + 34, 90, 2, frame);
+                g.fill(x0 + 3, y - 2, 2, 38, frame);
+                g.fill(x0 + 91, y - 2, 2, 38, frame);
+            }
+            g.text(x0 + 10, y + 1, kFont3, text, k ? "SC 2" : "SC 1");
+            g.fill(x0 + 10, y + 23, 76, 6, well);
+            const int w = int(scMeter[k] * 76.0f + 0.5f);
+            if (w > 0) g.fill(x0 + 10, y + 23, w > 76 ? 76 : w, 6, on);
+        }
+        const uint16_t t0 = a.fork.sc[0].targets, t1 = a.fork.sc[1].targets;
+        for (int t = 0; t < audio::kScTargetCount; ++t) {
+            const int y = 126 + t * 20;
+            const bool b0 = (t0 >> t) & 1u, b1 = (t1 >> t) & 1u;
+            g.text(x0 + 6, y, kFont1, (b0 || b1) ? text : dim, kScTargets[t]);
+            wg::dot(g, x0 + 74, y + 9, b0 ? 4.0f : 2.0f, b0 ? on : well);
+            wg::dot(g, x0 + 88, y + 9, b1 ? 4.0f : 2.0f, b1 ? on : well);
+        }
+        optionList(g, th, 1, kScSrc, audio::SidechainSettings::kSourceCount,
+                   s.source < audio::SidechainSettings::kSourceCount ? s.source : 0);
+        optionList(g, th, 2, kScModes, 2, s.mode ? 1 : 0);
+        columnBar(g, th, 3, s.attack / 100.0f);
+        columnBar(g, th, 4, s.hold / 100.0f);
+        columnBar(g, th, 5, s.release / 100.0f);
+        columnBar(g, th, 6, s.depth / 100.0f);
+        if (s.mode) {
+            columnBar(g, th, 7, s.thresh / 100.0f);
+        } else {
+            column(g, th, 7);
+            bar(g, th, colX(7), wg::kPanelY, 97, wg::kPanelH, s.thresh / 100.0f, th.slot(slot::kValueBarAlt));
+        }
+        columnFocus(g, th, scParam);
+        return;
+    }
     if (page == 3) {
-        // OT fork "Dynamics 4/4": limiter mode / link / ceiling, the
+        // OT fork "Dynamics 4/5": limiter mode / link / ceiling, the
         // gain-reduction meter, saturation mode / drive / mix / tone.
-        ui_.drawTitle(g, "Dynamics 4/4");
+        ui_.drawTitle(g, "Dynamics 4/5");
         static const char* const kLimModes[2] = {"Subtle", "Extreme"};
         static const char* const kOffOn[2] = {"Off", "On"};
         const Config& c = a.cfg;
@@ -1040,7 +1211,7 @@ void MixerScreen::draw(Gfx& g) {
             drawBankB(g, off);
             return;
         }
-        ui_.drawTitle(g, "Track Mixer 2/4", rename ? "RENAME" : nullptr);
+        ui_.drawTitle(g, "Track Mixer 2/5", rename ? "RENAME" : nullptr);
         // Per track a header, the fader body and bar (x 2 + 100 t) and the
         // meter body and bar (x 52 + 100 t), in layers (headers() above).
         Head hd[8];
@@ -1074,7 +1245,7 @@ void MixerScreen::draw(Gfx& g) {
     // spec 06 §4.5 / VISUAL_DIFF §8.13: four channels, each a 32-px fader and
     // two 32-px meters on one panel; the rest one empty panel. The engine
     // meters show each channel's level, L and R (AudioEngine::busPeak) [I].
-    ui_.drawTitle(g, "Global Mixer 3/4");
+    ui_.drawTitle(g, "Global Mixer 3/5");
     Head hd[4 + kSynthSlotCount];
     Body bd[4 + 2 * kSynthSlotCount];
     wg::ValueBarItem br[12 + 2 * kSynthSlotCount];

@@ -201,7 +201,7 @@ TEST(performance_frame_budget) {
     r.h.tap(btn::Play);
 }
 
-// Track Mixer 2/4 and Global Mixer 3/4, playing (meters moving). Column by
+// Track Mixer 2/5 and Global Mixer 3/5, playing (meters moving). Column by
 // column they uploaded ~1830 / ~1750 words and every frame faulted the
 // FT81x on hardware (the display kept the previous screen); drawn in layers
 // they stay inside the same budget as the Performance screen.
@@ -209,7 +209,7 @@ TEST(mixer_frame_budget) {
     Rig r;
     r.h.tap(btn::Master);
     r.h.run(50);
-    r.h.tap(btn::Master);   // Track Mixer 2/4
+    r.h.tap(btn::Master);   // Track Mixer 2/5
     r.h.run(50);
     r.h.tap(btn::Play);
     r.play(100);
@@ -219,7 +219,7 @@ TEST(mixer_frame_budget) {
     std::printf("track mixer (playing): max %u DL words\n", unsigned(words));
     r.m.printTally();
     CHECK(words <= 1400);
-    r.h.tap(btn::Master);   // Global Mixer 3/4
+    r.h.tap(btn::Master);   // Global Mixer 3/5
     r.play(100);
     r.m.resetMax();
     r.play(1000);
@@ -1026,7 +1026,7 @@ TEST(overlay_matrix_synth) {
         std::snprintf(nm, sizeof(nm), "synth edit patch WTFM %s", sec[i].name);
         r.measure(nm);
     }
-    // Global Mixer 3/4 with the synth columns, a column held.
+    // Global Mixer 3/5 with the synth columns, a column held.
     r.screen(btn::Master, "master");
     h.tap(btn::Master);
     h.tap(btn::Master);
@@ -1183,7 +1183,7 @@ TEST(device_fault_falls_back_to_low_detail) {
     Harness h;
     App& a = *h.app;
     h.tap(btn::Master);
-    h.tap(btn::Master);   // Track Mixer 2/4
+    h.tap(btn::Master);   // Track Mixer 2/5
     h.run(100);
     const uint32_t low0 = a.ui.lowDetailFrames();
     CHECK_EQ(a.ui.dlScale(), 64);
@@ -1202,7 +1202,7 @@ TEST(device_measurement_calibrates_the_guard) {
     Harness h;
     App& a = *h.app;
     h.tap(btn::Master);
-    h.tap(btn::Master);   // Track Mixer 2/4, a steady heavy screen
+    h.tap(btn::Master);   // Track Mixer 2/5, a steady heavy screen
     for (int i = 0; i < 5; ++i) {
         a.ui.dirty();
         h.run(30);

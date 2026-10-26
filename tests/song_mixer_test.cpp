@@ -483,13 +483,13 @@ TEST(mixer_bank_switch_no_bank_b_levels) {
     CHECK_EQ(m.bank, 0);
     a.ui.dirty();
     h.run(20);
-    CHECK(hasText(h, "Track Mixer 2/4"));
+    CHECK(hasText(h, "Track Mixer 2/5"));
     CHECK(!hasText(h, "Tracks 9-16"));
     h.tap(btn::Right);
     CHECK_EQ(m.bank, 1);
     a.ui.dirty();
     h.run(20);
-    CHECK(hasText(h, "Track Mixer 2/4"));   // the title stays (spec gap 5)
+    CHECK(hasText(h, "Track Mixer 2/5"));   // the title stays (spec gap 5)
     CHECK(hasText(h, "Tracks 9-16"));
     CHECK(hasText(h, "Midi 9"));            // bank B column headers
     CHECK(hasText(h, "Midi 16"));
@@ -637,7 +637,7 @@ TEST(mixer_rename_bank_b) {
 
 #include "formats/wav.h"
 
-// Global Mixer 3/4 meters show each channel's level (they rested at 0): a
+// Global Mixer 3/5 meters show each channel's level (they rested at 0): a
 // note with delay and reverb sends moves Dry, Delay and Reverb, Line In
 // stays at 0 without input.
 TEST(global_mixer_meters_follow_the_buses) {

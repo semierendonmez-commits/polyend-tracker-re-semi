@@ -127,6 +127,8 @@ public:
         fm_ = src;
         fmDepth_ = depth;
     }
+    // OT fork sidechain: per-sample gain on the voice (dry and sends), null = none.
+    void setDuck(const float* g) { duck_ = g; }
     const PerfOffsets& perf() const { return perf_; }
     void stop();
     bool active() const { return playing_ || env_.active(); }
@@ -265,6 +267,7 @@ private:
     bool reverseFx_ = false;
     PerfOffsets perf_;
     const float* fm_ = nullptr;
+    const float* duck_ = nullptr;
     float fmDepth_ = 0.0f;
     uint32_t fmOff_ = 0;     // samples of the block already rendered (renderPlayer calls)
     int lfoSpeedFor(int slot, int base) const;
