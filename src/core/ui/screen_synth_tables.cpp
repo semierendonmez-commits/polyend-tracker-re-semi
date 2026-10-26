@@ -52,8 +52,22 @@ const char* const kBodyWave[16] = {"Sat-Sin", "Triangle", "Square", "Square FM",
                                    "FM7",     "FM11",     "tzFM1",  "tzFM3",     "tzFM7",  "tzFM11",
                                    "Glitch 1", "Glitch 2", "Glitch 3", "Glitch 4"};
 
+const char* const kPltModel[2] = {"2-Op FM", "Harmonic"};   // OT fork PLT
+
 #define E(n) kFmtEnum, n, uint8_t(sizeof(n) / sizeof(n[0]))
 #define F(f) f, nullptr, 0
+
+// --- PLT (14, OT fork) ------------------------------------------------------------
+const ParamUi kPlt[14] = {
+    {"Model", E(kPltModel)},     {"Harmonics", F(kFmtPct)},  {"Timbre", F(kFmtPct)},   {"Morph", F(kFmtPct)},
+    {"Timbre Env", F(kFmtPctMax)}, {"Attack", F(kFmtSec)},    {"Decay", F(kFmtSec)},    {"Sustain", F(kFmtPct)},
+    {"Release", F(kFmtSec)},     {"Tune", F(kFmtSemi)},      {"Glide Time", F(kFmtSec)}, {"Volume", F(kFmtPct)},
+    {"Frequency", F(kFmtLfoHz)}, {"LFO > Timbre", F(kFmtPctMax)},
+};
+const uint8_t kPltOsc[] = {0, 1, 2, 3, 9};
+const uint8_t kPltAmp[] = {5, 6, 7, 8};
+const uint8_t kPltMod[] = {4, 12, 13};
+const uint8_t kPltVoice[] = {10, 11};
 
 // --- ACD (29) ------------------------------------------------------------------
 const ParamUi kAcd[29] = {
@@ -225,6 +239,8 @@ const Section kWtfmSec[] = {S("Osc", "Oscillator", kWtfmOsc), S("Filter", "Filte
                             S("Env 2", "Envelope 2", kWtfmEnv2), S("LFO 1", "LFO 1", kWtfmLfo1),
                             S("LFO 2", "LFO 2", kWtfmLfo2),   S("Mod", "Modulation", kWtfmMod),
                             S("Voice", "Voice", kWtfmVoice),  MACROS};
+const Section kPltSec[] = {S("Osc", "Oscillator", kPltOsc), S("Amp Env", "Amp Env", kPltAmp),
+                           S("Mod", "Timbre Mod", kPltMod), S("Voice", "Voice", kPltVoice), MACROS};
 const Section kPercSec[] = {S("Kick", "Kick", kPercKick),     S("Tom", "Toms", kPercTom),
                             S("Snare", "Snare", kPercSnare),  S("Hi Hat", "Hi Hat", kPercHat),
                             S("Cymbal", "Cymbal", kPercCym),  S("Perc", "Percussion", kPercPerc),
@@ -242,6 +258,7 @@ const ParamUi* table(int32_t engine, int* n) {
         case kSynthEngineVap: *n = countOf(kVap); return kVap;
         case kSynthEngineWtfm: *n = countOf(kWtfm); return kWtfm;
         case kSynthEnginePerc: *n = countOf(kPerc); return kPerc;
+        case kSynthEnginePlt: *n = countOf(kPlt); return kPlt;
         default: *n = 0; return nullptr;
     }
 }
@@ -272,6 +289,7 @@ int sections(int32_t engine, const Section** out) {
         case kSynthEngineVap: *out = kVapSec; return countOf(kVapSec);
         case kSynthEngineWtfm: *out = kWtfmSec; return countOf(kWtfmSec);
         case kSynthEnginePerc: *out = kPercSec; return countOf(kPercSec);
+        case kSynthEnginePlt: *out = kPltSec; return countOf(kPltSec);
         default: *out = nullptr; return 0;
     }
 }

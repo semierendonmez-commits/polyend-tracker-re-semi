@@ -20,6 +20,7 @@ enum SynthEngineId : int32_t {
     kSynthEngineVap = 4,
     kSynthEngineWtfm = 5,
     kSynthEnginePerc = 6,
+    kSynthEnginePlt = 9,   // OT fork: Plaits-style 2-Op FM / Harmonic (not a Tracker Mini engine)
 };
 
 constexpr int kPatchMaxParams = 84;      // PERC has the most (spec 21 §8.1)

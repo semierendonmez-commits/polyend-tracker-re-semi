@@ -83,6 +83,7 @@
 #include "audio/engines/acd.h"
 #include "audio/engines/fat.h"
 #include "audio/engines/vap.h"
+#include "audio/engines/plt.h"
 #include "audio/engines/wtfm.h"
 #include "formats/patch_pb.h"
 #include "peak_trace.h"
@@ -298,6 +299,41 @@ double vapVoice(bool worst) {
         e->prepare(sc, p);
         e->render(v, p, 0.5f, 0.0f, l, r);
     }
+    return (nowUnits() - t0) / blocks;
+}
+
+// OT fork PLT: one voice, model 0 (2-Op FM) or 1 (Harmonic, all 16 partials
+// below Nyquist at pitch 36, wide bump: the costliest).
+double pltVoice(int model) {
+    static float vals[kSynthParamMax];
+    int count = 0;
+    const PatchParamRange* t = patchEngineParams(kSynthEnginePlt, &count);
+    for (int i = 0; i < count; ++i) vals[i] = t[i].def;
+    vals[plt::kModel] = float(model);
+    vals[plt::kHarmonics] = 0.6f;
+    vals[plt::kTimbre] = 1.0f;
+    vals[plt::kMorph] = 0.8f;
+    vals[plt::kSustain] = 1.0f;
+    static SynthParams p;
+    p.engine = kSynthEnginePlt;
+    p.count = count;
+    for (int i = 0; i < count; ++i) p.start[i] = p.end[i] = vals[i];
+    p.serial = 1;
+    ISynthEngine* e = plt::engine();
+    static SynthSlotScratch sc;
+    static SynthVoice v;
+    e->slotReset(sc);
+    v = SynthVoice{};
+    v.slotScratch = &sc;
+    v.gate = true;
+    SynthNote n;
+    n.pitch = 36.0f;
+    e->noteOn(v, p, n);
+    static float l[kBlock], r[kBlock];
+    const int blocks = 800 / kScale;
+    for (int b = 0; b < 20; ++b) e->render(v, p, 0.5f, 0.0f, l, r);
+    const double t0 = nowUnits();
+    for (int b = 0; b < blocks; ++b) e->render(v, p, 0.5f, 0.0f, l, r);
     return (nowUnits() - t0) / blocks;
 }
 
@@ -1288,6 +1324,8 @@ int main(int argc, char** argv) {
 #endif
     reportVoice("vapinit", vapVoice(false), 12000);
     reportVoice("vapworst", vapVoice(true), 18000);
+    reportVoice("pltfm", pltVoice(0), 18000);    // OT fork PLT
+    reportVoice("pltharm", pltVoice(1), 18000);
     reportVoice("fatinit", fatVoice(false), 12000);
     reportVoice("fatworst", fatVoice(true), 22000);
     reportVoice("wtfminit", wtfmVoice(false), 12000);

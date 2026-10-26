@@ -24,7 +24,7 @@ namespace {
 int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
-const char* const kModels[kSynthModelCount] = {"ACD", "FAT", "VAP", "WTFM", "PERC"};
+const char* const kModels[kSynthModelCount] = {"ACD", "FAT", "VAP", "WTFM", "PERC", "PLT"};
 const char* const kOffOn[2] = {"Off", "On"};
 constexpr float kMinBar = 1.0f / float(wg::kPanelH - 25);   // value 0: the 1.5-px line (screen_instrument)
 constexpr int kMacroBarH = 270;                              // Macros page: bars over the legend

@@ -142,7 +142,7 @@ bool Project::setTrackMuted(int track, bool muted) {
 }
 
 const char* synthModelName(SynthModel m) {
-    static const char* const kNames[kSynthModelCount] = {"ACD", "FAT", "VAP", "WTFM", "PERC"};
+    static const char* const kNames[kSynthModelCount] = {"ACD", "FAT", "VAP", "WTFM", "PERC", "PLT"};
     return uint8_t(m) < kSynthModelCount ? kNames[uint8_t(m)] : "";
 }
 

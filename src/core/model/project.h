@@ -87,10 +87,11 @@ constexpr uint32_t synthSlotOff(int s) { return kSynthSlots + kSynthSlotSize * u
 }  // namespace mt
 
 // Slot model index (spec 21 §3.3 +0x08) and its patch engine id (§7, §8).
-enum class SynthModel : uint8_t { ACD = 0, FAT = 1, VAP = 2, WTFM = 3, PERC = 4 };
-constexpr int kSynthModelCount = 5;
+// OT fork: PLT (model 5) after the Mini's five; a Mini resets such a slot.
+enum class SynthModel : uint8_t { ACD = 0, FAT = 1, VAP = 2, WTFM = 3, PERC = 4, PLT = 5 };
+constexpr int kSynthModelCount = 6;
 inline uint8_t synthEngineId(SynthModel m) {
-    static const uint8_t kIds[kSynthModelCount] = {1, 2, 4, 5, 6};
+    static const uint8_t kIds[kSynthModelCount] = {1, 2, 4, 5, 6, 9};
     return uint8_t(m) < kSynthModelCount ? kIds[uint8_t(m)] : 0;
 }
 // Folder name under Patches/ (spec 21 §2); "" for an invalid model.

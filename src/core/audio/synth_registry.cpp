@@ -6,6 +6,7 @@
 #include "audio/engines/acd.h"
 #include "audio/engines/fat.h"
 #include "audio/engines/perc.h"
+#include "audio/engines/plt.h"
 #include "audio/engines/vap.h"
 #include "audio/engines/wtfm.h"
 #include "audio/synth_engine.h"
@@ -37,6 +38,8 @@ ISynthEngine* synthEngineFor(int32_t engineId) {
             return percEngine();
         case kSynthEngineWtfm:
             return wtfm::engine();
+        case kSynthEnginePlt:   // OT fork
+            return plt::engine();
         case kSynthEngineTest:
             return synthTestEngine();
         default:

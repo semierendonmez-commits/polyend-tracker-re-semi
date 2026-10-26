@@ -303,6 +303,14 @@ const PatchParamRange kVap[60] = {
     MODSLOT,       MODSLOT,         MODSLOT,         MODSLOT,       MODSLOT,       MODSLOT,
 };
 
+// OT fork PLT (engines/plt.h): Model, Harmonics, Timbre, Morph, Timbre Env,
+// A, D, S, R, Tune, Glide, Volume, LFO Freq, LFO > Timbre.
+const PatchParamRange kPlt[14] = {
+    {0, 0, 1},     {0.5f, 0, 1},    {0.4f, 0, 1},    {0.5f, 0, 1},  {0.3f, -1, 1}, {0, 0, 10},
+    {0.4f, 0, 10}, {0.5f, 0, 1},    {0.3f, 0, 10},   {0, -24, 24},  {0, 0, 3},     {1, 0, 2},
+    {1, 0.1f, 100}, {0, -1, 1},
+};
+
 const PatchParamRange kWtfm[63] = {
     {3, 0, 47},    {3, 0, 47},      {0, -100, 100},  {0, -100, 100}, {0, 0, 1},    {0, 0, 1},
     {0, 0, 0, NR}, {0, 0, 0, NR},   {0, 0, 1},       {0, 0, 8},     {0, 0, 8},     {0, 0, 10},
@@ -593,6 +601,7 @@ const PatchParamRange* patchEngineParams(int32_t engine, int* count) {
         case kSynthEngineVap: t = kVap, n = 60; break;
         case kSynthEngineWtfm: t = kWtfm, n = 63; break;
         case kSynthEnginePerc: t = kPerc, n = 84; break;
+        case kSynthEnginePlt: t = kPlt, n = 14; break;
         default: break;
     }
     if (count) *count = n;
@@ -606,6 +615,7 @@ const char* patchEngineName(int32_t engine) {
         case kSynthEngineVap: return "VAP";
         case kSynthEngineWtfm: return "WTFM";
         case kSynthEnginePerc: return "PERC";
+        case kSynthEnginePlt: return "PLT";
         default: return nullptr;
     }
 }
@@ -616,6 +626,7 @@ int patchVolumeParam(int32_t engine) {
         case kSynthEngineFat: return 24;
         case kSynthEngineVap: return 39;
         case kSynthEngineWtfm: return 42;
+        case kSynthEnginePlt: return 11;
         default: return -1;
     }
 }

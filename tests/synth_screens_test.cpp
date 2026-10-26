@@ -189,10 +189,13 @@ TEST(model_change_loads_init) {
     h.tap(btn::Down);  // list: Down = next (VAP)
     CHECK(a.synthSlot(1).model == uint32_t(SynthModel::VAP));
     CHECK(a.synthPatch(1).engine == kSynthEngineVap);
-    // The Model key cycles and wraps (manual p.147): VAP, WTFM, PERC, ACD.
+    // The Model key cycles and wraps (manual p.147): VAP, WTFM, PERC, (OT fork) PLT, ACD.
     h.tap(btn::F1);
     h.tap(btn::F1);
     CHECK(a.synthSlot(1).model == uint32_t(SynthModel::PERC));
+    h.tap(btn::F1);
+    CHECK(a.synthSlot(1).model == uint32_t(SynthModel::PLT));
+    CHECK(a.synthPatch(1).engine == kSynthEnginePlt);
     h.tap(btn::F1);
     CHECK(a.synthSlot(1).model == uint32_t(SynthModel::ACD));
     CHECK(a.synthPatch(1).engine == kSynthEngineAcd);
@@ -558,8 +561,7 @@ TEST(not_available_is_read_only) {
     CHECK(a.synthSlot(0).macros[0] == r0.macros[0]);
     h.tap(btn::InstrParams);
     // The model can still be changed (to an available one).
-    h.tap(btn::F1);
-    h.tap(btn::Down);   // WTFM -> PERC
+    h.tap(btn::F1);     // WTFM -> PERC (Down would go on to the fork's PLT)
     CHECK(a.synthSlot(0).model == uint32_t(SynthModel::PERC));
     CHECK(s.available());
     CHECK(frameHas(h, "Synth 1 (PERC)"));
