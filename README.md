@@ -15,17 +15,34 @@ Image: `PolyendTrackerOTs221.ptf` (installs like the upstream image, see Install
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
+### Latest update (2.2.1-semi.3)
+
+| **Perform: generator controls, Genotype G2, wavetable FM** | **Perform: FX chooser (Shift + encoder) with help** |
+|---|---|
+| ![Perform: generator controls](screenshots/2.2.1-semi/perf-generator-fx.png) | ![Perform: FX chooser](screenshots/2.2.1-semi/perf-chooser.png) |
+| **Perform: scenes (Fx1 recalls, Fx2 stores)** | **Master 4/4: Dynamics** |
+| ![Perform: scenes](screenshots/2.2.1-semi/perf-scenes.png) | ![Master 4/4: Dynamics](screenshots/2.2.1-semi/master-dynamics.png) |
+| **Master Reverb: Hall / Shimmer / Gated models** | **Shift lock tag and title level meter** |
+| ![Master Reverb: models](screenshots/2.2.1-semi/master-reverb-model.png) | ![Shift lock and level meter](screenshots/2.2.1-semi/shift-lock-meter.png) |
+| **Config: Scale lock, Screen saver, Level meter, effect models** | |
+| ![Config: new options](screenshots/2.2.1-semi/cfg-new-options.png) | |
+
+- **Shift lock:** tap Shift twice; a SHIFT tag shows until the next Shift press.
+- **Scale lock:** the encoder moves notes through the project scale.
+- **Pattern dashes:** drawn pixel-exact, every row shows its column colours on the device.
+- **Perform:** generator controls (Acid Accent / Slide / Mutate, BBCut A / B / Rolls / Recut),
+  **Genotype** play modes G1..G3, **wavetable FM** between tracks (WT FM Depth / Source), an FX
+  chooser with help (Shift + encoder in edit mode), **scenes** with morph (Fx1 / Fx2 + F1..F8)
+  and **Perform recording** into FX 2 (Insert).
+- **Master 4/4 Dynamics:** limiter mode, stereo link, ceiling; saturation drive, mix, tone.
+- **Reverb models** Hall, Shimmer, Gated and **delay models** Tape, Lo-fi.
+- **Screen saver** (the Data screen) and a **title level meter**.
+
 ### Screenshots (2.2.1-semi, simulator)
 
-| **Perform: FX chooser (Shift + encoder) with help** | **Perform: scenes (Fx1 / Fx2 held)** |
+| **Generate: Acid, live preview on the right** | **Generate: Acid, page 2 (Shift)** |
 |---|---|
-| ![Perform: FX chooser](screenshots/2.2.1-semi/perf-chooser.png) | ![Perform: scenes](screenshots/2.2.1-semi/perf-scenes.png) |
-| **Master 4/4: Dynamics** | **Master Reverb: models** |
-| ![Master 4/4: Dynamics](screenshots/2.2.1-semi/master-dynamics.png) | ![Master Reverb: models](screenshots/2.2.1-semi/master-reverb-model.png) |
-| **Shift lock tag and level meter** | **Generate: Acid, live preview on the right** |
-| ![Shift lock and level meter](screenshots/2.2.1-semi/shift-lock-meter.png) | ![Generate: Acid, live preview on the right](screenshots/2.2.1-semi/gen-acid.png) |
-| **Generate: Acid, page 2 (Shift)** | |
-| ![Generate: Acid, page 2 (Shift)](screenshots/2.2.1-semi/gen-acid-page2.png) | |
+| ![Generate: Acid, live preview on the right](screenshots/2.2.1-semi/gen-acid.png) | ![Generate: Acid, page 2 (Shift)](screenshots/2.2.1-semi/gen-acid-page2.png) |
 | **Generate: Call+Resp (Form, C / R tags)** | **Generate: BBCut (Jungle, Mutate)** |
 | ![Generate: Call+Resp (Form, C / R tags)](screenshots/2.2.1-semi/gen-callresp.png) | ![Generate: BBCut (Jungle, Mutate)](screenshots/2.2.1-semi/gen-bbcut.png) |
 | **Generate: BBCut page 2 (Rolls, Pitch, Timing, Dynamics)** | **Generate: Turnaround (FX Soft / Medium / Hard)** |
