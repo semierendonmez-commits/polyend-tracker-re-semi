@@ -3,7 +3,7 @@
 # make SELFTEST=1 -> build/selftest/PolyendTracker_OTst<DIAG_N>.ptf (24 chars)
 # make host-test  -> build and run host-side unit tests
 # make perf-gate  -> bench-m4 instruction counts vs tests/perf_baseline.txt (+5 % max), engine
-#                    limits, flash <= 720,000 B, host bench, telemetry thresholds on LOG=<device log>
+#                    limits, flash <= 800,000 B (semi fork), host bench, telemetry thresholds on LOG=<device log>
 #                    (docs/HARDWARE_TESTING.md)
 # OT_GAMES=0      -> image without Games (NES player, screen, menu entry; build dir build/nogames)
 # OT_SDRAM_CACHE=0 -> image without the LMEM system cache for the SDRAM (build dir build/nocache)
@@ -185,7 +185,7 @@ clean:
 #     The same run gates the per-engine limit lines (acd.* / vap* / perc*: "limit N").
 #  3. tools/telemetry_check.py: its built-in sample check, plus LOG=<captured device log>
 #     against the thresholds (render avg < 45 %, max < 70 %, loop max < 50 ms outside loading).
-#  4. Flash size of the firmware image (.text + .data): fail above 720,000 B, warn above
+#  4. Flash size of the firmware image (.text + .data): fail above 800,000 B (semi fork; upstream 720,000), warn above
 #     600,000 B (docs/VERIFY_M1.md R4); builds build/opentracker.elf when it is stale.
 PERF_OUT := build/perf
 perf-gate:
