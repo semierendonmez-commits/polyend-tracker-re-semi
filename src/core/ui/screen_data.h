@@ -20,15 +20,30 @@ public:
     void update(uint32_t now) override;
     void draw(Gfx& g) override;
     void onButton(uint8_t id, uint8_t state) override;
+    void onEncoder(int d) override;
+    void onPad(uint8_t pad, uint8_t state) override;
     void padLeds(uint8_t* levels) override;
-    int mode = 0;   // 0 barcode, 1 matrix, 2 numbers
+    enum Mode { kBarcode, kMatrix, kNumbers, kRain, kPulse, kModeCount };
+    enum Colour { kMono, kTheme, kHue, kColourCount };
+    int mode = kBarcode;
+    bool vertical = false;   // tracks as columns, time running down
+    int colour = kMono;
 
 private:
-    static constexpr int kTracks = 16, kHistory = 64;
+    static constexpr int kTracks = 16, kHistory = 64, kRainRows = 14;
     void refreshBar();
+    int visibleTracks(uint8_t* out) const;   // tracks with notes (all when none)
+    uint32_t trackColour(int t, int idx, int count, bool bright) const;
+    void drawBarcode(Gfx& g, const uint8_t* vis, int nv);
+    void drawMatrix(Gfx& g, const uint8_t* vis, int nv);
+    void drawNumbers(Gfx& g, const uint8_t* vis, int nv);
+    void drawRain(Gfx& g, const uint8_t* vis, int nv);
+    void drawPulse(Gfx& g, const uint8_t* vis, int nv);
     uint16_t hist_[kHistory] = {};
     uint8_t width_[kHistory][kTracks] = {};
+    uint8_t rain_[kRainRows][kTracks] = {};   // last steps' note bytes per track (0xFF = none)
     int head_ = 0;
+    int rainHead_ = 0;
     int lastStep_ = -1;
     float level_[kTracks] = {};
     uint32_t lastDraw_ = 0;
