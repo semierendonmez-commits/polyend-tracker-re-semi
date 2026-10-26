@@ -255,7 +255,10 @@ bool AudioEngine::init(int16_t* fx, size_t fxSamples, int16_t* pool, size_t pool
     reverb_.init(fx + Delay::kMemorySamples);
     static_assert(FdnReverb::kMemorySamples <= Reverb::kMemorySamples, "reverb models share the reverb memory");
     fdn_.init(fx + Delay::kMemorySamples);
-    plate_.init(fx + Delay::kMemorySamples);   // the same memory: one model at a time
+    {
+        int16_t* const sram[4] = {fdn_.sramAp(0), fdn_.sramAp(1), fdn_.sramAp(2), fdn_.sramAp(3)};
+        plate_.init(fx + Delay::kMemorySamples, sram);   // the same memory: one model at a time
+    }
     tex_.init(fx + Delay::kMemorySamples);
     tape_.init(fx, fx + kDelayLineLen);
     for (int v = 0; v <= kVoices; ++v) {

@@ -158,18 +158,18 @@ OT_FASTRUN_FN bool FdnReverb::process(const float* in, float* outL, float* outR)
     // Room: early reflections, six taps behind the pre-delay, alternating sides.
     float erL[kBlock], erR[kBlock];
     if (m == 4) {
-        static const uint16_t kTap[6] = {331, 563, 797, 1031, 1373, 1709};
-        static const float kG[6] = {0.62f, -0.55f, 0.48f, -0.41f, 0.34f, -0.27f};
+        static const uint16_t kTap[4] = {331, 619, 941, 1373};
+        static const float kG[4] = {0.62f, -0.55f, 0.45f, -0.36f};
         const float sc = 0.5f + 0.5f * (size_ < 0 ? 0 : (size_ > 1 ? 1 : size_));
         for (uint32_t i = 0; i < kBlock; ++i) erL[i] = erR[i] = 0.0f;
         float t[kBlock];
-        for (int k = 0; k < 6; ++k) {
+        for (int k = 0; k < 4; ++k) {
             readSpan(pre_mem_, kPreMask, w - pre_ - uint32_t(float(kTap[k]) * sc), kBlock, t);
             float* dst = (k & 1) ? erR : erL;
             for (uint32_t i = 0; i < kBlock; ++i) dst[i] += kG[k] * t[i];
         }
     }
-    const int nDiff = m >= 3 ? kDiff : 2;   // the FDN diffuses the rest
+    const int nDiff = m == 3 ? kDiff : 2;   // the FDN diffuses the rest
     for (int dI = 0; dI < nDiff; ++dI) {
         int16_t* buf = ap_[dI];
         uint32_t p = apPos_[dI];
@@ -403,42 +403,61 @@ OT_FASTRUN_FN bool TapeDelay::process(const float* in, float* outL, float* outR)
 // --- block helpers for the span-based models ---------------------------------
 
 namespace {
-// All-pass (lattice): v = x + g v[-D], y = v[-D] - g v. D > kBlock (the
-// delayed values of a whole block are in the past), fractional D linearly
+// n samples (even, ring position even and not wrapping) as 32-bit words.
+void writeSpanN(int16_t* ring, uint32_t p, const int16_t* src, uint32_t n) {
+    u32_alias* d = reinterpret_cast<u32_alias*>(ring + p);
+    for (uint32_t i = 0; i < n / 2; ++i) {
+        OT_NO_LIBCALL();
+        d[i] = uint32_t(uint16_t(src[2 * i])) | (uint32_t(uint16_t(src[2 * i + 1])) << 16);
+    }
+    OT_SDRAM_ACCESS(n / 2);
+}
+// All-pass (lattice) over n samples: v = x + g v[-D], y = v[-D] - g v. D > n
+// (the delayed values are all in the past), fractional D linearly
 // interpolated; x is replaced by y.
-void apBlock(int16_t* ring, uint32_t mask, uint32_t w, float D, float g, float* x) {
+void apBlock(int16_t* ring, uint32_t mask, uint32_t w, float D, float g, float* x, uint32_t n) {
     const uint32_t Di = uint32_t(D);
     const float fr = D - float(Di);
     float rd[kBlock + 1];
-    readSpan(ring, mask, w - Di - 1, kBlock + 1, rd);   // rd[i] = v(w + i - Di - 1)
+    readSpan(ring, mask, w - Di - 1, n + 1, rd);   // rd[i] = v(w + i - Di - 1)
     int16_t wb[kBlock];
-    for (uint32_t i = 0; i < kBlock; ++i) {
+    for (uint32_t i = 0; i < n; ++i) {
         const float vd = rd[i + 1] + fr * (rd[i] - rd[i + 1]);
         const float v = x[i] + g * vd;
         wb[i] = store(v);
         x[i] = vd - g * v;
     }
-    writeSpan(ring, w & mask, wb);
+    writeSpanN(ring, w & mask, wb, n);
 }
-// Delay: writes x, returns the samples D behind in out (D > kBlock).
-void delayBlock(int16_t* ring, uint32_t mask, uint32_t w, uint32_t D, const float* x, float* out) {
-    readSpan(ring, mask, w - D, kBlock, out);
+void apBlock(int16_t* ring, uint32_t mask, uint32_t w, float D, float g, float* x) { apBlock(ring, mask, w, D, g, x, kBlock); }
+// Delay over n samples: writes x, returns the samples D behind in out (D > n).
+void delayBlock(int16_t* ring, uint32_t mask, uint32_t w, uint32_t D, const float* x, float* out, uint32_t n) {
+    readSpan(ring, mask, w - D, n, out);
     int16_t wb[kBlock];
-    for (uint32_t i = 0; i < kBlock; ++i) wb[i] = store(x[i]);
-    writeSpan(ring, w & mask, wb);
+    for (uint32_t i = 0; i < n; ++i) wb[i] = store(x[i]);
+    writeSpanN(ring, w & mask, wb, n);
 }
 }  // namespace
 
 // --- PlateReverb (Dattorro) ------------------------------------------------------
+// The network runs at half rate (22.05 kHz, 64 samples a block): the paper's
+// 29.76 kHz sample counts x 0.741 keep its timing; the input is averaged in
+// pairs, the output interpolated back. A plate is dark above 11 kHz anyway,
+// and the SDRAM traffic halves.
 
-void PlateReverb::init(int16_t* mem) {
-    static const uint32_t kSize[kRings] = {4096, 512, 512, 512, 512, 1024, 4096, 2048, 4096, 1024, 4096, 4096, 4096};
+namespace {
+constexpr uint32_t kHalf = kBlock / 2;
+}
+
+void PlateReverb::init(int16_t* mem, int16_t* const sram[4]) {
+    static const uint32_t kSize[kRings] = {4096, 1024, 4096, 2048, 4096, 1024, 4096, 2048, 4096};
     uint32_t at = 0;
     for (int k = 0; k < kRings; ++k) {
         ring_[k] = mem + at;
         mask_[k] = kSize[k] - 1;
         at += kSize[k];
     }
+    for (int k = 0; k < 4; ++k) in_[k] = sram[k];
     clearPending_ = true;
 }
 
@@ -451,7 +470,11 @@ OT_FASTRUN_FN bool PlateReverb::process(const float* in, float* outL, float* out
     if (clearPending_) {
         clearPending_ = false;
         zeroRing(ring_[0], kMemorySamples);
-        bw_ = dampZ_[0] = dampZ_[1] = 0.0f;
+        for (int k = 0; k < 4; ++k) {
+            for (int j = 0; j < 512; ++j) in_[k][j] = 0;
+            inPos_[k] = 0;
+        }
+        bw_ = dampZ_[0] = dampZ_[1] = tankOut_[0] = tankOut_[1] = 0.0f;
         quiet_ = 0;
     }
     bool anyIn = false;
@@ -461,7 +484,8 @@ OT_FASTRUN_FN bool PlateReverb::process(const float* in, float* outL, float* out
         zeroFloats(outR, kBlock);
         return false;
     }
-    const uint32_t w = w_;
+    const uint32_t w = w_;   // full-rate position (pre-delay)
+    const uint32_t h = wh_;  // half-rate position (the tank)
     const float sz = size_ < 0 ? 0 : (size_ > 1 ? 1 : size_);
     const float dm = damp_ < 0 ? 0 : (damp_ > 1 ? 1 : damp_);
     const float df = diff_ < 0 ? 0 : (diff_ > 1 ? 1 : diff_);
@@ -469,100 +493,121 @@ OT_FASTRUN_FN bool PlateReverb::process(const float* in, float* outL, float* out
     const float dd2 = decay + 0.15f < 0.25f ? 0.25f : (decay + 0.15f > 0.5f ? 0.5f : decay + 0.15f);
     const float g1 = 0.75f * (0.4f + 0.6f * df), g2 = 0.625f * (0.4f + 0.6f * df);
     const float dampA = 1.0f - 0.85f * dm;   // tank low-pass: 1 = open
-    // 1. Pre-delay and the bandwidth low-pass.
-    float x[kBlock];
+    // 1. Pairs averaged to half rate, the pre-delay (half rate), the
+    //    bandwidth low-pass.
+    (void)w;
+    float x[kHalf];
     {
-        int16_t wb[kBlock];
-        for (uint32_t i = 0; i < kBlock; ++i) wb[i] = store(in[i]);
-        writeSpan(ring_[kPre], w & mask_[kPre], wb);
-        readSpan(ring_[kPre], mask_[kPre], w - pre_, kBlock, x);
+        int16_t wb[kHalf];
+        for (uint32_t j = 0; j < kHalf; ++j) wb[j] = store(0.5f * (in[2 * j] + in[2 * j + 1]));
+        writeSpanN(ring_[kPre], h & mask_[kPre], wb, kHalf);
+        readSpan(ring_[kPre], mask_[kPre], h - pre_ / 2, kHalf, x);
         float b = bw_;
-        for (uint32_t i = 0; i < kBlock; ++i) {
-            b += 0.7f * (x[i] - b);
-            x[i] = b;
+        for (uint32_t j = 0; j < kHalf; ++j) {
+            b += 0.85f * (x[j] - b);
+            x[j] = b;
         }
         bw_ = b;
     }
-    // 2. Input diffusers (lengths kept above a block).
-    apBlock(ring_[kIn0], mask_[kIn0], w, 131.0f, g1, x);
-    apBlock(ring_[kIn1], mask_[kIn1], w, 149.0f, g1, x);
-    apBlock(ring_[kIn2], mask_[kIn2], w, 341.0f, g2, x);
-    apBlock(ring_[kIn3], mask_[kIn3], w, 249.0f, g2, x);
+    // 2. Input diffusers (142 / 107 / 379 / 277 x 0.741), per sample in SRAM.
+    {
+        static const uint16_t kLen[4] = {105, 79, 281, 205};
+        for (int k = 0; k < 4; ++k) {
+            const float g = k < 2 ? g1 : g2;
+            int16_t* buf = in_[k];
+            uint32_t p = inPos_[k];
+            const uint32_t L = kLen[k];
+            for (uint32_t i = 0; i < kHalf; ++i) {
+                const float dl = load(buf[p]);
+                const float v = x[i] + g * dl;
+                buf[p] = store(v);
+                x[i] = dl - g * v;
+                p = p + 1 == L ? 0 : p + 1;
+            }
+            inPos_[k] = uint16_t(p);
+        }
+    }
     // 3. The tank: each half takes the other half's output (read before this block's writes).
-    float lOut[kBlock], rOut[kBlock];
-    readSpan(ring_[kDel1], mask_[kDel1], w - 3348, kBlock, lOut);
-    readSpan(ring_[kDel3], mask_[kDel3], w - 2847, kBlock, rOut);
+    float lOut[kHalf], rOut[kHalf];
+    readSpan(ring_[kDel1], mask_[kDel1], h - 2756, kHalf, lOut);
+    readSpan(ring_[kDel3], mask_[kDel3], h - 2344, kHalf, rOut);
     ++lfo_;
     const float ph = float(lfo_) * (6.2831853f * 0.9f * float(kBlock) / kFs);
-    const float exc0 = 14.0f * (1.0f + fastSin(ph)), exc1 = 14.0f * (1.0f + fastSin(ph + 1.7f));
-    float a[kBlock], b[kBlock];
-    for (uint32_t i = 0; i < kBlock; ++i) {
+    const float exc0 = 6.0f * (1.0f + fastSin(ph)), exc1 = 6.0f * (1.0f + fastSin(ph + 1.7f));
+    float a[kHalf], b[kHalf], t[kHalf];
+    for (uint32_t i = 0; i < kHalf; ++i) {
         a[i] = x[i] + decay * rOut[i];
         b[i] = x[i] + decay * lOut[i];
     }
-    // Left half.
-    apBlock(ring_[kMod0], mask_[kMod0], w, 605.0f + exc0, -0.7f, a);
-    float t[kBlock];
-    delayBlock(ring_[kDel0], mask_[kDel0], w, 4008, a, t);
+    // Left half: modulated all-pass, delay, damping, decay diffuser, delay.
+    apBlock(ring_[kMod0], mask_[kMod0], h, 498.0f + exc0, -0.7f, a, kHalf);
+    delayBlock(ring_[kDel0], mask_[kDel0], h, 3300, a, t, kHalf);
     {
         float z = dampZ_[0];
-        for (uint32_t i = 0; i < kBlock; ++i) {
+        for (uint32_t i = 0; i < kHalf; ++i) {
             z += dampA * (t[i] - z);
             t[i] = z * decay;
         }
         dampZ_[0] = z;
     }
-    apBlock(ring_[kAp0], mask_[kAp0], w, 1620.0f, dd2, t);
+    apBlock(ring_[kAp0], mask_[kAp0], h, 1334.0f, dd2, t, kHalf);
     {
-        int16_t wb[kBlock];
-        for (uint32_t i = 0; i < kBlock; ++i) wb[i] = store(t[i]);
-        writeSpan(ring_[kDel1], w & mask_[kDel1], wb);
+        int16_t wb[kHalf];
+        for (uint32_t i = 0; i < kHalf; ++i) wb[i] = store(t[i]);
+        writeSpanN(ring_[kDel1], h & mask_[kDel1], wb, kHalf);
     }
     // Right half.
-    apBlock(ring_[kMod1], mask_[kMod1], w, 817.0f + exc1, -0.7f, b);
-    delayBlock(ring_[kDel2], mask_[kDel2], w, 3795, b, t);
+    apBlock(ring_[kMod1], mask_[kMod1], h, 673.0f + exc1, -0.7f, b, kHalf);
+    delayBlock(ring_[kDel2], mask_[kDel2], h, 3125, b, t, kHalf);
     {
         float z = dampZ_[1];
-        for (uint32_t i = 0; i < kBlock; ++i) {
+        for (uint32_t i = 0; i < kHalf; ++i) {
             z += dampA * (t[i] - z);
             t[i] = z * decay;
         }
         dampZ_[1] = z;
     }
-    apBlock(ring_[kAp1], mask_[kAp1], w, 2390.0f, dd2, t);
+    apBlock(ring_[kAp1], mask_[kAp1], h, 1968.0f, dd2, t, kHalf);
     {
-        int16_t wb[kBlock];
-        for (uint32_t i = 0; i < kBlock; ++i) wb[i] = store(t[i]);
-        writeSpan(ring_[kDel3], w & mask_[kDel3], wb);
+        int16_t wb[kHalf];
+        for (uint32_t i = 0; i < kHalf; ++i) wb[i] = store(t[i]);
+        writeSpanN(ring_[kDel3], h & mask_[kDel3], wb, kHalf);
     }
-    // 4. Output taps (the paper's, x 0.9), after this block's writes.
+    // 4. Output taps (the paper's first four per side, x 0.741; the other
+    //    three cost more SDRAM reads than they add), after the writes.
     struct Tap {
         uint8_t ring;
         uint16_t d;
         int8_t sign;
     };
-    static const Tap kL[7] = {{kDel2, 239, 1},  {kDel2, 2677, 1}, {kAp1, 1722, -1}, {kDel3, 1796, 1},
-                              {kDel0, 1791, -1}, {kAp0, 168, -1},  {kDel1, 959, -1}};
-    static const Tap kR[7] = {{kDel0, 318, 1},  {kDel0, 3264, 1}, {kAp0, 1105, -1}, {kDel1, 2406, 1},
-                              {kDel2, 1900, -1}, {kAp1, 302, -1},  {kDel3, 109, -1}};
-    float accL[kBlock] = {}, accR[kBlock] = {};
-    for (int k = 0; k < 7; ++k) {
-        readSpan(ring_[kL[k].ring], mask_[kL[k].ring], w - kL[k].d, kBlock, t);
+    static const Tap kL[4] = {{kDel2, 197, 1}, {kDel2, 2204, 1}, {kAp1, 1418, -1}, {kDel3, 1479, 1}};
+    static const Tap kR[4] = {{kDel0, 262, 1}, {kDel0, 2688, 1}, {kAp0, 910, -1}, {kDel1, 1981, 1}};
+    float accL[kHalf] = {}, accR[kHalf] = {};
+    for (int k = 0; k < 4; ++k) {
+        readSpan(ring_[kL[k].ring], mask_[kL[k].ring], h - kL[k].d, kHalf, t);
         const float sg = float(kL[k].sign);
-        for (uint32_t i = 0; i < kBlock; ++i) accL[i] += sg * t[i];
-        readSpan(ring_[kR[k].ring], mask_[kR[k].ring], w - kR[k].d, kBlock, t);
+        for (uint32_t i = 0; i < kHalf; ++i) accL[i] += sg * t[i];
+        readSpan(ring_[kR[k].ring], mask_[kR[k].ring], h - kR[k].d, kHalf, t);
         const float sr = float(kR[k].sign);
-        for (uint32_t i = 0; i < kBlock; ++i) accR[i] += sr * t[i];
+        for (uint32_t i = 0; i < kHalf; ++i) accR[i] += sr * t[i];
     }
-    float peak = 0.0f;
-    for (uint32_t i = 0; i < kBlock; ++i) {
-        const float l = 0.6f * accL[i], r = 0.6f * accR[i];
-        outL[i] = clampUnitFast(l);
-        outR[i] = clampUnitFast(r);
+    // 5. Back to full rate (linear interpolation).
+    float pl = tankOut_[0], pr = tankOut_[1], peak = 0.0f;
+    for (uint32_t j = 0; j < kHalf; ++j) {
+        const float l = 0.75f * accL[j], r = 0.75f * accR[j];
+        outL[2 * j] = clampUnitFast(0.5f * (pl + l));
+        outR[2 * j] = clampUnitFast(0.5f * (pr + r));
+        outL[2 * j + 1] = clampUnitFast(l);
+        outR[2 * j + 1] = clampUnitFast(r);
+        pl = l;
+        pr = r;
         const float al = l < 0 ? -l : l;
         peak = al > peak ? al : peak;
     }
+    tankOut_[0] = pl;
+    tankOut_[1] = pr;
     w_ = w + kBlock;
+    wh_ = h + kHalf;
     if (!anyIn && peak < 2e-5f) quiet_ += kBlock;
     else quiet_ = 0;
     return true;

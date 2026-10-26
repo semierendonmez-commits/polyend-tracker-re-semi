@@ -146,7 +146,9 @@ TEST(texture_plate_room_models) {
         Run on, t1, t2, late;
         int idle = 0, idleLate = 0;
         if (k == 0) {
-            plate.init(mem.data());
+            static int16_t sramAp[4][512];
+            int16_t* const sram[4] = {sramAp[0], sramAp[1], sramAp[2], sramAp[3]};
+            plate.init(mem.data(), sram);
             plate.activate();
             plate.setSize(0.8f);
             plate.setDamping(0.3f);

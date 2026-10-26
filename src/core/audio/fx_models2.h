@@ -3,9 +3,9 @@
 //  * PlateReverb: Jon Dattorro's plate ("Effect Design, Part 1", JAES 1997),
 //    the network Valley's Plateau is built on: bandwidth filter, four input
 //    diffusers, a figure-eight tank of two modulated all-passes, damped
-//    delays and decay diffusers, output taps from both halves. The delays
-//    are the paper's sample counts x 0.9 at 44.1 kHz (a smaller, brighter
-//    plate) so the network fits the stock reverb memory.
+//    delays and decay diffusers, output taps from both halves. The tank runs
+//    at half rate (22.05 kHz) with the paper's timing (its 29.76 kHz sample
+//    counts x 0.741), which halves its cost and fits the reverb memory.
 //  * TextureReverb: a granular cloud in the manner of Mutable Instruments
 //    Clouds / Beads: four grains read the recent send input at random
 //    positions (some an octave up or down), panned, fed back into the buffer
@@ -25,8 +25,10 @@ namespace audio {
 
 class PlateReverb {
 public:
-    static constexpr uint32_t kMemorySamples = 30720;
-    void init(int16_t* mem);
+    static constexpr uint32_t kMemorySamples = 26624;
+    // mem: the SDRAM rings; sram: four int16[512] all-pass buffers borrowed
+    // from the (then idle) FdnReverb for the input diffusers (per sample).
+    void init(int16_t* mem, int16_t* const sram[4]);
     void activate() { clearPending_ = true; }
     void setSize(float v) { size_ = v; }
     void setDamping(float v) { damp_ = v; }
@@ -35,12 +37,14 @@ public:
     bool process(const float* in, float* outL, float* outR);
 
 private:
-    enum { kPre, kIn0, kIn1, kIn2, kIn3, kMod0, kDel0, kAp0, kDel1, kMod1, kDel2, kAp1, kDel3, kRings };
+    enum { kPre, kMod0, kDel0, kAp0, kDel1, kMod1, kDel2, kAp1, kDel3, kRings };
     int16_t* ring_[kRings] = {};
     uint32_t mask_[kRings] = {};
+    int16_t* in_[4] = {};
+    uint16_t inPos_[4] = {};
     bool clearPending_ = true;
     float size_ = 0.6f, damp_ = 0.3f, diff_ = 0.7f;
-    uint32_t pre_ = 0, w_ = 0, lfo_ = 0, quiet_ = 0;
+    uint32_t pre_ = 0, w_ = 0, wh_ = 0, lfo_ = 0, quiet_ = 0;
     float bw_ = 0.0f, dampZ_[2] = {}, tankOut_[2] = {};
 };
 
