@@ -15,76 +15,91 @@ Image: `PolyendTrackerOTs221.ptf` (installs like the upstream image, see Install
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
-### Screenshots (2.2.1-semi, simulator, Early Cyber theme unless named)
+### Screenshots (2.2.1-semi, simulator)
 
-| **Generate: Acid** | **Acid line on the ACD synth (Glide, accents)** |
+| **Generate: Acid, live preview on the right** | **Generate: Acid, page 2 (Shift)** |
 |---|---|
-| ![Generate: Acid](screenshots/2.2.1-semi/gen-acid.png) | ![Acid line on the ACD synth (Glide, accents)](screenshots/2.2.1-semi/acid-result.png) |
-| **Generate: Call+Resp** | **Generate: BBCut procedures** |
-| ![Generate: Call+Resp](screenshots/2.2.1-semi/gen-callresp.png) | ![Generate: BBCut procedures](screenshots/2.2.1-semi/gen-bbcut.png) |
-| **Generate: Turnaround** | **Generate: Genotype** |
-| ![Generate: Turnaround](screenshots/2.2.1-semi/gen-turnaround.png) | ![Generate: Genotype](screenshots/2.2.1-semi/gen-genotype.png) |
-| **Generate: Station** | **Config: 16 display themes** |
-| ![Generate: Station](screenshots/2.2.1-semi/gen-station.png) | ![Config: 16 display themes](screenshots/2.2.1-semi/cfg-themes.png) |
+| ![Generate: Acid, live preview on the right](screenshots/2.2.1-semi/gen-acid.png) | ![Generate: Acid, page 2 (Shift)](screenshots/2.2.1-semi/gen-acid-page2.png) |
+| **Generate: Call+Resp (Form, C / R tags)** | **Generate: BBCut (Jungle, Mutate)** |
+| ![Generate: Call+Resp (Form, C / R tags)](screenshots/2.2.1-semi/gen-callresp.png) | ![Generate: BBCut (Jungle, Mutate)](screenshots/2.2.1-semi/gen-bbcut.png) |
+| **Generate: BBCut page 2 (Rolls, Pitch, Timing, Dynamics)** | **Generate: Turnaround (FX Soft / Medium / Hard)** |
+| ![Generate: BBCut page 2 (Rolls, Pitch, Timing, Dynamics)](screenshots/2.2.1-semi/gen-bbcut-page2.png) | ![Generate: Turnaround (FX Soft / Medium / Hard)](screenshots/2.2.1-semi/gen-turnaround.png) |
+| **Generate: Genotype** | **Generate: Station (what the radio gives)** |
+| ![Generate: Genotype](screenshots/2.2.1-semi/gen-genotype.png) | ![Generate: Station (what the radio gives)](screenshots/2.2.1-semi/gen-station.png) |
+| **Six generated tracks** | **Acid line on the ACD synth (Glide, accents)** |
+| ![Six generated tracks](screenshots/2.2.1-semi/gen-multitrack.png) | ![Acid line on the ACD synth (Glide, accents)](screenshots/2.2.1-semi/acid-result.png) |
+| **Data screen: Barcode** | **Data screen: Matrix, Tracks colour** |
+| ![Data screen: Barcode](screenshots/2.2.1-semi/data-barcode.png) | ![Data screen: Matrix, Tracks colour](screenshots/2.2.1-semi/data-matrix.png) |
+| **Data screen: vertical view** | **Data screen: Rain** |
+| ![Data screen: vertical view](screenshots/2.2.1-semi/data-vertical.png) | ![Data screen: Rain](screenshots/2.2.1-semi/data-rain.png) |
+| **Data screen: Pulse** | **Display font: Pixel (Departure Mono)** |
+| ![Data screen: Pulse](screenshots/2.2.1-semi/data-pulse.png) | ![Display font: Pixel (Departure Mono)](screenshots/2.2.1-semi/font-pixel.png) |
+| **Theme: Vaporwave** | **Theme: Game Boy** |
+| ![Theme: Vaporwave](screenshots/2.2.1-semi/theme-vaporwave.png) | ![Theme: Game Boy](screenshots/2.2.1-semi/theme-gameboy.png) |
+| **Theme: Blueprint** | **Theme: Spectrum (animated)** |
+| ![Theme: Blueprint](screenshots/2.2.1-semi/theme-blueprint.png) | ![Theme: Spectrum (animated)](screenshots/2.2.1-semi/theme-spectrum.png) |
 | **Sample Editor: Transcode** | **Transcode applied (G.726, 8 generations, bit errors)** |
 | ![Sample Editor: Transcode](screenshots/2.2.1-semi/fx-transcode.png) | ![Transcode applied (G.726, 8 generations, bit errors)](screenshots/2.2.1-semi/fx-transcode-applied.png) |
-| **Sample Editor: DCT Crush** | **Data screen: Barcode** |
-| ![Sample Editor: DCT Crush](screenshots/2.2.1-semi/fx-dct.png) | ![Data screen: Barcode](screenshots/2.2.1-semi/data-barcode.png) |
-| **Data screen: Matrix** | **Theme: Corporate** |
-| ![Data screen: Matrix](screenshots/2.2.1-semi/data-matrix.png) | ![Theme: Corporate](screenshots/2.2.1-semi/theme-corporate.png) |
+| **Sample Editor: DCT Crush** | **Theme: Corporate** |
+| ![Sample Editor: DCT Crush](screenshots/2.2.1-semi/fx-dct.png) | ![Theme: Corporate](screenshots/2.2.1-semi/theme-corporate.png) |
 | **Theme: Amber CRT** | **Theme: Green Phosphor** |
 | ![Theme: Amber CRT](screenshots/2.2.1-semi/theme-amber.png) | ![Theme: Green Phosphor](screenshots/2.2.1-semi/theme-green.png) |
 | **Theme: Datamatic** | **Theme: Thermal** |
 | ![Theme: Datamatic](screenshots/2.2.1-semi/theme-datamatic.png) | ![Theme: Thermal](screenshots/2.2.1-semi/theme-thermal.png) |
 | **Theme: Rave Flyer** | **Theme: Jungle** |
 | ![Theme: Rave Flyer](screenshots/2.2.1-semi/theme-rave.png) | ![Theme: Jungle](screenshots/2.2.1-semi/theme-jungle.png) |
-| **Theme: Teletext** | |
-| ![Theme: Teletext](screenshots/2.2.1-semi/theme-teletext.png) | |
 
 ### Generate (Pattern, page 3, F3, edit mode on)
-A Fill-style popup: F1 picks the generator, F2..F7 its parameters, F8 writes it into the
-selection (or the cursor track). One undo step per Generate; Seed 0 is random, any other seed
-gives the same result again.
-- **Acid:** a 303 line in the project scale in the TB-3PO manner (density, accent, slide,
-  range). Slides become Glide, accents Volume 100, short notes Gate.
-- **Call+Resp:** a call phrase and its answer, after Nordl3's Call / Response Generator
-  (46 styles, 38 answer strategies). It can also answer a call you wrote yourself.
-- **BBCut:** Nick Collins' BBCut procedures (via the BBenCut Ableton extension) on a sliced
-  break: Classic, ChooseCut, ChooseBlk, WarpCut, SQPusher1, SQPusher2, CageCut, Timeline,
-  Permute, ThrashCut. Short cuts become Roll FX, off-grid starts Micro-move.
-- **Turnaround:** phrase-end edits on a budget (rolls, stutters, drops, reverse, builds) at the
-  end of every phrase, half and quarter phrase.
-- **Genotype:** learns the selected steps and plays a variation made only of them, as a
-  Markov walk, a bouncing TILT ball, or both.
-- **Station:** a numbers-station line read from the radio (RDS name, PI code, frequency) in
-  groups of five, as notes or as slices of a voice counting 0..9.
+A Fill-style popup: F1 picks the generator, F2..F7 its parameters, **Shift** the second page,
+F8 writes the result into the selection (or the cursor track). The right column is a **live
+preview** of exactly what F8 writes; the encoder push draws a new random result, and a strip
+explains the selected parameter. One undo step per Generate; Seed 0 is random.
+- **Acid:** a 303 line in the TB-3PO manner. Density -7..+7 adds or removes notes in a fixed
+  order, so the melody stays; accent, slide, range, root, gate. The line stays **live**: the
+  Perform FX **Acid Density** moves its density, **Mutate** re-rolls it every 1 / 2 / 4 / 8 loops.
+- **Call+Resp:** call and answer after Nordl3's generator (46 styles, 38 answers) with a Form
+  (C R, C R C R, C C R, ...), steps per part, ending, answer octave and motif length. **Two
+  tracks** puts the call on one track and the answer on the next, taking turns.
+- **BBCut:** Nick Collins' procedures on a sliced break: Classic, ChooseCut, **Jungle**, WarpCut,
+  SQPusher1/2, CageCut, Timeline, Permute, ThrashCut. Rolls end cleanly where they stop; roll
+  style, per-hit pitch (±1..3), timing and dynamics are selectable, and **Mutate** gives new cuts
+  every N loops while it plays.
+- **Turnaround:** phrase-end rolls, stutters, drops, reverse and builds on a budget, with an FX
+  strength (Soft / Medium / Hard) and tidy timing.
+- **Genotype:** learns the selected steps and plays a variation made only of them.
+- **Station:** a numbers-station line read from the radio (RDS name, PI, frequency); the
+  preview shows what it read and the digits.
 
 ### Live
-- **Acid Mutate:** the generated acid line re-rolls part of its steps at every loop end while
-  it plays (two tracks at a time; Mutate 0 locks it).
-- **Play modes B1..B10:** Performance "Pattern Play Mode" gets ten BBCut modes after C20. They
-  cut and roll any track's own steps; a new cut set is built at every stop.
+- **Play modes B1..B10** (BBCut) and **T1..T4** (TILT: Bounce, Flipper, Gravity, Multiball) in
+  Performance "Pattern Play Mode". **Config > BB play modes** sets when the B modes get new cuts
+  (every stop, every 1 / 2 / 4 / 8 loops, or locked).
+- **Acid Density** (Perform FX) and **Acid / BBCut Mutate** (above).
 
 ### Sample Editor effects
-- **Transcode:** codec generation loss: G.711 u-law / A-law and G.726 40k / 32k / 24k / 16k at
-  8 to 22 kHz, up to 16 tandem passes, bit errors, packet loss with three concealment modes.
-- **DCT Crush:** spectral block crush: keep the strongest bins, quantise them, freeze frames.
+- **Transcode:** G.711 / G.726 codec generation loss with bit errors and packet loss.
+- **DCT Crush:** spectral block crush.
+- **Radio** (CIPHER): shortwave band, QSB fading, heterodyne whistle, noise and static crashes.
+- **Clipper** (NEXUSCLIP): seven clip curves with drive, knee, ceiling and level match.
 
-### Config
-- **Auto slice: Breaks:** a spectral-flux onset detector that finds every hit of a fast break
-  (up to 48 slices, 46 ms apart), next to the stock detector.
-- **16 display themes** (13 new): Early Cyber, Corporate, Amber CRT, Green Phosphor, Thermal,
-  Workstation, Datamatic, Dubplate, Rave Flyer, Jungle, Ice, Sunset, Teletext.
+### Config, Mixer, Song, Pattern
+- **23 display themes** (20 new), two of them animated (Cyber Pulse, Spectrum), and a third
+  display font, **Pixel** (Departure Mono, OFL).
+- **Auto slice: Breaks** (finds every hit of a fast break) and **Beat Slice thru** (a Beat
+  Slice note plays on past its slice).
+- **Global Mixer:** synth slots mute (tap) and solo (Shift). **Song:** hold Note / Instr / Fx1 /
+  Fx2 to colour the blocks. **Pattern:** the FX list opens at the last effect used in the column.
 
 ### Radio and Data screen
-- **RDS:** the station name shows in the Sample Recorder title. **Shift + seek** scans the band
-  (4 s per station); record while it scans for a radio collage.
-- **Data screen** (File, F7): an Ikeda / datamatics style view of what plays: Barcode, Matrix
-  and raw Numbers, with the next steps on the pads.
+- **RDS:** the station name shows in the Sample Recorder title. **Shift + seek** scans the band.
+- **Data screen** (File, F7): Barcode, Matrix, Numbers, Rain and Pulse, horizontal or vertical,
+  in three colour modes; only the tracks with notes, over the whole screen. Pads mute tracks,
+  the encoder sets the tempo.
 
 ### Build
-- The fork builds without Games by default (with Games the image does not fit the 720 KB
-  flash limit). Image size 698 KB; all host tests, simulator checks and CI pass.
+- The fork builds without Games by default. Its flash budget is 800 KB (upstream 720 KB); the
+  hard limit, the stock 1.9.2 image extent (877,664 B), is checked on every build. Image size
+  about 726 KB; all host tests and simulator checks pass.
 
 ## Screenshots (2.2.1, on an original Tracker)
 

@@ -54,6 +54,14 @@ void PatternScreen::genInitDefaults() {
     }
 }
 
+// A generator with parameters past the first six has a second page.
+static bool genHasPage2(int kind) {
+    const gen::KindDesc& kd = gen::kind(kind);
+    for (int i = gen::kPageParams; i < gen::kParams; ++i)
+        if (kd.p[i].name) return true;
+    return false;
+}
+
 bool PatternScreen::genFieldBlank(int f) const {
     if (f <= 0) return false;
     return gen::param(genKind, genParamIndex(f), genVals[genKind]).name == nullptr;
@@ -94,6 +102,7 @@ void PatternScreen::genValueText(int f, char* out, int cap) const {
 void PatternScreen::genSet(int f, int v, bool wrap) {
     if (f == 0) {
         genKind = wrap && v >= gen::kKindCount ? 0 : clampi(v, 0, gen::kKindCount - 1);
+        if (!genHasPage2(genKind)) genPage = 0;
         genChanged();
         return;
     }
@@ -134,7 +143,7 @@ void PatternScreen::genButton(uint8_t id) {
     } else if (id == btn::F8) {
         genApply();
     } else if (id == btn::Shift) {
-        genPage ^= 1;
+        if (genHasPage2(genKind)) genPage ^= 1;
     } else if (id == btn::EncPush) {
         genEntropy_ = genEntropy_ * 1664525u + 1013904223u;   // another random draw
         genChanged();
@@ -314,20 +323,30 @@ void PatternScreen::drawGenPreview(Gfx& g, int x, int y, int w, int h) {
     g.fill(x, y, w, h, th.panelDark);
     if (genPrevN_ <= 0 || !genPrev_.ok) {
         const char* m = genPrev_.msg[0] ? genPrev_.msg : "No preview";
-        // Wrap the message on spaces into the column (font 1, 9 chars per line).
-        char line[12];
+        // Word-wrap the message into the column (font 1, up to 11 chars per
+        // line; a longer word is cut).
+        constexpr int kMax = 11;
+        char line[kMax + 1];
         int li = 0, yy = y + 14;
-        for (const char* p = m;; ++p) {
-            if (*p == ' ' || *p == 0 || li >= 9) {
+        const char* p = m;
+        while (*p) {
+            while (*p == ' ') ++p;
+            int wl = 0;
+            while (p[wl] && p[wl] != ' ') ++wl;
+            if (!wl) break;
+            if (li && li + 1 + wl > kMax) {
                 line[li] = 0;
-                if (li) g.text(x + 4, yy, kFont1, th.dim, line, IDisplay::kOptCenterY);
+                g.text(x + 4, yy, kFont1, th.dim, line, IDisplay::kOptCenterY);
                 yy += 18;
                 li = 0;
-                if (!*p) break;
-                if (*p != ' ') line[li++] = *p;
-            } else {
-                line[li++] = *p;
             }
+            if (li) line[li++] = ' ';
+            for (int i = 0; i < wl && li < kMax; ++i) line[li++] = p[i];
+            p += wl;
+        }
+        if (li) {
+            line[li] = 0;
+            g.text(x + 4, yy, kFont1, th.dim, line, IDisplay::kOptCenterY);
         }
         return;
     }
@@ -424,12 +443,16 @@ void PatternScreen::drawGen(Gfx& g) {
     genPreview();
     const gen::KindDesc& kd = gen::kind(genKind);
     char title[48];
-    std::snprintf(title, sizeof(title), "Generate %s  %d/2", kd.name, genPage + 1);
+    if (genHasPage2(genKind))   // the "n/2" tag only for generators with a second page
+        std::snprintf(title, sizeof(title), "Generate %s  %d/2", kd.name, genPage + 1);
+    else std::snprintf(title, sizeof(title), "Generate %s", kd.name);
     g.fill(0, wg::kMainTop, kScreenW, kTop - wg::kMainTop, th.slot(slot::kTitle + 1));
     g.text(10, wg::kMainTop + 12, kFont4, th.slot(slot::kTitle), title, IDisplay::kOptCenterY);
     g.text(790, wg::kMainTop + 12, kFont3, th.slot(slot::kTitle), genMsg[0] ? genMsg : kd.help,
            IDisplay::kOptCenterY | IDisplay::kOptRightX);
-    const char* help = genField == 0 ? "F1 generator, F2-F7 settings, Shift: page 2, push: new draw, F8 writes the preview" : nullptr;
+    const char* help = genField != 0 ? nullptr
+                       : genHasPage2(genKind) ? "F1 generator, F2-F7 settings, Shift: page 2, push: new draw, F8 writes the preview"
+                                              : "F1 generator, F2-F7 settings, push: new draw, F8 writes the preview";
     if (genField > 0) {
         const gen::ParamDesc& d = gen::param(genKind, genParamIndex(genField), genVals[genKind]);
         help = d.help ? d.help : d.name;
