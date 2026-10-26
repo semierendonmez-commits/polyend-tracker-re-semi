@@ -148,6 +148,11 @@ void Config::sanitize() {
     clampField<uint8_t>(levelMeter, 1, 0);
     clampField<uint8_t>(reverbModel, uint8_t(kReverbModels - 1), 0);
     clampField<uint8_t>(delayModel, uint8_t(kDelayModels - 1), 0);
+    clampField<uint8_t>(satDrive, 24, 0);
+    clampField<uint8_t>(satMixInv, 100, 0);
+    clampField<uint8_t>(satToneInv, 100, 0);
+    clampField<uint8_t>(limCeiling, 12, 0);
+    clampField<uint8_t>(limLink, 1, 0);
     if (synthVoices < 1 || synthVoices > kMaxSynthVoices) synthVoices = kDefaultSynthVoices;
     validateImage(image);
 }
@@ -185,7 +190,12 @@ void Config::toExt(uint8_t* out) const {
     out[14] = levelMeter;
     out[15] = reverbModel;
     out[16] = delayModel;
-    for (int i = 0; i < 4; ++i) out[17 + i] = extReserved[i];
+    out[17] = satDrive;
+    out[18] = satMixInv;
+    out[19] = satToneInv;
+    out[20] = limCeiling;
+    out[21] = limLink;
+    for (int i = 0; i < 7; ++i) out[22 + i] = extReserved[i];
     uint8_t sum = 0;
     for (uint32_t i = 0; i < kExtPayload; ++i) sum = uint8_t(sum + out[5 + i]);
     out[5 + kExtPayload] = sum;
@@ -212,7 +222,12 @@ bool Config::fromExt(const uint8_t* in, uint32_t len) {
     levelMeter = (n >= 10 && in[14] <= 1) ? in[14] : 0;
     reverbModel = (n >= 11 && in[15] < kReverbModels) ? in[15] : 0;
     delayModel = (n >= 12 && in[16] < kDelayModels) ? in[16] : 0;
-    for (uint32_t i = 0; i < 4; ++i) extReserved[i] = n >= 13 + i ? in[17 + i] : 0;
+    satDrive = (n >= 13 && in[17] <= 24) ? in[17] : 0;
+    satMixInv = (n >= 14 && in[18] <= 100) ? in[18] : 0;
+    satToneInv = (n >= 15 && in[19] <= 100) ? in[19] : 0;
+    limCeiling = (n >= 16 && in[20] <= 12) ? in[20] : 0;
+    limLink = (n >= 17 && in[21] <= 1) ? in[21] : 0;
+    for (uint32_t i = 0; i < 7; ++i) extReserved[i] = n >= 18 + i ? in[22 + i] : 0;
     return true;
 }
 
@@ -268,6 +283,11 @@ bool Config::fromImage(const uint8_t* img) {
     c.levelMeter = levelMeter;
     c.reverbModel = reverbModel;
     c.delayModel = delayModel;
+    c.satDrive = satDrive;
+    c.satMixInv = satMixInv;
+    c.satToneInv = satToneInv;
+    c.limCeiling = limCeiling;
+    c.limLink = limLink;
     std::memcpy(c.extReserved, extReserved, sizeof(extReserved));
     std::memcpy(c.scenes, scenes, sizeof(scenes));
     c.uiTheme = c.theme;     // the stock theme; an extension record may name a fork palette
@@ -308,7 +328,8 @@ bool Config::save(INvStore& nv) {
     bool writeExt = true;
     if (cpuMeter == 0 && synthVoices == kDefaultSynthVoices && sliceDetector == 0 && uiTheme < kThemeCount &&
         bbReseed == 0 && sliceThru == 0 && uiFont < 2 && scaleLock == 0 && screenSaver == 0 && levelMeter == 0 &&
-        reverbModel == 0 && delayModel == 0 && !anyScene()) {
+        reverbModel == 0 && delayModel == 0 && satDrive == 0 && satMixInv == 0 && satToneInv == 0 &&
+        limCeiling == 0 && limLink == 0 && !anyScene()) {
         Config probe;
         writeExt = nv.read(kExtOffset, ext, kExtSize) && probe.fromExt(ext, kExtSize);
     }

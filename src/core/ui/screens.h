@@ -403,7 +403,8 @@ public:
 #endif
     bool ownsModuleKey(uint8_t id) const override { return id == btn::Master; }
 
-    int page = 0;           // 0 master, 1 track mixer, 2 global mixer
+    int page = 0;           // 0 master, 1 track mixer, 2 global mixer, 3 dynamics (OT fork)
+    int dynParam = 0;       // OT fork Dynamics page: selected column 0..7
     int sub = 0;            // master sub-page: 0 main, 1 reverb, 2 delay, 3 limiter, 4 EQ
     int param = 0;          // selected parameter on the (sub-)page
     bool rename = false;
@@ -427,6 +428,7 @@ public:
     // 0..kGrRangeDb (OpenTracker's scale).
     static constexpr float kGrRangeDb = 24.0f;
     static float reductionDb(float meanGain);
+    void dynChange(int d);   // OT fork Dynamics page
     float gainReduction = 0.0f;   // dB, >= 0
     // 2.x Global Mixer 3/3 synth meters (manual p.220, "right is the
     // actual"): mean of the last 10 slot-bus peaks (10 ms apart), -48..0 dBFS

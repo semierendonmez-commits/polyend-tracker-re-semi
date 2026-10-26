@@ -117,6 +117,8 @@ public:
     // Returns false when the output block is all zero because the limiter
     // sat at rest (silent input, empty look-ahead, envelope 0, gain 1).
     bool process(const float* x, const float* sc, float* out);
+    // OT fork: stereo link, the detector is det (max |L|, |R|), no mix-back.
+    bool processLinked(const float* x, const float* det, float* out);
     float lastGain() const { return lastG_; }
     float meanGain() const { return meanG_; }
 

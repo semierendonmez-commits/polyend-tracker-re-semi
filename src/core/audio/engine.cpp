@@ -492,6 +492,19 @@ void AudioEngine::updateParams() {
         limL_.setCoefs(ca, cr);
         limR_.setCoefs(ca, cr);
     }
+    // OT fork Dynamics (Master 4/4).
+    dynDrive_ = std::pow(10.0f, float(m.satDrive) / 20.0f);
+    dynMakeup_ = 1.0f / std::sqrt(dynDrive_);
+    dynMix_ = float(m.satMix > 100 ? 100 : m.satMix) / 100.0f;
+    {
+        // Tone: one-pole low-pass, 100 % open, 0 % ~ 1 kHz.
+        const float t = float(m.satTone > 100 ? 100 : m.satTone) / 100.0f;
+        const float fc = 1000.0f * std::pow(20.0f, t);   // 1 kHz .. 20 kHz
+        dynToneA_ = t >= 0.999f ? 1.0f : 1.0f - std::exp(-6.2831853f * fc / 44100.0f);
+    }
+    dynCeil_ = std::pow(10.0f, -float(m.limCeiling) / 20.0f);
+    dynOn_ = m.satDrive > 0 || m.satMix < 100 || dynToneA_ < 1.0f;
+    dynLink_ = m.limLink;
     // Mixer gains (§5.4, §5.5).
     master_.set(trkGain(m.masterVolume));
     click_.set(sendGain(m.metronomeVolume));   // OUT input 5 (spec 07 Q10)
@@ -760,6 +773,24 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
                 case 4: masterSum<4>(l0, li); break;
                 default: masterSumClean(l0, li); break;   // the default mode, from SRAM_L (.fastrun)
             }
+            if (dynOn_) {
+                // OT fork Dynamics: drive into the saturation curve (with a
+                // make-up of half the drive in dB), dry / wet mix, then the
+                // tone low-pass.
+                const int mode = m.saturationMode > 4 ? 0 : m.saturationMode;
+                const float dr = dynDrive_, mk = dynMakeup_, wet = dynMix_, dry = 1.0f - dynMix_, a = dynToneA_;
+                float* ch[2] = {mL_, mR_};
+                for (int sd = 0; sd < 2; ++sd) {
+                    float z = dynZ_[sd];
+                    float* x = ch[sd];
+                    for (uint32_t i = 0; i < kBlock; ++i) {
+                        const float y = dry * x[i] + wet * mk * saturate(x[i] * dr, mode ? mode : 1);
+                        z += a * (y - z);
+                        x[i] = z;
+                    }
+                    dynZ_[sd] = z;
+                }
+            }
         }
     }
     // 7. limiter with optional side-chain (§5.3)
@@ -770,8 +801,28 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
         sc = m.sidechain == 9 ? lineL_ : lineR_;
     }
     float limOutL[kBlock], limOutR[kBlock];
-    const bool limL = limL_.process(mL_, sc, limOutL);
-    const bool limR = limR_.process(mR_, sc, limOutR);
+    bool limL, limR;
+    if (dynLink_ && !sc) {
+        // OT fork: stereo-linked limiting, both sides from max(|L|, |R|).
+        float det[kBlock];
+        for (uint32_t i = 0; i < kBlock; ++i) {
+            const float l = mL_[i] < 0.0f ? -mL_[i] : mL_[i], r = mR_[i] < 0.0f ? -mR_[i] : mR_[i];
+            det[i] = l > r ? l : r;
+        }
+        limL = limL_.processLinked(mL_, det, limOutL);
+        limR = limR_.processLinked(mR_, det, limOutR);
+    } else {
+        limL = limL_.process(mL_, sc, limOutL);
+        limR = limR_.process(mR_, sc, limOutR);
+    }
+    if (dynCeil_ < 1.0f) {   // OT fork: output ceiling after the limiter
+        for (uint32_t i = 0; i < kBlock; ++i) {
+            if (limL) limOutL[i] *= dynCeil_;
+            else mL_[i] *= dynCeil_;
+            if (limR) limOutR[i] *= dynCeil_;
+            else mR_[i] *= dynCeil_;
+        }
+    }
     {
         // OT fork: master peak after the limiter (title level meter), every
         // 8th frame like the bus meters.

@@ -221,6 +221,12 @@ void App::applyEngineSettings() {
     // Track mute comes from the project bytes 0x12C+t (spec 03 §2.4); the
     // Track Mixer implements solo by muting.
     m.masterVolume = cfg.masterVolume > 100 ? 100 : cfg.masterVolume;   // spec 05 §5.4
+    // OT fork Master 4/4 "Dynamics" (config).
+    m.satDrive = cfg.satDrive;
+    m.satMix = uint8_t(100 - (cfg.satMixInv > 100 ? 100 : cfg.satMixInv));
+    m.satTone = uint8_t(100 - (cfg.satToneInv > 100 ? 100 : cfg.satToneInv));
+    m.limCeiling = cfg.limCeiling;
+    m.limLink = cfg.limLink != 0;
     m.metronomeVolume = cfg.metronomeVolume;
     m.previewVolume = cfg.previewVolume > 100 ? 100 : cfg.previewVolume;
     // Config "Line in channel" (spec 15 §2.2 #11): clamp > 2 -> 2 and push it

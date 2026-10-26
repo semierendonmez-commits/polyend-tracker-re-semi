@@ -90,7 +90,15 @@ struct Config {
     uint8_t levelMeter = 0;
     uint8_t reverbModel = 0;
     uint8_t delayModel = 0;
-    uint8_t extReserved[4] = {};
+    // OT fork, bytes 17..21 (Master 4/4 "Dynamics"): saturation drive 0..24 dB,
+    // 100 - saturation mix %, 100 - tone % (0 = open), limiter ceiling
+    // 0..12 dB down, limiter stereo link 0/1. Bytes 22..28 kept for later.
+    uint8_t satDrive = 0;
+    uint8_t satMixInv = 0;
+    uint8_t satToneInv = 0;
+    uint8_t limCeiling = 0;
+    uint8_t limLink = 0;
+    uint8_t extReserved[7] = {};
     static constexpr uint8_t kBBLocked = 5;
     static constexpr uint8_t kScreenSaverMax = 4;
     static constexpr uint8_t kReverbModels = 4;   // Stock, Plate, Hall, Shimmer (fork)
@@ -117,7 +125,7 @@ struct Config {
     // the payload. A missing or bad record leaves the defaults.
     static constexpr uint32_t kExtOffset = kImageSize;
     static constexpr uint8_t kExtVersion = 1;
-    static constexpr uint32_t kExtPayload = 16;   // cpuMeter .. scaleLock (8), screenSaver .. delayModel (4), 4 reserved
+    static constexpr uint32_t kExtPayload = 24;   // cpuMeter .. scaleLock (8), screenSaver .. delayModel (4), dynamics (5), 7 reserved
     static constexpr uint32_t kExtSize = 5 + kExtPayload + 1;
     void toExt(uint8_t* out) const;                          // kExtSize bytes
     bool fromExt(const uint8_t* in, uint32_t len);           // false: none / bad (fields unchanged)

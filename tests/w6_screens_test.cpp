@@ -86,16 +86,16 @@ TEST(w6_display_list_budget) {
     budget(r, "Performance FX");
 
     r.h.tap(btn::Master);
-    budget(r, "Master 1/3");
+    budget(r, "Master 1/4");
     for (uint8_t f : {btn::F2, btn::F3, btn::F4, btn::F5}) {
         r.h.tap(f);
         budget(r, "Master sub-page");
         r.h.tap(btn::F8);
     }
     r.h.tap(btn::Master);
-    budget(r, "Track Mixer 2/3");
+    budget(r, "Track Mixer 2/4");
     r.h.tap(btn::Master);
-    budget(r, "Global Mixer 3/3");
+    budget(r, "Global Mixer 3/4");
     applyFontSet(nullptr, 0);
 }
 

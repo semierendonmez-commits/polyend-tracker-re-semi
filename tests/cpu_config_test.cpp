@@ -35,7 +35,7 @@ TEST(cpu_config_extension_record) {
     CHECK(c.save(nv));
     CHECK(std::equal(stock.begin(), stock.end(), nv.mem.begin()));
     // Payload: cpuMeter, synthVoices (2.x M3, OP-8), then the 8-bit sum.
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 16, 1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5);   // OT fork payload 16
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 24, 1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5);   // OT fork payload 24
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.cpuMeter, 1);
@@ -77,7 +77,7 @@ TEST(synth_voices_config) {
     CHECK_EQ(c.synthVoices, 4);
     c.synthVoices = 6;   // a non-default budget alone writes the record
     CHECK(c.save(nv));
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 16, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6);   // OT fork payload 16
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 24, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6);   // OT fork payload 24
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.synthVoices, 6);
@@ -232,6 +232,8 @@ TEST(ot_fork_extension_fields) {
     g.levelMeter = 1;
     g.reverbModel = 2;
     g.delayModel = 1;
+    g.satDrive = 12;
+    g.limLink = 1;
     CHECK(g.save(nv5));
     Config gr;
     CHECK(gr.load(nv5));
@@ -240,6 +242,8 @@ TEST(ot_fork_extension_fields) {
     CHECK_EQ(gr.levelMeter, 1);
     CHECK_EQ(gr.reverbModel, 2);
     CHECK_EQ(gr.delayModel, 1);
+    CHECK_EQ(gr.satDrive, 12);
+    CHECK_EQ(gr.limLink, 1);
     // An 8-byte payload record (2.2.1-semi.2) keeps its fields, the new ones
     // start at their defaults.
     const uint8_t old8[] = {'O', 'T', 'X', 1, 8, 0, 4, 1, 3, 2, 1, 2, 0, 13};

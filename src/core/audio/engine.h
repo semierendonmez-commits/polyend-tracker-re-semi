@@ -126,6 +126,11 @@ struct MixerSettings {
     float limiterReleaseMs = 10.0f;
     uint8_t limiterMode = 0;
     uint8_t sidechain = 0;            // 0 off, 1..8 track, 9/10 line-in L/R
+    // OT fork Master 4/4 "Dynamics" (config, not project): saturation drive
+    // 0..24 dB, mix 0..100 %, tone 0..100 % (100 = open), limiter ceiling
+    // 0..12 dB down, stereo-linked limiter detection.
+    uint8_t satDrive = 0, satMix = 100, satTone = 100, limCeiling = 0;
+    bool limLink = false;
     // line input (§1.3, §5.4, §5.5)
     uint8_t lineInChannel = 0;        // 0 stereo, 1 left->both, 2 right->both
     uint8_t lineInLevel = 86;
@@ -398,6 +403,10 @@ private:
     volatile float peak_[kVoices] = {};
     volatile float busPeak_[4][2] = {};
     volatile float masterPeak_[2] = {};   // OT fork: masterPeak()
+    // OT fork Dynamics stage state (colour after the saturation sum).
+    float dynDrive_ = 1.0f, dynMakeup_ = 1.0f, dynMix_ = 1.0f, dynToneA_ = 1.0f, dynCeil_ = 1.0f;
+    float dynZ_[2] = {};
+    bool dynOn_ = false, dynLink_ = false;
     volatile int32_t head_[kVoices] = {};   // voicePlayhead() snapshot (init() sets -1)
 
     // metronome click instruments (normal / accent finetune, spec 07 Q10)

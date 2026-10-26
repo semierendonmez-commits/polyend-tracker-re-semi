@@ -288,7 +288,7 @@ TEST(master_list_and_bar_direction_table) {
 }
 
 TEST(mixer_fader_direction) {
-    // Track Mixer 2/3 and Global Mixer 3/3: hold F1 + encoder / Up = higher.
+    // Track Mixer 2/4 and Global Mixer 3/4: hold F1 + encoder / Up = higher.
     for (int page = 1; page <= 2; ++page)
         for (int key : {kEncUp, kEncDown, int(btn::Up), int(btn::Down)}) {
             Harness h;

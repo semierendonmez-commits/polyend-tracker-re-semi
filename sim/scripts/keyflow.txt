@@ -53,6 +53,8 @@ expect-master 1 0
 tap MASTER 250
 expect-master 2 0
 tap MASTER 120
+expect-master 3 0
+tap MASTER 120
 expect-master 0 0
 tap MASTER
 tap MASTER

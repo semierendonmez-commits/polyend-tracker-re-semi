@@ -602,7 +602,8 @@ void Limiter::reset() {
 }
 
 namespace {
-template <bool kSc>
+// kSc: 0 normal, 1 side-chain (sc mixed back un-ducked), 2 linked (detector only).
+template <int kSc>
 inline float limiterRun(const float* __restrict x, const float* __restrict sc, float* __restrict out,
                         const float* __restrict dl, float& envR, float& gsR, float& gR, float ca, float cr,
                         float thr) {
@@ -617,7 +618,7 @@ inline float limiterRun(const float* __restrict x, const float* __restrict sc, f
         gs = c2 * g + (1.0f - c2) * gs;
         // 4-sample look-ahead line.
         float y = gs * dl[i];
-        if (kSc) y += (1.0f - gs) * sc[i];
+        if (kSc == 1) y += (1.0f - gs) * sc[i];
         out[i] = y;
         sum += gs;
     }
@@ -660,8 +661,25 @@ OT_FASTRUN_FN bool Limiter::process(const float* x, const float* sc, float* out)
         dl[i + 4] = x[i];
     }
     float g = 1.0f;
-    const float sum = sc ? limiterRun<true>(x, sc, out, dl, env_, gs_, g, ca_, cr_, thr_)
-                         : limiterRun<false>(x, sc, out, dl, env_, gs_, g, ca_, cr_, thr_);
+    const float sum = sc ? limiterRun<1>(x, sc, out, dl, env_, gs_, g, ca_, cr_, thr_)
+                         : limiterRun<0>(x, sc, out, dl, env_, gs_, g, ca_, cr_, thr_);
+    for (uint32_t j = 0; j < 4; ++j) hist_[j] = x[kBlock - 4 + j];
+    hp_ = 0;
+    lastG_ = g;
+    meanG_ = sum / float(kBlock);
+    return true;
+}
+
+bool Limiter::processLinked(const float* x, const float* det, float* out) {
+    if (disabled_) {
+        for (uint32_t i = 0; i < kBlock; ++i) out[i] = x[i];
+        return true;
+    }
+    float dl[kBlock + 4];
+    for (uint32_t j = 0; j < 4; ++j) dl[j] = hist_[(hp_ + j) & 3u];
+    for (uint32_t i = 0; i < kBlock; ++i) dl[i + 4] = x[i];
+    float g = 1.0f;
+    const float sum = limiterRun<2>(x, det, out, dl, env_, gs_, g, ca_, cr_, thr_);
     for (uint32_t j = 0; j < 4; ++j) hist_[j] = x[kBlock - 4 + j];
     hp_ = 0;
     lastG_ = g;

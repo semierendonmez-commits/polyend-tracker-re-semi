@@ -281,6 +281,8 @@ TEST(screen_switching_and_dl_budget) {
     h.tap(btn::Master);
     CHECK(mx.page == 2);
     h.tap(btn::Master);
+    CHECK(mx.page == 3);   // OT fork: Dynamics 4/4
+    h.tap(btn::Master);
     CHECK(mx.page == 0);
 }
 

@@ -336,6 +336,24 @@ void MixerScreen::refreshBar() {
     Project& p = a.project;
     b.clear();
     char v[24];
+    if (page == 3) {   // OT fork Dynamics
+        const Config& c = a.cfg;
+        b.set(0, "Lim Mode", p.u8(pf::kLimiterMode) ? "Extreme" : "Subtle");
+        b.set(1, "Lim Link", c.limLink ? "On" : "Off");
+        std::snprintf(v, sizeof(v), c.limCeiling ? "-%d dB" : "0 dB", c.limCeiling);
+        b.set(2, "Ceiling", v);
+        std::snprintf(v, sizeof(v), "%.1f dB", double(gainReduction));
+        b.set(3, "Gain Reduce", v);
+        b.set(4, "Saturation", kSatNames[clampi(p.u8(pf::kSaturation), 0, 4)]);
+        std::snprintf(v, sizeof(v), "+%d dB", c.satDrive);
+        b.set(5, "Drive", v);
+        std::snprintf(v, sizeof(v), "%d%%", 100 - c.satMixInv);
+        b.set(6, "Sat Mix", v);
+        if (c.satToneInv) std::snprintf(v, sizeof(v), "%d%%", 100 - c.satToneInv);
+        else std::snprintf(v, sizeof(v), "Open");
+        b.set(7, "Tone", v);
+        return;
+    }
     if (page == 0) {
         if (sub == 0) {
             masterVolumeText(a.cfg.masterVolume, v, sizeof(v));
@@ -509,8 +527,29 @@ void MixerScreen::masterChange(int d) {
     a.markProjectDirty();
 }
 
+void MixerScreen::dynChange(int d) {
+    App& a = app_;
+    Config& c = a.cfg;
+    Project& p = a.project;
+    switch (dynParam) {
+        case 0: p.setU8(pf::kLimiterMode, uint8_t(clampi(p.u8(pf::kLimiterMode) + d, 0, 1))); a.markProjectDirty(); return;
+        case 1: c.limLink = uint8_t(clampi(c.limLink + d, 0, 1)); break;
+        case 2: c.limCeiling = uint8_t(clampi(c.limCeiling + d, 0, 12)); break;
+        case 4: p.setU8(pf::kSaturation, uint8_t(clampi(p.u8(pf::kSaturation) + d, 0, 4))); a.markProjectDirty(); return;
+        case 5: c.satDrive = uint8_t(clampi(c.satDrive + d, 0, 24)); break;
+        case 6: c.satMixInv = uint8_t(clampi(c.satMixInv - d * 2, 0, 100)); break;
+        case 7: c.satToneInv = uint8_t(clampi(c.satToneInv - d * 2, 0, 100)); break;
+        default: return;
+    }
+    a.markConfigDirty();
+}
+
 void MixerScreen::change(int d) {
     App& a = app_;
+    if (page == 3) {   // OT fork Dynamics: list columns move down with +
+        dynChange((dynParam == 0 || dynParam == 1 || dynParam == 4) ? d : d);
+        return;
+    }
     if (page == 0) {
         masterChange(d);
         return;
@@ -627,12 +666,21 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                 ui_.switchTo(ui_.previous());
                 return;
             }
-            if (!masterHoldFired_) page = (page + 1) % 3;   // the hold already jumped
+            if (!masterHoldFired_) page = (page + 1) % 4;   // the hold already jumped; OT fork: + Dynamics
         }
         refreshBar();
         return;
     }
     if (masterPending_ && state == kPress && ui_.isDown(btn::Master)) otherKeyDuringMaster_ = true;
+    if (btn::isFKey(id) && page == 3) {   // OT fork Dynamics: F keys pick the column (F4 is the meter)
+        if (state == kPress && id != 3) {
+            if (dynParam == id && (id == 0 || id == 1 || id == 4)) dynChange(1);   // lists: again = next
+            dynParam = id;
+        }
+        refreshBar();
+        ui_.dirty();
+        return;
+    }
     if (btn::isFKey(id)) {
         const int f = id;
         if (page == 0) {
@@ -733,6 +781,7 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
 
 #if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
 bool MixerScreen::encoderOnList() const {
+    if (page == 3) return dynParam == 0 || dynParam == 1 || dynParam == 4;   // OT fork Dynamics lists
     return page == 0 && isListParam(sub, param);   // Master option lists
 }
 #endif
@@ -777,7 +826,7 @@ void MixerScreen::drawBankB(Gfx& g, uint32_t off) {
     App& a = app_;
     const Theme& th = ui_.th();
     const uint32_t green = th.slot(slot::kGreen);
-    ui_.drawTitle(g, "Track Mixer 2/3", rename ? "RENAME  Tracks 9-16" : kBankBText);
+    ui_.drawTitle(g, "Track Mixer 2/4", rename ? "RENAME  Tracks 9-16" : kBankBText);
     for (int i = 0; i < 8; ++i) {
         const int t = 8 + i, x = colX(i);
         char nm[24];
@@ -797,7 +846,7 @@ float MixerScreen::reductionDb(float meanGain) {
 }
 
 void MixerScreen::update(uint32_t now) {
-    if (page == 0 && sub == 3) {
+    if ((page == 0 && sub == 3) || page == 3) {
         // Limiter gain-reduction meter (spec 06 §4.3), live.
         if (now - lastGr_ < 50) return;
         lastGr_ = now;
@@ -870,7 +919,33 @@ void MixerScreen::draw(Gfx& g) {
     App& a = app_;
     const Theme& th = ui_.th();
     Project& p = a.project;
-    static const char* kSub[5] = {"Master 1/3", "Master Reverb", "Master Delay", "Master Limiter", "Master EQ"};
+    static const char* kSub[5] = {"Master 1/4", "Master Reverb", "Master Delay", "Master Limiter", "Master EQ"};
+    if (page == 3) {
+        // OT fork "Dynamics 4/4": limiter mode / link / ceiling, the
+        // gain-reduction meter, saturation mode / drive / mix / tone.
+        ui_.drawTitle(g, "Dynamics 4/4");
+        static const char* const kLimModes[2] = {"Subtle", "Extreme"};
+        static const char* const kOffOn[2] = {"Off", "On"};
+        const Config& c = a.cfg;
+        optionList(g, th, 0, kLimModes, 2, clampi(p.u8(pf::kLimiterMode), 0, 1));
+        optionList(g, th, 1, kOffOn, 2, c.limLink ? 1 : 0);
+        columnBar(g, th, 2, c.limCeiling / 12.0f);
+        column(g, th, 3);
+        {
+            const uint32_t cc = th.slot(slot::kCyan);
+            const int fx = colX(3) + 11, fw = 76, top = 39;
+            const int h = int(gainReduction / kGrRangeDb * 369.0f + 0.5f);
+            wg::blendFill(g, fx, top - 1, fw, 1, cc, wg::kEdgeA);
+            wg::blendFill(g, fx, top + h + 1, fw, 1, cc, wg::kEdgeA);
+            g.fill(fx, top, fw, h + 1, cc);
+        }
+        optionList(g, th, 4, kSatNames, 5, clampi(p.u8(pf::kSaturation), 0, 4));
+        columnBar(g, th, 5, c.satDrive / 24.0f);
+        columnBar(g, th, 6, (100 - c.satMixInv) / 100.0f);
+        columnBar(g, th, 7, (100 - c.satToneInv) / 100.0f);
+        columnFocus(g, th, dynParam);
+        return;
+    }
     if (page == 0) {
         ui_.drawTitle(g, kSub[sub]);
         if (sub == 0) {
@@ -953,7 +1028,7 @@ void MixerScreen::draw(Gfx& g) {
             drawBankB(g, off);
             return;
         }
-        ui_.drawTitle(g, "Track Mixer 2/3", rename ? "RENAME" : nullptr);
+        ui_.drawTitle(g, "Track Mixer 2/4", rename ? "RENAME" : nullptr);
         // Per track a header, the fader body and bar (x 2 + 100 t) and the
         // meter body and bar (x 52 + 100 t), in layers (headers() above).
         Head hd[8];
@@ -987,7 +1062,7 @@ void MixerScreen::draw(Gfx& g) {
     // spec 06 §4.5 / VISUAL_DIFF §8.13: four channels, each a 32-px fader and
     // two 32-px meters on one panel; the rest one empty panel. The engine
     // meters show each channel's level, L and R (AudioEngine::busPeak) [I].
-    ui_.drawTitle(g, "Global Mixer 3/3");
+    ui_.drawTitle(g, "Global Mixer 3/4");
     Head hd[4 + kSynthSlotCount];
     Body bd[4 + 2 * kSynthSlotCount];
     wg::ValueBarItem br[12 + 2 * kSynthSlotCount];

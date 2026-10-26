@@ -771,7 +771,7 @@ TEST(midi_input_synth_polyphonic_while_playing) {
     CHECK(a.seq.isPlaying());
 }
 
-// Track Mixer 2/3 meters include the synth notes a track plays (simulator
+// Track Mixer 2/4 meters include the synth notes a track plays (simulator
 // report on "BG Battle": only the sample track's meter moved).
 TEST(track_mixer_meters_follow_synth_tracks) {
     std::unique_ptr<Harness> hp = deviceHarness();
@@ -790,7 +790,7 @@ TEST(track_mixer_meters_follow_synth_tracks) {
             if (tr[size_t(t)].steps[st].note >= 0 && tr[size_t(t)].steps[st].instrument >= ts::kSynthBase) synthTrack[t] = true;
     }
     h.tap(ot::btn::Master);
-    h.tap(ot::btn::Master);   // Track Mixer 2/3
+    h.tap(ot::btn::Master);   // Track Mixer 2/4
     auto& m = *static_cast<ot::MixerScreen*>(a.ui.screen(ot::kModMaster));
     CHECK_EQ(m.page, 1);
     a.seq.playSong(0);
