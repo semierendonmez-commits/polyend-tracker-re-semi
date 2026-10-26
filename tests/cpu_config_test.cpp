@@ -35,7 +35,7 @@ TEST(cpu_config_extension_record) {
     CHECK(c.save(nv));
     CHECK(std::equal(stock.begin(), stock.end(), nv.mem.begin()));
     // Payload: cpuMeter, synthVoices (2.x M3, OP-8), then the 8-bit sum.
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 8, 1, 4, 0, 0, 0, 0, 0, 0, 5);   // OT fork: + sliceDetector, uiTheme, bbReseed, sliceThru, 2 reserved
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 16, 1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5);   // OT fork payload 16
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.cpuMeter, 1);
@@ -77,7 +77,7 @@ TEST(synth_voices_config) {
     CHECK_EQ(c.synthVoices, 4);
     c.synthVoices = 6;   // a non-default budget alone writes the record
     CHECK(c.save(nv));
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 8, 0, 6, 0, 0, 0, 0, 0, 0, 6);   // OT fork payload 8
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 16, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6);   // OT fork payload 16
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.synthVoices, 6);
@@ -224,4 +224,33 @@ TEST(ot_fork_extension_fields) {
     CHECK(fr.load(nv4));
     CHECK_EQ(fr.uiFont, 2);
     CHECK_EQ(fr.font, 0);
+    // Payload 16: Scale lock, screen saver, level meter, reverb / delay model.
+    FakeNvStore nv5;
+    Config g;
+    g.scaleLock = 1;
+    g.screenSaver = 3;
+    g.levelMeter = 1;
+    g.reverbModel = 2;
+    g.delayModel = 1;
+    CHECK(g.save(nv5));
+    Config gr;
+    CHECK(gr.load(nv5));
+    CHECK_EQ(gr.scaleLock, 1);
+    CHECK_EQ(gr.screenSaver, 3);
+    CHECK_EQ(gr.levelMeter, 1);
+    CHECK_EQ(gr.reverbModel, 2);
+    CHECK_EQ(gr.delayModel, 1);
+    // An 8-byte payload record (2.2.1-semi.2) keeps its fields, the new ones
+    // start at their defaults.
+    const uint8_t old8[] = {'O', 'T', 'X', 1, 8, 0, 4, 1, 3, 2, 1, 2, 0, 13};
+    for (size_t i = 0; i < sizeof(old8); ++i) nv5.mem[0xF4 + i] = old8[i];
+    CHECK(gr.load(nv5));
+    CHECK_EQ(gr.sliceDetector, 1);
+    CHECK_EQ(gr.uiTheme, 3);
+    CHECK_EQ(gr.bbReseed, 2);
+    CHECK_EQ(gr.sliceThru, 1);
+    CHECK_EQ(gr.uiFont, 2);
+    CHECK_EQ(gr.scaleLock, 0);
+    CHECK_EQ(gr.screenSaver, 0);
+    CHECK_EQ(gr.reverbModel, 0);
 }

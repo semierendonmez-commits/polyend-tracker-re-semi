@@ -89,6 +89,7 @@ public:
     // magnified RGB332 frame draw on its own bitmap handle.
     bool writeRamG(uint32_t ramgAddr, const void* src, uint32_t len) override;
     void drawRgb332(int16_t x, int16_t y, uint32_t ramgAddr, uint16_t w, uint16_t h, uint8_t scale) override;
+    void drawL1Rows(int16_t x, const int16_t* ys, uint8_t n, uint32_t ramgAddr, uint16_t w) override;
 
     // RAM_G map (1 MiB, 0x000000..0x0FFFFF):
     //   0x000000 .. 0x05DBFF  snapshot band (readPixels), 800 x 240 RGB565 = 384,000 B
@@ -101,6 +102,7 @@ public:
     //                         <= 400 x 400 x 2 = 320,000 B for the cover (the only image)
     //   0x0F1C00 .. 0x0FFBFF  cached display-list fragments: 14 slots x 4 KB
     //                         (kFragRamG, IDisplay::kFragmentSlots, spec 05 §3.3)
+    //   0x0FFC00 .. 0x0FFFFF  L1 masks (IDisplay::kRamGMask: pattern grid dashes)
     // Images must start at or above kImageRamGMin so a screenshot never
     // overwrites a loaded image (and vice versa).
     static constexpr uint32_t kSnapRamG = 0x000000;
@@ -139,6 +141,7 @@ public:
                   "fragment slots overlap the Games frame / snapshot band");
     static_assert(kFragRamG % 4 == 0 && kFragRamGEnd <= IDisplay::kRamGSize,
                   "fragment slots must end inside RAM_G");
+    static_assert(kFragRamGEnd <= IDisplay::kRamGMask, "fragment slots overlap the mask area");
 
     // Last frame's upload statistics (telemetry, docs/HARDWARE_TESTING.md):
     // bytes on the SPI wire for the command FIFO (data + the REG_CMD_READ /

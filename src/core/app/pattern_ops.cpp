@@ -271,9 +271,53 @@ void writeFxValue(Pattern& p, const SelRect& r, int col, uint8_t value) {
         }
 }
 
-int stepNote(Pattern& p, const SelRect& r, int delta, uint8_t curInstr) {
+int scaleMove(int note, int deg, int root, uint8_t scale) {
+    const int dir = deg > 0 ? 1 : -1;
+    int n = note;
+    for (int k = 0; k != deg; k += dir) {
+        int m = n + dir, guard = 0;
+        while (m >= 0 && m <= 127 && !isInScale(m, root, scale) && ++guard < 12) m += dir;
+        if (m < 0 || m > 127 || !isInScale(m, root, scale)) break;
+        n = m;
+    }
+    return n;
+}
+
+int stepNote(Pattern& p, const SelRect& r, int delta, uint8_t curInstr, int root, uint8_t scale) {
     // spec 06 §1.7 Note column (0x12c40).
     if (!validRect(r)) return -1;
+    if (root >= 0 && delta % 12 != 0 && scaleMask(scale) != 0xFFF) {
+        // OT fork Scale lock.
+        auto move = [&](int n) {
+            if (isInScale(n, root, scale)) return scaleMove(n, delta, root, scale);
+            const int dir = delta > 0 ? 1 : -1;   // the snap into the scale is the first degree
+            return scaleMove(scaleMove(n, dir, root, scale), delta - dir, root, scale);
+        };
+        if (r.single()) {
+            Step& s = p.tracks[r.t0].steps[r.s0];
+            if (s.note == kNoteEmpty) {
+                if (delta > 0) {
+                    int n = 60;
+                    while (n < 127 && !isInScale(n, root, scale)) ++n;
+                    s.note = int8_t(n);
+                } else {
+                    s.note = int8_t(clampi(-1 + delta, kNoteOff, -1));
+                }
+                if (isSampleInstrument(s.instrument)) s.instrument = mapInstrument(r.t0, curInstr);
+            } else if (s.note >= 0) {
+                s.note = int8_t(move(s.note));
+            } else {
+                s.note = int8_t(clampi(s.note + delta, kNoteOff, kNoteMax));
+            }
+            return s.note;
+        }
+        for (int t = r.t0; t <= r.t1; ++t)
+            for (int s = r.s0; s <= r.s1; ++s) {
+                Step& st = p.tracks[t].steps[s];
+                if (st.note >= 0) st.note = int8_t(move(st.note));
+            }
+        return -1;
+    }
     if (r.single()) {
         Step& s = p.tracks[r.t0].steps[r.s0];
         if (s.note == kNoteEmpty) {

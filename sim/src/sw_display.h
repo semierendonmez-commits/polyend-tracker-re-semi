@@ -80,6 +80,7 @@ public:
     // (nearest filtering, scissored, modulated by COLOR_RGB/COLOR_A).
     bool writeRamG(uint32_t ramgAddr, const void* src, uint32_t len) override;
     void drawRgb332(int16_t x, int16_t y, uint32_t ramgAddr, uint16_t w, uint16_t h, uint8_t scale) override;
+    void drawL1Rows(int16_t x, const int16_t* ys, uint8_t n, uint32_t ramgAddr, uint16_t w) override;
     const uint8_t* ramG() const { return ramg_.data(); }
     // Fragments (CMD_APPEND model). setFragments(false) behaves like a
     // display without fragment support (A/B pixel checks).

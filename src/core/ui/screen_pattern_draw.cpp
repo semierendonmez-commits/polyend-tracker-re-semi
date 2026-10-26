@@ -179,6 +179,59 @@ void doubleLeft(Gfx& g, int x, int y, uint32_t c) {
 }  // namespace
 
 // ---------------------------------------------------------------------------
+// OT fork: empty-cell dash masks (see drawGridVertical step 3)
+
+bool PatternScreen::buildDashMasks(bool threeTracks, uint8_t* out, int& w) const {
+    const App& a = app_;
+    if (a.cfg.arrangement == 2) return false;
+    const Layout L = layoutFor(colMask);
+    const bool descOpen = pop_.isOpen() && pop_.kind() == 3 && pop_.descriptionOpen();
+    const int nT = threeTracks && !colMask ? (descOpen ? 2 : 3) : L.tracks;
+    w = nT * L.trackW;   // trackX0 .. trackX(nT) - 1
+    if (w > kDashMaskBytes * 8) w = kDashMaskBytes * 8;
+    std::memset(out, 0, size_t(kDashMasks) * kDashMaskBytes);
+    for (int v = 0; v < nT; ++v) {
+        const int t = firstTrack + v;
+        if (t >= kTrackCount) continue;
+        const bool muted = a.trackMuted(t);
+        for (int c = 0; c < 4; ++c) {
+            if (!L.col[c].shown) continue;
+            uint8_t* m = out + (muted ? 4 : c) * kDashMaskBytes;
+            const int x = v * L.trackW + L.col[c].text;
+            for (int i = 0; i < L.col[c].chars; ++i)
+                for (int j = 0; j < kDashW; ++j) {
+                    const int px = x + i * kPitch + 1 + j;
+                    if (px >= 0 && px < w) m[px >> 3] |= uint8_t(0x80u >> (px & 7));
+                }
+        }
+    }
+    return true;
+}
+
+void PatternScreen::uploadDashMasks() {
+    IDisplay* d = app_.hal().display;
+    if (!d) return;
+    uint8_t buf[kDashMasks * kDashMaskBytes];
+    int w = 0;
+    if (!buildDashMasks(pop_.isOpen() && pop_.kind() != 0, buf, w)) return;
+    if (dashValid_ && w == dashW_ && std::memcmp(buf, dashCur_, sizeof(buf)) == 0) return;
+    // Never rewrite the slot the frame on screen may still show.
+    const uint8_t slot = dashValid_ && dashSlotDrawn_ ? uint8_t(dashSlot_ ^ 1) : dashSlot_;
+    static_assert(2 * kDashSlotBytes <= int(IDisplay::kRamGMaskBytes) &&
+                      kDashMasks * kDashMaskBytes <= kDashSlotBytes,
+                  "dash masks exceed the RAM_G mask area");
+    if (!d->writeRamG(IDisplay::kRamGMask + uint32_t(slot) * kDashSlotBytes, buf, sizeof(buf))) {
+        dashValid_ = false;
+        return;
+    }
+    std::memcpy(dashCur_, buf, sizeof(buf));
+    dashW_ = w;
+    dashSlot_ = slot;
+    dashValid_ = true;
+    dashSlotDrawn_ = false;
+}
+
+// ---------------------------------------------------------------------------
 // Grid
 
 void PatternScreen::drawGrid(Gfx& g) {
@@ -243,54 +296,77 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
         g.rectsEnd();
     }
 
-    // 3. Dash columns: one tall rect per character cell of every shown
-    //    column, from the first to the last visible dash line, per colour.
-    const int dashY0 = bandTop(0) + dashDy, dashY1 = bandTop(kRows - 1) + dashDy;
-    for (int c = 0; c < 4; ++c) {
-        if (!L.col[c].shown) continue;
-        for (int pass = 0; pass < 2; ++pass) {   // 0 normal tracks, 1 muted
+    // 3. Dashes. OT fork: L1 row masks (pixel exact) when the uploaded
+    //    masks match this view; otherwise one tall rect per character cell of
+    //    every shown column, from the first to the last visible dash line,
+    //    per colour, and (4.) masks restoring the rows between two dash lines.
+    //    On the device the RECTS masks reach half a pixel into the dash rows,
+    //    so every dash row but the last one looked faded.
+    uint8_t maskNow[kDashMasks * kDashMaskBytes];
+    int maskW = 0;
+    const bool useMasks = dashValid_ && buildDashMasks(threeTracks, maskNow, maskW) && maskW == dashW_ &&
+                          std::memcmp(maskNow, dashCur_, sizeof(maskNow)) == 0;
+    if (useMasks) {
+        int16_t ys[kRows];
+        for (int r = 0; r < kRows; ++r) ys[r] = int16_t(bandTop(r) + dashDy);
+        for (int k = 0; k < kDashMasks; ++k) {
+            const uint8_t* m = maskNow + k * kDashMaskBytes;
             bool any = false;
-            for (int v = 0; v < nT && !any; ++v) {
-                const int t = firstTrack + v;
-                any = t < kTrackCount && a.trackMuted(t) == (pass == 1);
-            }
+            for (int i = 0; i < kDashMaskBytes && !any; ++i) any = m[i] != 0;
             if (!any) continue;
-            const uint32_t dc = wg::mix(bg, pass ? gc(th, kGcMuted) : gc(th, kGcNoteDark + c), 222);
-            g.rectsBegin(dc);
-            for (int v = 0; v < nT; ++v) {
-                const int t = firstTrack + v;
-                if (t >= kTrackCount || a.trackMuted(t) != (pass == 1)) continue;
-                const int x = trackX(v) + L.col[c].text;
-                for (int i = 0; i < L.col[c].chars; ++i)
-                    g.rectsAdd(x + i * kPitch + 1, dashY0, kDashW, dashY1 - dashY0 + 1);
-            }
-            g.rectsEnd();
+            const uint32_t dc = wg::mix(bg, k == 4 ? gc(th, kGcMuted) : gc(th, kGcNoteDark + k), 222);
+            g.l1Rows(trackX0, ys, kRows, IDisplay::kRamGMask + uint32_t(dashSlot_) * kDashSlotBytes +
+                                              uint32_t(k) * kDashMaskBytes, maskW, dc);
         }
-    }
-    // 4. Masks: restore the rows between two dash lines (split where the
-    //    band colour changes), then the 1-px AA rows of the beat bands.
-    for (int pass = 0; pass < 2; ++pass) {
-        const uint32_t mc = pass ? beatC : bg;
-        bool begun = false;
-        for (int r = 0; r + 1 < kRows; ++r) {
-            const int y0 = bandTop(r) + dashDy + 1, y1 = bandTop(r + 1) + dashDy - 1;
-            const int split = bandTop(r + 1);
-            auto add = [&](int ya, int yb) {
-                if (yb < ya) return;
-                if (!begun) {
-                    g.rectsBegin(mc);
-                    begun = true;
+        dashSlotDrawn_ = true;
+    } else {
+        const int dashY0 = bandTop(0) + dashDy, dashY1 = bandTop(kRows - 1) + dashDy;
+        for (int c = 0; c < 4; ++c) {
+            if (!L.col[c].shown) continue;
+            for (int pass = 0; pass < 2; ++pass) {   // 0 normal tracks, 1 muted
+                bool any = false;
+                for (int v = 0; v < nT && !any; ++v) {
+                    const int t = firstTrack + v;
+                    any = t < kTrackCount && a.trackMuted(t) == (pass == 1);
                 }
-                g.rectsAdd(trackX0 + 1, ya, dashX1 - trackX0, yb - ya + 1);
-            };
-            if (beat[r] == beat[r + 1]) {
-                if (beat[r] == (pass == 1)) add(y0, y1);
-            } else {
-                if (beat[r] == (pass == 1)) add(y0, split - 1);
-                if (beat[r + 1] == (pass == 1)) add(split, y1);
+                if (!any) continue;
+                const uint32_t dc = wg::mix(bg, pass ? gc(th, kGcMuted) : gc(th, kGcNoteDark + c), 222);
+                g.rectsBegin(dc);
+                for (int v = 0; v < nT; ++v) {
+                    const int t = firstTrack + v;
+                    if (t >= kTrackCount || a.trackMuted(t) != (pass == 1)) continue;
+                    const int x = trackX(v) + L.col[c].text;
+                    for (int i = 0; i < L.col[c].chars; ++i)
+                        g.rectsAdd(x + i * kPitch + 1, dashY0, kDashW, dashY1 - dashY0 + 1);
+                }
+                g.rectsEnd();
             }
         }
-        if (begun) g.rectsEnd();
+        // 4. Masks: restore the rows between two dash lines (split where the
+        //    band colour changes), then the 1-px AA rows of the beat bands.
+        for (int pass = 0; pass < 2; ++pass) {
+            const uint32_t mc = pass ? beatC : bg;
+            bool begun = false;
+            for (int r = 0; r + 1 < kRows; ++r) {
+                const int y0 = bandTop(r) + dashDy + 1, y1 = bandTop(r + 1) + dashDy - 1;
+                const int split = bandTop(r + 1);
+                auto add = [&](int ya, int yb) {
+                    if (yb < ya) return;
+                    if (!begun) {
+                        g.rectsBegin(mc);
+                        begun = true;
+                    }
+                    g.rectsAdd(trackX0 + 1, ya, dashX1 - trackX0, yb - ya + 1);
+                };
+                if (beat[r] == beat[r + 1]) {
+                    if (beat[r] == (pass == 1)) add(y0, y1);
+                } else {
+                    if (beat[r] == (pass == 1)) add(y0, split - 1);
+                    if (beat[r + 1] == (pass == 1)) add(split, y1);
+                }
+            }
+            if (begun) g.rectsEnd();
+        }
     }
     if (nBeat && divider > 0) {
         g.alpha(85);

@@ -6,6 +6,7 @@
 #include "app/pattern_ops.h"
 #include "app/undo.h"
 #include "sequencer/seq_tables.h"
+#include "ui/notes.h"
 
 using namespace ot;
 
@@ -59,6 +60,30 @@ TEST(write_note_rules) {
     // Encoder on an empty cell: down gives fade/cut/off.
     CHECK(pops::stepNote(p, rect(5, 5, 0, 0), -1, 0) == kNoteFade);
     CHECK(pops::stepNote(p, rect(6, 6, 0, 0), 1, 0) == 60);
+}
+
+TEST(scale_lock_steps_by_degree) {
+    // C major (scale 1 = 0x5ad? use the mask) from root C: E + 1 degree = F,
+    // F + 1 = G; an off-scale C# snaps up to D on +1; octaves stay octaves.
+    Pattern p;
+    p.setDefault();
+    uint8_t sc = 0;
+    for (uint8_t k = 1; k < kScaleCount; ++k)
+        if (scaleMask(k) == 0xAB5) sc = k;   // major: 0 2 4 5 7 9 11
+    CHECK(sc != 0);
+    p.tracks[0].steps[0].note = 64;   // E5
+    CHECK_EQ(pops::stepNote(p, rect(0, 0, 0, 0), 1, 0, 0, sc), 65);
+    CHECK_EQ(pops::stepNote(p, rect(0, 0, 0, 0), 1, 0, 0, sc), 67);
+    CHECK_EQ(pops::stepNote(p, rect(0, 0, 0, 0), -2, 0, 0, sc), 64);
+    CHECK_EQ(pops::stepNote(p, rect(0, 0, 0, 0), 12, 0, 0, sc), 76);
+    p.tracks[0].steps[1].note = 61;   // C#5
+    CHECK_EQ(pops::stepNote(p, rect(1, 1, 0, 0), 1, 0, 0, sc), 62);
+    p.tracks[0].steps[2].note = 61;
+    CHECK_EQ(pops::stepNote(p, rect(2, 2, 0, 0), -1, 0, 0, sc), 60);
+    // Chromatic (scale 0) or root -1: semitones as before.
+    p.tracks[0].steps[3].note = 64;
+    CHECK_EQ(pops::stepNote(p, rect(3, 3, 0, 0), 1, 0, 0, 0), 65);
+    CHECK_EQ(pops::stepNote(p, rect(3, 3, 0, 0), 1, 0), 66);
 }
 
 TEST(duplicate_expand_shrink_limits) {

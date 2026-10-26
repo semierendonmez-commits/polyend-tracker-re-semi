@@ -468,6 +468,37 @@ void SwDisplay::drawRgb332(int16_t x, int16_t y, uint32_t addr, uint16_t w, uint
     }
 }
 
+void SwDisplay::drawL1Rows(int16_t x, const int16_t* ys, uint8_t n, uint32_t addr, uint16_t w) {
+    // Not recordable into a fragment (the row list is not kept): counted only.
+    if (!replaying_) dl_ += 8u + n;
+    const uint32_t stride = (uint32_t(w) + 7u) / 8u;
+    if (!ys || !n || !w || addr + stride > kRamGSize) {
+        warnOnce(10, "drawL1Rows outside RAM_G", int(addr));
+        return;
+    }
+    const int cx0 = std::max<int>(scX_, 0), cy0 = std::max<int>(scY_, 0);
+    const int cx1 = std::min<int>(scX_ + scW_, kW), cy1 = std::min<int>(scY_ + scH_, kH);
+    const uint32_t a = a_;
+    if (!a) return;
+    const int tx = int(x) + translateX_ / 16;
+    uint32_t* px = back_.pixels();
+    const uint8_t* src = ramg_.data() + addr;
+    const uint32_t r = (rgb_ >> 16) & 255, g = (rgb_ >> 8) & 255, b = rgb_ & 255;
+    for (uint8_t i = 0; i < n; ++i) {
+        const int py = ys[i];
+        if (py < cy0 || py >= cy1) continue;
+        for (int k = 0; k < int(w); ++k) {
+            const int qx = tx + k;
+            if (qx < cx0 || qx >= cx1 || !(src[k >> 3] & (0x80u >> (k & 7)))) continue;
+            uint32_t& d = px[size_t(py) * kW + qx];
+            const uint32_t ia = 255 - a;
+            const uint32_t rr = (r * a + ((d >> 16) & 255) * ia) / 255, gg = (g * a + ((d >> 8) & 255) * ia) / 255,
+                           bb = (b * a + (d & 255) * ia) / 255;
+            d = 0xFF000000u | (rr << 16) | (gg << 8) | bb;
+        }
+    }
+}
+
 void SwDisplay::drawImage(int16_t x, int16_t y, uint32_t addr, uint16_t w, uint16_t h) {
     rec(16, x, y, int32_t(addr), w, h);
     if (!w || !h || (addr & 1u) || addr + uint32_t(w) * h * 2u > kRamGSize) {

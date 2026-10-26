@@ -46,6 +46,7 @@ static_assert(sizeof(kThemes) / sizeof(kThemes[0]) == kThemeTotal, "one label pe
 const char* const kSliceModes[] = {"Stock", "Breaks"};
 const char* const kBBReseed[] = {"New at stop", "Every loop", "Every 2 loops", "Every 4 loops", "Every 8 loops", "Locked"};
 const char* const kSliceThru[] = {"Off", "On"};
+const char* const kSaver[] = {"Off", "1 min", "2 min", "5 min", "10 min"};
 const char* const kFonts[] = {"Original", "New", "Pixel"};
 const char* const kRegions[] = {"Europe", "US", "Australia", "Japan"};
 const char* const kPreview[] = {"Off", "Track", "Pattern"};
@@ -101,6 +102,9 @@ const Opt kGeneral[] = {
     {"Auto slice", kEnum, kCfg, CF(sliceDetector), 0, 2, kSliceModes, 0},   // OT fork
     {"BB play modes", kEnum, kCfg, CF(bbReseed), 0, 6, kBBReseed, 0},       // OT fork
     {"Beat Slice thru", kEnum, kCfg, CF(sliceThru), 0, 2, kSliceThru, 0},   // OT fork
+    {"Scale lock", kEnum, kCfg, CF(scaleLock), 0, 2, kSliceThru, 0},        // OT fork (Off / On)
+    {"Screen saver", kEnum, kCfg, CF(screenSaver), 0, 5, kSaver, 0},        // OT fork
+    {"Level meter", kEnum, kCfg, CF(levelMeter), 0, 2, kSliceThru, 0},      // OT fork (Off / On)
 };
 const Opt kMidi[] = {
     {"Clock in", kEnum, kCfg, CF(clockIn), 0, 3, kClockIn, 0},

@@ -772,6 +772,19 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
     float limOutL[kBlock], limOutR[kBlock];
     const bool limL = limL_.process(mL_, sc, limOutL);
     const bool limR = limR_.process(mR_, sc, limOutR);
+    {
+        // OT fork: master peak after the limiter (title level meter), every
+        // 8th frame like the bus meters.
+        const float* o[2] = {limL ? limOutL : mL_, limR ? limOutR : mR_};
+        for (int sd = 0; sd < 2; ++sd) {
+            float p = masterPeak_[sd];
+            for (uint32_t i = 0; i < kBlock; i += 8) {
+                const float v = o[sd][i] < 0.0f ? -o[sd][i] : o[sd][i];
+                p = v > p ? v : p;
+            }
+            masterPeak_[sd] = p;
+        }
+    }
     if (tap) {
         // [I] Resample tap (see setResampleTap); a source that produced
         // nothing this block taps silence (null: IResampleTap). A Track

@@ -159,6 +159,16 @@ private:
     void pageButton(int f, uint8_t state);
     void drawGrid(Gfx& g);
     void drawGridVertical(Gfx& g, bool threeTracks);
+    // OT fork: the empty-cell dashes as L1 row masks in RAM_G (pixel exact;
+    // RECTS masks dimmed every dash row but the last on the device). One mask
+    // per column colour plus one for muted tracks, double-buffered.
+    static constexpr int kDashMasks = 5, kDashMaskBytes = 96, kDashSlotBytes = 512;
+    bool buildDashMasks(bool threeTracks, uint8_t* out, int& w) const;   // false: no vertical grid
+    void uploadDashMasks();
+    uint8_t dashCur_[kDashMasks * kDashMaskBytes] = {};
+    int dashW_ = 0;
+    bool dashValid_ = false, dashSlotDrawn_ = false;
+    uint8_t dashSlot_ = 0;
     void drawTitleBar(Gfx& g, bool popupRight);
     void drawBar(Gfx& g);
     void drawMuteBar(Gfx& g);

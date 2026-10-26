@@ -143,6 +143,11 @@ void Config::sanitize() {
     clampField<uint8_t>(bbReseed, kBBLocked, 0);
     clampField<uint8_t>(sliceThru, 1, 0);
     clampField<uint8_t>(uiFont, 2, 0);
+    clampField<uint8_t>(scaleLock, 1, 0);
+    clampField<uint8_t>(screenSaver, kScreenSaverMax, 0);
+    clampField<uint8_t>(levelMeter, 1, 0);
+    clampField<uint8_t>(reverbModel, uint8_t(kReverbModels - 1), 0);
+    clampField<uint8_t>(delayModel, uint8_t(kDelayModels - 1), 0);
     if (synthVoices < 1 || synthVoices > kMaxSynthVoices) synthVoices = kDefaultSynthVoices;
     validateImage(image);
 }
@@ -175,7 +180,12 @@ void Config::toExt(uint8_t* out) const {
     out[9] = bbReseed;
     out[10] = sliceThru;
     out[11] = uiFont;
-    out[12] = extReserved;
+    out[12] = scaleLock;
+    out[13] = screenSaver;
+    out[14] = levelMeter;
+    out[15] = reverbModel;
+    out[16] = delayModel;
+    for (int i = 0; i < 4; ++i) out[17 + i] = extReserved[i];
     uint8_t sum = 0;
     for (uint32_t i = 0; i < kExtPayload; ++i) sum = uint8_t(sum + out[5 + i]);
     out[5 + kExtPayload] = sum;
@@ -197,7 +207,12 @@ bool Config::fromExt(const uint8_t* in, uint32_t len) {
     bbReseed = (n >= 5 && in[9] <= kBBLocked) ? in[9] : 0;
     sliceThru = (n >= 6 && in[10] <= 1) ? in[10] : 0;
     if (n >= 7 && in[11] == 2) uiFont = 2;   // the Pixel set; else the image's font decides
-    extReserved = n >= 8 ? in[12] : 0;
+    scaleLock = (n >= 8 && in[12] <= 1) ? in[12] : 0;
+    screenSaver = (n >= 9 && in[13] <= kScreenSaverMax) ? in[13] : 0;
+    levelMeter = (n >= 10 && in[14] <= 1) ? in[14] : 0;
+    reverbModel = (n >= 11 && in[15] < kReverbModels) ? in[15] : 0;
+    delayModel = (n >= 12 && in[16] < kDelayModels) ? in[16] : 0;
+    for (uint32_t i = 0; i < 4; ++i) extReserved[i] = n >= 13 + i ? in[17 + i] : 0;
     return true;
 }
 
@@ -218,7 +233,12 @@ bool Config::fromImage(const uint8_t* img) {
     c.bbReseed = bbReseed;
     c.sliceThru = sliceThru;
     c.uiFont = c.font;   // the stock font; an extension record may name the Pixel set
-    c.extReserved = extReserved;
+    c.scaleLock = scaleLock;
+    c.screenSaver = screenSaver;
+    c.levelMeter = levelMeter;
+    c.reverbModel = reverbModel;
+    c.delayModel = delayModel;
+    std::memcpy(c.extReserved, extReserved, sizeof(extReserved));
     c.uiTheme = c.theme;     // the stock theme; an extension record may name a fork palette
     c.sanitize();
     *this = c;
@@ -236,6 +256,7 @@ bool Config::load(INvStore& nv) {
     sliceDetector = 0;
     bbReseed = 0;
     sliceThru = 0;
+    scaleLock = screenSaver = levelMeter = reverbModel = delayModel = 0;
     if (nv.size() >= kExtOffset + kExtSize && nv.read(kExtOffset, ext, kExtSize)) fromExt(ext, kExtSize);
     else if (nv.size() >= kExtOffset + kExtSize - 1 && nv.read(kExtOffset, ext, kExtSize - 1)) fromExt(ext, kExtSize - 1);   // v1 record
     return true;
@@ -251,7 +272,8 @@ bool Config::save(INvStore& nv) {
     if (nv.size() < kExtOffset + kExtSize) return true;
     uint8_t ext[kExtSize];
     if (cpuMeter == 0 && synthVoices == kDefaultSynthVoices && sliceDetector == 0 && uiTheme < kThemeCount &&
-        bbReseed == 0 && sliceThru == 0 && uiFont < 2) {
+        bbReseed == 0 && sliceThru == 0 && uiFont < 2 && scaleLock == 0 && screenSaver == 0 && levelMeter == 0 &&
+        reverbModel == 0 && delayModel == 0) {
         Config probe;
         if (!nv.read(kExtOffset, ext, kExtSize) || !probe.fromExt(ext, kExtSize)) return true;
     }
@@ -278,6 +300,7 @@ bool Config::load(IStorage& fs) {
         sliceDetector = 0;
         bbReseed = 0;
         sliceThru = 0;
+        scaleLock = screenSaver = levelMeter = reverbModel = delayModel = 0;
         fromExt(buf + 8 + kImageSize, avail - kImageSize);
         return true;
     }

@@ -169,6 +169,19 @@ public:
     virtual void drawRgb332(int16_t x, int16_t y, uint32_t ramgAddr, uint16_t w, uint16_t h, uint8_t scale) {
         (void)x; (void)y; (void)ramgAddr; (void)w; (void)h; (void)scale;
     }
+    // OT fork: small 1-bit masks in the last KB of RAM_G (the pattern grid's
+    // empty-cell dashes). Written with writeRamG from the main loop.
+    static constexpr uint32_t kRamGMaskBytes = 1024;
+    static constexpr uint32_t kRamGMask = kRamGSize - kRamGMaskBytes;
+    // Display-list draw of a w x 1 L1 bitmap (FT81x format 1: MSB = leftmost
+    // pixel, stride (w + 7) / 8) at RAM_G ramgAddr, once per entry of ys: top
+    // left at (x, ys[i]). Set bits take the current COLOR_RGB / COLOR_A, clear
+    // bits are transparent. Pixel exact: no anti-aliased edges, unlike RECTS,
+    // whose edges reach into the neighbouring pixel rows on the device.
+    // Costs 8 + n display-list words. Default: no-op.
+    virtual void drawL1Rows(int16_t x, const int16_t* ys, uint8_t n, uint32_t ramgAddr, uint16_t w) {
+        (void)x; (void)ys; (void)n; (void)ramgAddr; (void)w;
+    }
 
     // --- frame pacing (2.x non-blocking swap) ------------------------------
     // True when a new frame can start without waiting: the coprocessor has

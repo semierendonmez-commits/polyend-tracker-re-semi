@@ -51,6 +51,11 @@ const char* const kGeneralHelp[] = {
     "4 or 8 loops while playing, or never (Locked keeps the cuts you like).",
     "Beat Slice instruments: Off, a slice plays until the next slice starts. On, a slice plays on to the end of "
     "the sample (until the next note), good for BBCut and long chops.",
+    "On: turning the encoder on a note (or a selection) moves it through the notes of the project scale "
+    "(Config > Project > Notes scale and Root note) instead of semitones. Shift still moves whole octaves.",
+    "After this long without a key, pad or encoder, the Data screen fills the display while the music plays "
+    "on. Any key brings the page back.",
+    "Shows a small master output level meter in the title bar (peak, with a red mark when the output clips).",
 };
 // spec 15 §2.3 MIDI: only CC in (8), CC in channel (9) and Clock sync correction (11).
 const char* const kMidiHelp[] = {

@@ -264,6 +264,14 @@ public:
     // return, 2 Dry mix, 3 Line in after its level), side 0 L / 1 R, since the
     // last call (read and reset; main loop).
     float busPeak(int ch, int side);
+    // OT fork: peak of the master output after the limiter, side 0 L / 1 R,
+    // since the last call (read and reset; main loop).
+    float masterPeak(int side) {
+        const int s = side ? 1 : 0;
+        const float p = masterPeak_[s];
+        masterPeak_[s] = 0.0f;
+        return p;
+    }
 
     // Play position (sample frame) of track t's voice as of the last rendered
     // block, -1 when its player is stopped. A per-block snapshot, safe to read
@@ -389,6 +397,7 @@ private:
     } raw_;
     volatile float peak_[kVoices] = {};
     volatile float busPeak_[4][2] = {};
+    volatile float masterPeak_[2] = {};   // OT fork: masterPeak()
     volatile int32_t head_[kVoices] = {};   // voicePlayhead() snapshot (init() sets -1)
 
     // metronome click instruments (normal / accent finetune, spec 07 Q10)

@@ -1064,7 +1064,8 @@ void PatternScreen::editEncoder(int d) {
     if (col == 0) {
         if (d == 10 || d == -10) d = d > 0 ? 12 : -12;
         if (ui_.shift()) d *= 12;
-        const int n = pops::stepNote(a.pattern(), r, d, a.currentInstrument());
+        const int root = a.cfg.scaleLock ? int(a.project.u8(pf::kRootNote)) : -1;   // OT fork Scale lock
+        const int n = pops::stepNote(a.pattern(), r, d, a.currentInstrument(), root, a.project.u8(pf::kScale));
         if (n >= 0) a.project.setU8(pf::kLastNote, uint8_t(n));
         a.markProjectDirty();
         if (!a.seq.isPlaying() && r.single() && n >= 0) {
@@ -1524,6 +1525,7 @@ void PatternScreen::fillApply() {
 
 void PatternScreen::update(uint32_t now) {
     App& a = app_;
+    uploadDashMasks();   // OT fork: RAM_G writes only here, outside the frame
     // Playhead follow (not in edit mode): every pass, so the frame drawn for
     // a step change (App::onStepChanged -> Ui::dirty) already scrolls to the
     // new step. Behind the 20 ms throttle below the same step cost two

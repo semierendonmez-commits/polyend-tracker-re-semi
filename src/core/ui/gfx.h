@@ -157,6 +157,11 @@ public:
         w(a, xy(ww, hh));
     }
     void fragmentAppend(uint8_t slot) override { w(0x13000000u | slot); }
+    void drawL1Rows(int16_t x, const int16_t* ys, uint8_t n, uint32_t a, uint16_t ww) override {
+        w(0x1A000000u | n, xy(uint16_t(x), ww));
+        w(a);
+        for (uint8_t i = 0; i < n; ++i) w(uint32_t(uint16_t(ys[i])));
+    }
     // 1.9.5 visual-parity primitives (must hash too: a block differing only
     // in a gradient, translate or transform must not reuse a fragment).
     void gradient(int16_t x0, int16_t y0, uint32_t c0, int16_t x1, int16_t y1, uint32_t c1) override {
@@ -275,6 +280,9 @@ public:
     bool saveContext(uint32_t groupWords = 0);
     void restoreContext();
     void fill(int x, int y, int w, int h, uint32_t c);
+    // OT fork: a w x 1 L1 mask from RAM_G drawn in colour c at (x, ys[i]) for
+    // each row (IDisplay::drawL1Rows): pixel-exact thin marks.
+    void l1Rows(int x, const int16_t* ys, int n, uint32_t ramgAddr, int w, uint32_t c);
     void frame(int x, int y, int w, int h, uint32_t c, int lw = 1);
     void hline(int x, int y, int w, uint32_t c);
     void vline(int x, int y, int h, uint32_t c);

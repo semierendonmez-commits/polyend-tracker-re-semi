@@ -326,6 +326,9 @@ public:
 
     bool isDown(uint8_t id) const { return id < 64 && ((down_ >> id) & 1); }
     bool shift() const { return isDown(btn::Shift); }
+    // OT fork: Shift lock. A double tap on Shift keeps it held (screens see a
+    // held Shift) until the next Shift press.
+    bool shiftLocked() const { return shiftLock_; }
     bool padDown(int p) const { return p >= 0 && p < 48 && ((pads_ >> p) & 1); }
     uint32_t now() const { return now_; }
     uint32_t downTime(uint8_t id) const { return id < 64 ? downAt_[id] : 0; }
@@ -507,6 +510,17 @@ private:
     uint64_t down_ = 0;
     uint64_t pads_ = 0;
     uint64_t holdSent_ = 0;
+    bool shiftLock_ = false, shiftSwallowUp_ = false, shiftClean_ = false;
+    // OT fork screen saver: the Data screen after Config > Screen saver
+    // without input; the first input returns to saverPrev_.
+    uint32_t lastInputAt_ = 0;
+    // OT fork title level meter (Config > Level meter): smoothed peaks in px.
+    uint32_t meterAt_ = 0;
+    float meterLv_[2] = {};
+    uint8_t meterPx_[2] = {}, meterClip_ = 0;
+    bool saverOn_ = false;
+    int saverPrev_ = 2;
+    uint32_t shiftTapAt_ = 0;   // release time of a short Shift tap (0 = none)
     uint32_t downAt_[64] = {};
     uint32_t now_ = 0;
     uint32_t animAt_ = 0;   // OT fork: last animated-theme tick

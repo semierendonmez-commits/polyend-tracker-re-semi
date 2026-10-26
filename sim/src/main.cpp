@@ -643,6 +643,25 @@ struct Headless {
                     m.app->ui.dirty();
                 }
                 advance(1);
+            } else if (cmd == "cfg") {
+                // cfg NAME VALUE: OT fork options without the Config key flow.
+                if (m.app) {
+                    auto& c = m.app->cfg;
+                    const uint8_t v = uint8_t(std::atoi(a2.c_str()));
+                    if (a1 == "levelMeter") c.levelMeter = v;
+                    else if (a1 == "scaleLock") c.scaleLock = v;
+                    else if (a1 == "screenSaver") c.screenSaver = v;
+                    else if (a1 == "reverbModel") c.reverbModel = v;
+                    else if (a1 == "delayModel") c.delayModel = v;
+                    else if (a1 == "sliceThru") c.sliceThru = v;
+                    else {
+                        std::fprintf(stderr, "script:%d: unknown cfg '%s'\n", line, a1.c_str());
+                        return false;
+                    }
+                    m.app->applySequencerSettings();
+                    m.app->ui.dirty();
+                }
+                advance(1);
             } else if (cmd == "expect-open-ok") {
                 // The last project job finished without errors, no popup is
                 // open, and no notice other than "Project opened" was shown

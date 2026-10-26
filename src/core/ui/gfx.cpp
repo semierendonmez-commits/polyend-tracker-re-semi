@@ -328,6 +328,14 @@ void Gfx::fill(int x, int y, int w, int h, uint32_t c) {
     words_ += 4;
 }
 
+void Gfx::l1Rows(int x, const int16_t* ys, int n, uint32_t ramgAddr, int w, uint32_t c) {
+    if (!ys || n <= 0 || n > 255 || w <= 0 || !admit(uint32_t(8 + n))) return;
+    sync();
+    color(c);
+    d_->drawL1Rows(int16_t(x), ys, uint8_t(n), ramgAddr, uint16_t(w));
+    words_ += uint32_t(8 + n);
+}
+
 void Gfx::frame(int x, int y, int w, int h, uint32_t c, int lw) {
     fill(x, y, w, lw, c);
     fill(x, y + h - lw, w, lw, c);

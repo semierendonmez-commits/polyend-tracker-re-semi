@@ -956,6 +956,23 @@ void Ft81xDisplay::drawRgb332(int16_t x, int16_t y, uint32_t addr, uint16_t w, u
     cmd(0x23u << 24);
 }
 
+void Ft81xDisplay::drawL1Rows(int16_t x, const int16_t* ys, uint8_t n, uint32_t addr, uint16_t w) {
+    // BITMAP_HANDLE / SOURCE / LAYOUT(_H) / SIZE(_H) as drawImage, format L1
+    // (1), one row high; then BEGIN(BITMAPS) and one VERTEX2F per row.
+    constexpr uint32_t kFmtL1 = 1;
+    if (!ok_ || !ys || n == 0 || w == 0 || w > 2047) return;
+    const uint32_t stride = (uint32_t(w) + 7u) / 8u;
+    cmd((0x05u << 24) | kImageHandle);
+    cmd((0x01u << 24) | (addr & 0x3FFFFFu));
+    cmd((0x28u << 24) | (((stride >> 10) & 3u) << 2));
+    cmd((0x07u << 24) | (kFmtL1 << 19) | ((stride & 0x3FFu) << 9) | 1u);
+    cmd((0x29u << 24) | (((uint32_t(w) >> 9) & 3u) << 2));
+    cmd((0x08u << 24) | ((uint32_t(w) & 0x1FFu) << 9) | 1u);
+    begin(kBitmaps);
+    for (uint8_t i = 0; i < n; ++i) vertex2f(int32_t(x) * 16, int32_t(ys[i]) * 16);
+    end();
+}
+
 bool Ft81xDisplay::snapshotBand(int band) {
     // Render physical rows [band * kSnapBandRows, +kSnapBandRows) of the current
     // display list into RAM_G (programmer guide CMD_SNAPSHOT2). Like stock

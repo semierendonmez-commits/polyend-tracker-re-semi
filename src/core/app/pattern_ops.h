@@ -50,7 +50,12 @@ void writeInstrument(Pattern& p, const SelRect& r, uint8_t instr);
 void writeFxType(Pattern& p, const SelRect& r, int col, uint8_t type);
 void writeFxValue(Pattern& p, const SelRect& r, int col, uint8_t value);
 // Encoder note edit / transpose. Returns the resulting note of a single cell (or -1).
-int stepNote(Pattern& p, const SelRect& r, int delta, uint8_t curInstr);
+// OT fork Scale lock: root >= 0 moves notes by scale degrees of `scale`
+// (pitch class root % 12) instead of semitones; whole octaves (delta a
+// multiple of 12) stay octaves. Off-scale notes snap into the scale first.
+int stepNote(Pattern& p, const SelRect& r, int delta, uint8_t curInstr, int root = -1, uint8_t scale = 0);
+// One note moved by `deg` scale degrees (clamped to 0..127).
+int scaleMove(int note, int deg, int root, uint8_t scale);
 void stepInstrument(Pattern& p, const SelRect& r, int delta);
 void stepFxValue(Pattern& p, const SelRect& r, int col, int delta);
 void stepFxType(Pattern& p, const SelRect& r, int col, int delta);

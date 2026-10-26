@@ -1,9 +1,11 @@
 #include "ui/ui.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
 #include "app/app.h"
+#include "ui/screen_games.h"   // OT_GAMES
 #include "ui/screens.h"
 #include "ui/widgets.h"
 
@@ -724,14 +726,41 @@ void Ui::closePopupHeader() {
 
 void Ui::handle(const InputEvent& ev, uint32_t now) {
     now_ = now;
+    lastInputAt_ = now;
+    if (!(ev.type == InputEvent::kButtonDown || ev.type == InputEvent::kButtonUp) || ev.id != btn::Shift) {
+        // Shift lock counts only clean taps: nothing else between them.
+        shiftTapAt_ = 0;
+        if (shift()) shiftClean_ = false;
+    }
+    if (saverOn_) {
+        // OT fork screen saver: the first press / pad / turn only wakes up.
+        const bool wake = ev.type == InputEvent::kButtonDown || ev.type == InputEvent::kPadDown ||
+                          ev.type == InputEvent::kEncoder;
+        if (!wake) return;
+        saverOn_ = false;
+        if (active_ == kModGames) switchTo(saverPrev_, 0);
+        return;
+    }
     Screen* s = current();
     switch (ev.type) {
         case InputEvent::kButtonDown: {
             const uint8_t id = ev.id;
             if (id >= 64) return;
+            if (id == btn::Shift && shiftLock_) {
+                // A press ends the lock: Shift is released for the screens,
+                // the physical release that follows is swallowed.
+                shiftLock_ = false;
+                shiftSwallowUp_ = true;
+                shiftTapAt_ = 0;
+                down_ &= ~(1ull << id);
+                dispatchButton(id, kRelease);
+                dirty();
+                break;
+            }
             const bool repeat = isDown(id);
             if (repeat && !btn::autoRepeats(id)) return;
             if (!repeat) {
+                if (id == btn::Shift) shiftClean_ = true;
                 down_ |= 1ull << id;
                 downAt_[id] = now;
                 holdSent_ &= ~(1ull << id);
@@ -741,7 +770,27 @@ void Ui::handle(const InputEvent& ev, uint32_t now) {
         }
         case InputEvent::kButtonUp: {
             const uint8_t id = ev.id;
+            if (id == btn::Shift && shiftSwallowUp_) {
+                shiftSwallowUp_ = false;
+                break;
+            }
             if (id >= 64 || !isDown(id)) return;
+            if (id == btn::Shift) {
+                // Double tap (two short taps within kShiftTapMs): lock.
+                constexpr uint32_t kShortMs = 300, kShiftTapMs = 400;
+                if (shiftClean_ && now - downAt_[id] < kShortMs) {
+                    if (shiftTapAt_ && now - shiftTapAt_ < kShiftTapMs) {
+                        shiftLock_ = true;
+                        shiftTapAt_ = 0;
+                        holdSent_ |= 1ull << id;   // no hold tick while locked
+                        dirty();
+                        break;                     // stays down for the screens
+                    }
+                    shiftTapAt_ = now;
+                } else {
+                    shiftTapAt_ = 0;
+                }
+            }
             down_ &= ~(1ull << id);
             dispatchButton(id, kRelease);
             break;
@@ -969,6 +1018,43 @@ void Ui::resampleKey() {
 
 void Ui::update(uint32_t now) {
     now_ = now;
+    if (app.cfg.levelMeter && now - meterAt_ >= 40) {
+        // OT fork title level meter: peak with a 300 ms fall, 0..60 px over
+        // -48..0 dBFS; redraw only when a bar moves 2 px or more.
+        meterAt_ = now;
+        bool redraw = false;
+        for (int sd = 0; sd < 2; ++sd) {
+            const float p = app.engine.masterPeak(sd);
+            meterLv_[sd] = p > meterLv_[sd] ? p : meterLv_[sd] * 0.75f;
+            if (p >= 0.98f) meterClip_ = 25;   // ~1 s red mark
+            float db = meterLv_[sd] > 1e-5f ? 20.0f * std::log10(meterLv_[sd]) : -96.0f;
+            int px = int((db + 48.0f) * (60.0f / 48.0f));
+            px = px < 0 ? 0 : (px > 60 ? 60 : px);
+            if (px - meterPx_[sd] >= 2 || meterPx_[sd] - px >= 2 || (px == 0) != (meterPx_[sd] == 0)) {
+                meterPx_[sd] = uint8_t(px);
+                redraw = true;
+            }
+        }
+        if (meterClip_ && --meterClip_ == 0) redraw = true;
+        if (redraw) dirty();
+    }
+#if !OT_GAMES
+    // OT fork screen saver (Config > General > Screen saver).
+    if (app.cfg.screenSaver && !saverOn_) {
+        static const uint32_t kMin[] = {0, 1, 2, 5, 10};
+        if (!lastInputAt_) lastInputAt_ = now;
+        const uint32_t ms = kMin[app.cfg.screenSaver < 5 ? app.cfg.screenSaver : 4] * 60000u;
+        if (now - lastInputAt_ >= ms && active_ != kModGames && active_ != kModNone && !askOpen_ &&
+            !progressOpen_ && !kb.isOpen() && !picker.isOpen() && !usb.active() && !factory.active() &&
+            !powerOpen_ && screen(kModGames)) {
+            saverPrev_ = active_;
+            saverOn_ = true;
+            switchTo(kModGames, 0);
+        }
+    } else if (!app.cfg.screenSaver) {
+        lastInputAt_ = now;
+    }
+#endif
     // OT fork: animated themes move their colours ~8 times a second.
     if (themeAnimated(app.cfg.uiTheme) && now - animAt_ >= 125) {
         animAt_ = now;
@@ -1293,6 +1379,23 @@ void Ui::render() {
     // "Shutting down" (stock string, STRINGS_DIFF) with the hold progress;
     // the stock progress-popup style (spec 20 §3.7) [I: no stock shot].
     if (powerOpen_) wg::progressPopup(g, t, "Shutting down", powerPopupPercent());
+    if (app.cfg.levelMeter && titleDrawn_ && !usbPage && !factory.active() && !kb.isOpen()) {
+        // OT fork: master level meter in the title bar, L over R.
+        constexpr int kX = 486, kY = 7, kW = 60;
+        g.fill(kX - 1, kY - 1, kW + 2, 15, t.slot(slot::kTitle + 1));
+        for (int sd = 0; sd < 2; ++sd) {
+            const int y = kY + sd * 7;
+            g.fill(kX, y, kW, 6, wg::mix(t.slot(slot::kTitle + 1), t.dim, 90));
+            const int w = meterPx_[sd];
+            if (w > 0) g.fill(kX, y, w > 50 ? 50 : w, 6, t.good);
+            if (w > 50) g.fill(kX + 50, y, w - 50, 6, t.accent);
+        }
+        if (meterClip_) g.fill(kX + kW + 2, kY, 4, 13, 0xE02020);
+    }
+    if (shiftLock_ && !usbPage && !factory.active()) {   // OT fork: Shift lock tag
+        g.fill(726, 3, 70, 21, t.accent);
+        g.text(761, 13, kFont1, t.bg, "SHIFT", IDisplay::kOptCenter);
+    }
     if (note_[0]) {
         wg::popupBox(g, t, wg::kProgressX - 40, 360, wg::kProgressW + 80, 44);
         g.text(400, 382, kFont3, t.slot(slot::kProgress + 2), note_, IDisplay::kOptCenter);

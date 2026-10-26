@@ -77,12 +77,24 @@ struct Config {
     // stop, 1..4 every 1 / 2 / 4 / 8 loops, 5 locked), Beat Slice sample-thru
     // (0 off: a slice ends at the next slice, 1 on: plays to the sample end),
     // the display font 0..2 (2 = the fork's Pixel set; the stock image keeps
-    // `font` = Original then), one byte kept for later.
+    // `font` = Original then), Scale lock (note edits step through the
+    // project scale).
     uint8_t bbReseed = 0;
     uint8_t sliceThru = 0;
     uint8_t uiFont = 0;
-    uint8_t extReserved = 0;
+    uint8_t scaleLock = 0;
+    // OT fork, extension record bytes 9..15: screen saver (0 off, 1..4 after
+    // 1 / 2 / 5 / 10 minutes), title level meter (0 off, 1 on), master reverb
+    // and delay models (0 = the stock ones), the rest kept for later.
+    uint8_t screenSaver = 0;
+    uint8_t levelMeter = 0;
+    uint8_t reverbModel = 0;
+    uint8_t delayModel = 0;
+    uint8_t extReserved[4] = {};
     static constexpr uint8_t kBBLocked = 5;
+    static constexpr uint8_t kScreenSaverMax = 4;
+    static constexpr uint8_t kReverbModels = 4;   // Stock, Plate, Hall, Shimmer (fork)
+    static constexpr uint8_t kDelayModels = 3;    // Stock, Tape, Lo-fi (fork)
     static constexpr uint8_t kDefaultSynthVoices = 4;
     static constexpr uint8_t kMaxSynthVoices = 8;
 
@@ -105,7 +117,7 @@ struct Config {
     // the payload. A missing or bad record leaves the defaults.
     static constexpr uint32_t kExtOffset = kImageSize;
     static constexpr uint8_t kExtVersion = 1;
-    static constexpr uint32_t kExtPayload = 8;   // cpuMeter, synthVoices, sliceDetector, uiTheme, bbReseed, sliceThru, 2 reserved
+    static constexpr uint32_t kExtPayload = 16;   // cpuMeter .. scaleLock (8), screenSaver .. delayModel (4), 4 reserved
     static constexpr uint32_t kExtSize = 5 + kExtPayload + 1;
     void toExt(uint8_t* out) const;                          // kExtSize bytes
     bool fromExt(const uint8_t* in, uint32_t len);           // false: none / bad (fields unchanged)
