@@ -55,8 +55,30 @@ item or spread over the range), **F8** Generate, **Pattern** or **Rec** closes.
 | **Call+Resp** | call phrases and answers (port of Nordl3's Call / Response Generator: 46 styles, 38 answer strategies) | Style, Answer, Density, Layout (one track / Answer mine / Two tracks), Form, Seed | Steps per part, Ending, answer octave, Motif |
 | **BBCut** | Nick Collins' BBCut procedures (via BBenCut) as hits of a **sliced** instrument | Proc, A / B (per procedure), Source, Mutate, Seed | Rolls, Pitch, Timing, Dynamics |
 | **Turnaround** | phrase-end edits on a budget: the end of every phrase, half and quarter phrase gets a tail of edits | Phrase, Budget, Style (Rolls, Stutter, Drop, Reverse, Build, Mix), Intensity, FX (Soft / Medium / Hard), Seed | Timing (Tidy / Keep) |
-| **Genotype** | learns the selected steps and plays a variation made only of them | Mode (Markov / Ball / both), Identity, Order, Variety, Seed | |
+| **Genotype** | learns the selected steps and plays a variation made only of them | Mode (Markov / Ball / both / **Drummer**), Identity, Order, Variety, Seed | |
 | **Station** | a numbers-station line from the radio: RDS name, PI code, frequency read as digits, in groups of five | Source, Mode (Notes / Slices), Rate, Groups, Repeat, Seed | |
+| **Grids** | Mutable Instruments Grids' drum map: kick, snare and hats from a point between 25 patterns | X, Y, Kick, Snare, Hats (densities), Seed | Chaos, Accent (Volume 70 under the accent level), Res (1/16, 1/32), Parts (kit on three tracks, or one part) |
+| **Marbles** | random notes with deja vu (after Mutable Marbles): a T generator for which steps play, an X generator for the pitch | Density, Deja vu, Length, Spread, Bias, Seed | Steps (Chromatic, Scale, Triad, Root+5th, Root), Range, T model (Coin, Clusters, Drums, 2 tracks), Jitter, Rate |
+
+**Grids.** The map is the original's (25 nodes of 3 x 32 levels, GPL-3.0):
+X / Y blend the four nodes around the point, a part fires where its level is
+over 255 - density, levels over 192 are accents, Chaos lifts the levels by a
+random amount once per bar. 1/16 reads the even steps (a bar per 16 steps),
+1/32 every step (half time). Kit: the cursor track and the next two get kick,
+snare and hats, each with the instrument and note already on it. A generated
+Grids kit stays **live**: the Perform FX **Grids X / Y / Density** redraw it
+at once, and with Chaos it gets new chaos every loop.
+
+**Marbles.** Deja vu replays the last Length draws (both which steps play and
+their pitches) instead of new ones: 100 is a locked loop of Length, 0 always
+new. Spread 0 plays one pitch (the Bias), the middle a bell around it, the top
+the two extremes. 2 tracks: every step plays on one of the two tracks, the
+first with the Density's probability (Marbles' complementary T outputs).
+
+**Genotype Drummer** (after Noise86's MarkovDrummer): the selected tracks'
+hits as one state per step (which tracks play), learnt as a Markov chain on
+the previous state(s) and the beat phase; the new order copies whole columns,
+so a kick, snare and hats stay together.
 
 **Acid.** Every step gets a pitch, an accent, a slide wish and a threshold: a
 step plays while its threshold is under the density ((d + 8) / 16 of the
@@ -126,6 +148,10 @@ the FX does); releasing Shift (or pushing the encoder) puts it in the column.
 | BBCut Recut | Now, 1..8 loops, Locked | Now: new cuts at every pad press; else overrides Config > BB play modes |
 | WT FM Depth | -100..+100 | wavetable tracks: FM from another track (below) |
 | WT FM Source | Left, Trk 1..8 | the modulator: the track to the left or a chosen track |
+| Grids X / Grids Y | -100..+100 | live Grids kits: moves the map point (redrawn at once) |
+| Grids Density | -100..+100 | live Grids kits: more / fewer hits on all three parts |
+| Loop Lock | -100..+100 | M1..M3, TM8 / TM16, R1 / R2: + locks the loop, - lets it change more each loop |
+| DeRez | 0..100 | sample-rate reduction (sample and hold) on the tracks' samples, after Airwindows DeRez |
 
 **Scenes** (SETBOOK): hold **Fx2** and press **F1..F8** to store the Perform
 state (every column's row and value, the tracks' FX switches) as scene 1..8;
@@ -155,6 +181,15 @@ title.
   loop: at a step with a note it may jump to another step holding the same
   note (on the same beat phase) and go on from there. G1 low, G2 medium, G3
   high variety.
+- **M1..M3 (Marbles deja vu)**: every step position keeps the step it plays
+  with the lock probability (85 / 60 / 30 %), else draws a new one (mostly a
+  step with a note): a loop that slowly rewrites itself.
+- **TM8 / TM16 (Turing Machine)**: an 8 / 16-bit shift register; its low byte
+  picks the step, the bit coming back in flips with (1 - lock) / 2. Locked it
+  repeats, at Loop Lock -100 it is fully random (the Turing knob at noon).
+- **R1 / R2 (randLoops, after SickoCV)**: the track plays forward, but every
+  note drifts by scale degrees: each loop a note moves one degree up or down
+  with 1 - lock (R1 slow, R2 faster), kept within +-4 degrees of the original.
 - **Wavetable FM**: with WT FM Depth on a wavetable track, its pitch follows
   another track's sound sample by sample (through zero: strong negative
   values play the window backwards). Two or three tracks can modulate each
@@ -168,6 +203,11 @@ title.
 | **DCT Crush** | Block (64-512), Keep (% strongest bins), Bits (magnitude quantiser), Freeze (% frames that repeat the last spectrum), Mix |
 | **Radio** (CIPHER) | Band (2.4 / 3 / 4 / 6 kHz), Fading (QSB depth), Fade rate, Whistle (heterodyne), Pitch, Noise (band noise, rising in the fades), Crashes (static), Mix |
 | **Clipper** (NEXUSCLIP) | Curve (Hard, Smooth, Crisp, Classic, Pro, Tube, Tape), Drive, Knee, Match (normalise to 0 dBFS first), Ceiling, Mix |
+
+| **Tuner** | (none) YIN pitch detection on the selection: note, cents, Hz; **Write** sets Tune / Finetune so the unity note plays the nearest C |
+| **Paulstretch** | Stretch x2..x32, Window (50 / 100 / 200 / 400 ms): magnitudes kept, phases randomised (Paul Nasca's algorithm) |
+| **Granular** | Length (x0.25..x8), Grain (10-500 ms), Density (grains/s), Spray (position randomness), Pitch (random +-semitones per grain), Reverse (%) (after Ourednik's Argotlunar) |
+| **Strand** | Segment (min length), Shuffle, Repeat, Reverse, Length: the selection cut at rising zero crossings and rebuilt (after Leviathan's Strand; no clicks) |
 
 G.726 follows the ITU algorithm in the classic Sun g72x structure (SNR on a busy
 signal: 40k 34 dB, 32k 29 dB, 24k 23 dB, 16k 17 dB; u/A-law 37 dB). The Radio
@@ -185,14 +225,24 @@ effect's random parts are seeded the same for both channels of a stereo sample.
   **Hall** (a large 4-line feedback delay network, slow modulation, damping in
   the loop), **Shimmer** (the hall with an octave-up shifter fed back, the
   octave builds in the tail), **Gated** (short and dense, closed after the
-  hit). Size, Damping, Predelay and Diffusion drive all of them.
+  hit), **Texture** (a granular cloud after Clouds / Beads: four grains read
+  the recent send at random places, some an octave up or down, fed back and
+  diffused), **Plate** (Jon Dattorro's plate, the network of Valley's Plateau,
+  its tank at half rate), **Room** (after Dragonfly Room: early reflections and
+  a short dense tail). Size, Damping, Predelay and Diffusion drive all of them.
+- **Master colour** (Master 4/5 Saturation list after the stock modes, or
+  Config > Master colour): **ToTape**, **Console**, **Density**,
+  **PurestDrive** in the manner of Airwindows (MIT): ToTape a sine curve with
+  a head bump and a soft top, Console the Spiral curve, Density and
+  PurestDrive their sine blends. Drive, Mix and Tone work on it.
 - **Delay models** (Config > Delay model): Stock, **Tape** (wow and flutter
   on the read head, repeats that saturate and darken), **Lo-fi** (repeats that
   lose bits and bandwidth). Time, Sync, Feedback, Filter and Ping-pong drive
   all of them.
 - Both run in the stock effects' memory. Cost in the bench's busiest set
   (est. share of the audio block over the stock effect): Hall +1.6 %,
-  Shimmer +5.2 %, Gated +2.6 %, Tape +1.8 %, Lo-fi +2.9 %.
+  Shimmer +5.2 %, Gated +2.6 %, Tape +1.8 %, Lo-fi +2.9 %, Texture +3.0 %,
+  Plate +4.3 %, Room +4.9 %, colour +1.3 %.
 
 - **Master 5/5 Sidechain**: two sidechains, **SC 1** and **SC 2** (F1 switches),
   each with its own source, envelope and targets, saved with the project
@@ -216,6 +266,24 @@ effect's random parts are seeded the same for both channels of a stereo sample.
     the audio block; the bench's worst case (both SCs following audio, all 14
     targets) about 4 %.
 
+## Instruments and synths
+
+- **LFO shapes** (Instrument Parameters, an LFO's Shape): after the stock five,
+  **Rungler** (Rob Hordijk's 8-bit register and 3-bit DAC, stepped),
+  **Gingerbrd** (the Gingerbread-man map, smoothed), **Rossler** (the Rossler
+  attractor, about one orbit per period), **Drift** (an Ornstein-Uhlenbeck walk
+  pulled back to the middle), **Bridge** (a Brownian bridge: a random path that
+  starts and ends in the middle every period). Kept in the .pti's spare LFO
+  byte; a stock firmware plays them as Random. On the volume target they act
+  as Random.
+- **PLT synth model** (Synth 1-3, Model after PERC): two models in the manner
+  of Mutable Instruments Plaits: **2-Op FM** (Harmonics = the ratio, Timbre =
+  the index, Morph = feedback: below the middle the modulator on itself, above
+  the carrier into the modulator) and **Harmonic** (16 partials: Harmonics =
+  the strongest one, Timbre = the width of the bump, Morph = odd / even).
+  Timbre Env and an LFO onto Timbre, ADSR, Tune, Glide, Volume, macros like the
+  other models. Patches in Patches/PLT. A Tracker Mini resets such a slot.
+
 ## Config
 
 - **General > Display theme**: 29 themes. Original, Monochrome, Anniversary,
@@ -238,7 +306,7 @@ effect's random parts are seeded the same for both channels of a stereo sample.
 - **General > Beat Slice thru**: On, a Beat Slice note plays on to the sample
   end instead of stopping at the next slice (good with BBCut and long chops).
 - **General > Scale lock / Screen saver / Level meter / Reverb model / Delay
-  model**: see above.
+  model / Master colour**: see above.
 - All of these live in the OpenTracker config extension record (24 bytes);
   the Perform scenes in a record of their own after it.
 
@@ -292,10 +360,19 @@ Audio path changes against upstream: Beat Slice thru (a slice end point),
 synth slot mute (a gain), the TILT / Genotype play modes (a step looked up per
 track per step), the master peak for the level meter, the Dynamics stage and
 linked limiter (only when used), the reverb / delay models (only when
-selected) and wavetable FM (only with WT FM Depth on). `make perf-gate` has
-bench scenarios for the models (wHall .. wLofi).
+selected), wavetable FM (only with WT FM Depth on), the sidechains (only
+when set), the master colour, DeRez, the chaos LFO shapes and the PLT engine.
+`make perf-gate` has bench scenarios for them (wHall .. wColor, wSidechain,
+pltfm / pltharm).
 
-Sources: TB-3PO idea (Phazerville Hemisphere / charlesvestal schwung-tb3po),
+Sources: Mutable Instruments Grids drum map (Emilie Gillet, GPL-3.0; the
+node table in src/core/gen/grids_nodes.inc), ideas after Marbles, Plaits,
+Clouds / Beads (MIT), Jon Dattorro's plate (JAES 1997) as in Valley's
+Plateau, Dragonfly Room, Airwindows (Chris Johnson, MIT), HetrickCV /
+Nonlinear Circuits (CC0) and ZetaCarinae, Noise86 MarkovDrummer, SickoCV
+randLoops, Music Thing Turing Machine, Paul Nasca's Paulstretch, Ourednik's
+Argotlunar, Leviathan's Strand, YIN (de Cheveigne and Kawahara 2002).
+TB-3PO idea (Phazerville Hemisphere / charlesvestal schwung-tb3po),
 Nordl3 Call / Response Generator (MIT), bencodec/BBenCut and Nick Collins'
 BBCut, ITU-T G.711 / G.726, Silicon Labs AN230 (RDS registers), Departure Mono
 by Helena Zhang (OFL-1.1, third_party/fonts).

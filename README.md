@@ -15,7 +15,38 @@ Image: `PolyendTrackerOTs221.ptf` (installs like the upstream image, see Install
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
-### Latest update (2.2.1-semi.4)
+### Latest update (2.2.1-semi.5)
+
+| **Generate: Grids (Mutable drum map, live)** | **Generate: Marbles (deja vu)** |
+|---|---|
+| ![Generate: Grids](screenshots/2.2.1-semi/gen-grids.png) | ![Generate: Marbles](screenshots/2.2.1-semi/gen-marbles.png) |
+| **Master 4/5: colour (ToTape, Console, Density, PurestDrive)** | **Master Reverb: Texture, Plate, Room** |
+| ![Master colour](screenshots/2.2.1-semi/master-colour.png) | ![Master Reverb: Plate](screenshots/2.2.1-semi/reverb-plate.png) |
+| **Sample Editor: Tuner, Paulstretch, Granular, Strand** | **Tuner: note, cents, Write sets Tune / Finetune** |
+| ![Sample Editor: new tools](screenshots/2.2.1-semi/editor-tuner-list.png) | ![Tuner](screenshots/2.2.1-semi/editor-tuner.png) |
+
+- **Generate: Grids** (Mutable Instruments Grids' drum map, GPL-3.0): kick, snare and hats from
+  an X / Y point between 25 patterns, with densities, Chaos, Accent, 1/16 or 1/32 and a kit on
+  three tracks. The kit stays **live**: Perform **Grids X / Y / Density** redraw it as it plays.
+- **Generate: Marbles:** random notes with deja vu: a T generator (Coin, Clusters, Drums, two
+  tracks) and an X generator (Spread, Bias, Steps from chromatic to root only, Range).
+- **Genotype Drummer** (after Noise86's MarkovDrummer): a Markov chain over all the selected
+  drum tracks together, so the parts keep their relation.
+- **Play modes M1..M3** (Marbles deja vu), **TM8 / TM16** (Turing Machine) and **R1 / R2**
+  (randLoops after SickoCV: the notes drift by scale degrees); the Perform FX **Loop Lock**
+  locks or loosens them all.
+- **Perform DeRez:** sample-rate reduction on the tracks' samples (after Airwindows DeRez).
+- **Master Reverb models Texture** (granular cloud after Clouds / Beads), **Plate** (Dattorro's
+  plate, the network of Valley's Plateau) and **Room** (after Dragonfly Room).
+- **Master colour** (after Airwindows): ToTape, Console, Density, PurestDrive, in the Master 4/5
+  Saturation list or Config > Master colour.
+- **Sample Editor:** **Tuner** (YIN pitch detection, writes Tune / Finetune), **Paulstretch**,
+  **Granular** (after Argotlunar) and **Strand** (after Leviathan's Strand).
+- **LFO shapes** Rungler, Gingerbread, Rossler, Drift (Ornstein-Uhlenbeck) and Bridge (Brownian
+  bridge); a stock firmware plays them as Random.
+- **PLT synth model** (Synth 1-3): **2-Op FM** and **Harmonic** in the manner of Plaits.
+
+### Previous update (2.2.1-semi.4)
 
 | **Master 5/5: Sidechain (two sources, targets on the pads)** | **Theme: Acid House (animated)** |
 |---|---|
@@ -41,7 +72,7 @@ and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**
 - **Six new animated themes:** Acid House, Plasma, Colour Wheel, Ember, Night Drive, Glitch
   (29 themes in all).
 
-### Previous update (2.2.1-semi.3)
+### Earlier update (2.2.1-semi.3)
 
 | **Perform: generator controls, Genotype G2, wavetable FM** | **Perform: FX chooser (Shift + encoder) with help** |
 |---|---|
@@ -118,13 +149,20 @@ explains the selected parameter. One undo step per Generate; Seed 0 is random.
 - **Genotype:** learns the selected steps and plays a variation made only of them.
 - **Station:** a numbers-station line read from the radio (RDS name, PI, frequency); the
   preview shows what it read and the digits.
+- **Grids:** the Mutable Instruments Grids drum map (X / Y, densities, Chaos, Accent, kit on
+  three tracks), live under the Perform FX Grids X / Y / Density.
+- **Marbles:** random notes with deja vu (T and X generators, Steps, Range, two-track mode).
+- Genotype mode **Drummer**: a Markov chain over all the selected drum tracks together.
 
 ### Live (Performance)
 - **Play modes B1..B10** (BBCut), **T1..T4** (TILT: Bounce, Flipper, Gravity, Multiball) and
-  **G1..G3** (Genotype: the track's own steps in a new order every loop) in "Pattern Play Mode".
+  **G1..G3** (Genotype: the track's own steps in a new order every loop), **M1..M3** (Marbles
+  deja vu), **TM8 / TM16** (Turing Machine) and **R1 / R2** (randLoops) in "Pattern Play Mode";
+  **Loop Lock** locks or loosens M, TM and R.
 - **Generator controls as Perform FX:** Acid Density / Accent / Slide / Mutate on the live Acid
   tracks, BBCut A / B / Rolls / Recut on the B modes, and **WT FM Depth / Source**: wavetable
-  tracks frequency-modulated by another track, sample by sample.
+  tracks frequency-modulated by another track, sample by sample. **Grids X / Y / Density** on
+  live Grids kits, **DeRez** (sample-rate reduction).
 - **FX chooser:** Shift + encoder in edit mode opens every Perform FX as a grid, with help.
 - **Scenes:** Fx2 + F1..F8 stores, Fx1 + F1..F8 recalls, with a morph of 1/4 to 4 bars.
 - **Perform recording:** Insert writes the playing Perform FX into FX 2 of the pattern.
@@ -132,14 +170,21 @@ explains the selected parameter. One undo step per Generate; Seed 0 is random.
 ### Master
 - **Master 4/5 Dynamics:** limiter mode, stereo link and ceiling, saturation drive, mix and tone.
 - **Master 5/5 Sidechain:** two sidechains with their own source, envelope and targets (pads).
-- **Reverb models** Hall, Shimmer, Gated and **delay models** Tape, Lo-fi (own designs, in the
-  stock effects' memory, a few percent of the audio block more than stock).
+- **Reverb models** Hall, Shimmer, Gated, Texture, Plate, Room and **delay models** Tape, Lo-fi
+  (in the stock effects' memory, a few percent of the audio block more than stock).
+- **Master colour** after Airwindows: ToTape, Console, Density, PurestDrive.
 
 ### Sample Editor effects
 - **Transcode:** G.711 / G.726 codec generation loss with bit errors and packet loss.
 - **DCT Crush:** spectral block crush.
 - **Radio** (CIPHER): shortwave band, QSB fading, heterodyne whistle, noise and static crashes.
 - **Clipper** (NEXUSCLIP): seven clip curves with drive, knee, ceiling and level match.
+- **Tuner** (YIN; writes Tune / Finetune), **Paulstretch**, **Granular** (after Argotlunar),
+  **Strand** (after Leviathan's Strand).
+
+### Instruments and synths
+- **LFO shapes** Rungler, Gingerbread, Rossler, Drift, Bridge (chaos and random walks).
+- **PLT synth model:** 2-Op FM and Harmonic (16 partials) in the manner of Plaits.
 
 ### Config, Mixer, Song, Pattern
 - **Shift lock** (double tap Shift), **Scale lock** (notes step through the project scale),
@@ -161,7 +206,7 @@ explains the selected parameter. One undo step per Generate; Seed 0 is random.
 ### Build
 - The fork builds without Games by default. Its flash budget is 800 KB (upstream 720 KB); the
   hard limit, the stock 1.9.2 image extent (877,664 B), is checked on every build. Image size
-  about 746 KB; all host tests and simulator checks pass.
+  about 787 KB; all host tests and simulator checks pass.
 
 ## Screenshots (2.2.1, on an original Tracker)
 

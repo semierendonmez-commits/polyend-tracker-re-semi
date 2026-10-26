@@ -56,7 +56,7 @@ std::vector<int16_t> run(int fx, const float* p, const std::vector<int16_t>& in)
 }  // namespace
 
 TEST(table_entries) {
-    CHECK_EQ(sfx::kEffectCount, 21);
+    CHECK_EQ(sfx::kEffectCount, 25);   // + Tuner, Paulstretch, Granular, Strand
     CHECK(std::strcmp(sfx::effect(sfx::kTranscode).name, "Transcode") == 0);
     CHECK(std::strcmp(sfx::effect(sfx::kDctCrush).name, "DCT Crush") == 0);
     float p[sfx::kMaxParams];

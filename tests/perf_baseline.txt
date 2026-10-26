@@ -56,7 +56,11 @@
 # block; a trigger SC ducking four tracks costs ~0.7 %). Sidechains off: +0.2 % (mix).
 # wTexture / wPlate / wRoom / wColor (semi.5): the worst set with the Texture (granular cloud), Plate
 # (Dattorro, half-rate tank) and Room reverb models, and the ToTape master colour: est. +3.0 / +4.3 /
-# +4.9 / +1.3 % of the block over worst.
+# +4.9 / +1.3 % of the block over worst. pltfm / pltharm: one voice of the fork's PLT synth
+# model (2-Op FM / Harmonic with all 16 partials), per voice per block.
+# worst re-recorded at semi.5 (244349 -> 256561): the drift was already there at semi.4
+# (256258 measured at 2d681d1: sidechain hooks, master dynamics stage); semi.5 adds ~300 insn
+# (DeRez and colour checks).
 # stream8 (SD streaming P1, docs/PLAN_SD_STREAMING.md): the stereo8 set with 3 s stereo
 # instruments streamed (resident head, the rest through the track rings; the refill is the
 # main loop's work and not timed). Gated absolutely by the stream.lim line: <= stereo8 + 5 %
@@ -64,7 +68,7 @@
 idle     11878
 idle2    12240
 play8    145418
-worst    244349
+worst    256561
 wHall    265176
 wShimmer 274116
 wGated   274740
@@ -75,6 +79,8 @@ wTexture 281226
 wPlate   279020
 wRoom    280418
 wColor   268071
+pltfm    9866
+pltharm  21723
 stereo8  174615
 stream8  182222
 synth4   66860

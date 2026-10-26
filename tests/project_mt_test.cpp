@@ -368,7 +368,7 @@ TEST(mini_slot_sanitiser) {
     const float nan = std::nanf("");
     const Bad bad[] = {
         {0x00, 0, true, 12.01f},  {0x00, 0, true, -96.5f}, {0x00, 0, true, nan},
-        {0x04, 9, false, 0},      {0x08, 5, false, 0},      {0x08, 0xFFFFFFFFu, false, 0},
+        {0x04, 9, false, 0},      {0x08, 6, false, 0},      {0x08, 0xFFFFFFFFu, false, 0},   // model 5 = the fork's PLT
         {0x0C, 0, true, 100.5f},  {0x0C, 0, true, -101.0f}, {0x30, 0, true, -0.5f},
         {0x30, 0, true, 101.0f},  {0x34, 0, true, nan},     {0x34, 0, true, 100.01f},
         {0x38, 0x80, false, 0},   {0x3D, 0xFF, false, 0},
