@@ -29,7 +29,7 @@ constexpr uint8_t kFontSmall = 26;
 constexpr uint8_t kFontText = 27;
 constexpr uint8_t kFontLarge = 28;
 constexpr uint8_t kFontTitle = 29;
-constexpr uint8_t kFontSetCount = 2;
+constexpr uint8_t kFontSetCount = 3;   // OT fork: + Pixel
 
 // Stock font roles (spec 20 §2.2 / §2.5): fonts 1..5 of the active set
 // (config "Display font": 0 Original, 1 New). Set-0 cell / advance:

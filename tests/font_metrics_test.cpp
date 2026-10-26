@@ -341,10 +341,10 @@ TEST(text_rotated_uses_bitmap_transform) {
 // The firmware's packed pen advances (font_adv.inc, tools/fonts/pack_fonts.py)
 // are the metric width tables of the raw image.
 TEST(packed_advances_match_image) {
-    static const uint8_t adv[10][128] = {
+    static const uint8_t adv[fd::kFontSets * 5][128] = {
 #include "ui/fonts/font_adv.inc"
     };
-    for (int set = 0; set < 2; ++set)
+    for (int set = 0; set < fd::kFontSets; ++set)
         for (int role = 0; role < 5; ++role)
             for (int ch = 0; ch < 128; ++ch)
                 CHECK_EQ(adv[set * 5 + role][ch], fd::kBlob[fd::info(set, role).metric + uint32_t(ch)]);
@@ -364,4 +364,20 @@ TEST(cpu_cell_label_and_value_do_not_touch_with_custom_fonts) {
     const int labelEnd = c.right - textWidth(kFont4, "00%") - textWidth(kFont4, " ");
     CHECK(labelEnd - textWidth(kFont4, "CPU") >= c.right - wg::cpuCellWidth());
     applyFontSet(nullptr, 0);
+}
+
+// OT fork set 2 "Pixel": Departure Mono at its native size in the set-0 cells,
+// fixed pen advances, glyphs inside the cells.
+TEST(pixel_font_set) {
+    CHECK_EQ(fd::kFontSets, 3);
+    static const int kAdv[5] = {8, 10, 8, 9, 7};
+    for (int role = 0; role < 5; ++role) {
+        const fd::FontInfo& p = fd::info(2, role);
+        const fd::FontInfo& o = fd::info(0, role);
+        CHECK_EQ(int(p.w), int(o.w));
+        CHECK_EQ(int(p.h), int(o.h));
+        CHECK_EQ(int(fd::kBlob[p.metric + uint32_t('A')]), kAdv[role]);
+        CHECK_EQ(int(fd::kBlob[p.metric + uint32_t('1')]), kAdv[role]);
+    }
+    CHECK(std::string(fontSetName(kFontSetPixel)) == "Pixel");
 }

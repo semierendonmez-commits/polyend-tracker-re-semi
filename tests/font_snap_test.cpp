@@ -60,13 +60,17 @@ TEST(config_font_option_switches_all_text) {
     CHECK(framesTextWithFont(h, 22) > 0);
     CHECK_EQ(framesTextWithFont(h, 27), 0);
     CHECK_EQ(framesTextWithFont(h, 26), 0);
-    // Applied at boot from the stored config.
-    a.cfg.font = 0;
+    CHECK_EQ(a.cfg.uiFont, 1);
+    // Applied at boot from the stored config (OT fork: uiFont 0..2, 2 = Pixel).
+    a.cfg.uiFont = 0;
     a.applySequencerSettings();
     CHECK_EQ(fontSet(), 0);
-    a.cfg.font = 1;
+    a.cfg.uiFont = 1;
     a.applySequencerSettings();
     CHECK_EQ(fontSet(), 1);
+    a.cfg.uiFont = 2;
+    a.applySequencerSettings();
+    CHECK_EQ(fontSet(), 2);
     setFontSet(0);
 }
 

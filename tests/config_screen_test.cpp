@@ -124,7 +124,7 @@ TEST(config_menu_lists_all_options_with_defaults) {
     };
     const Want general[] = {
         {"Radio region", 3, 0, 4, 0, 0},      {"Display brightness", 3, 0, 3, 0, 2},
-        {"Display theme", 3, 0, 16, 0, 0},    {"Display font", 3, 0, 2, 0, 0},   // OT fork: 16 themes
+        {"Display theme", 3, 0, 23, 0, 0},    {"Display font", 3, 0, 3, 0, 0},   // OT fork: 16 themes, + Pixel font
         {"Pads brightness", 3, 0, 3, 0, 2},   {"Pads preview", 3, 0, 3, 0, 2},
         {"Recording options", 3, 0, 4, 0, 0}, {"Numbering mode", 3, 0, 3, 0, 1},
         {"Pattern arrangement", 3, 0, 3, 0, 0}, {"Pattern top info", 3, 0, 3, 0, 0},
@@ -395,7 +395,7 @@ TEST(config_stock_value_labels) {
         {2, 5, 16, "CH16"},                {2, 10, 0, "-6"},
         {2, 10, 12, "6"},
     };
-    uint8_t* vars[] = {&a.cfg.perfPresets, &a.cfg.radioRegion, &a.cfg.radioRegion, &a.cfg.font,
+    uint8_t* vars[] = {&a.cfg.perfPresets, &a.cfg.radioRegion, &a.cfg.radioRegion, &a.cfg.uiFont,
                        &a.cfg.recordingOptions, &a.cfg.recordingOptions, &a.cfg.numbering, &a.cfg.numbering,
                        &a.cfg.arrangement, &a.cfg.patternTopInfo, &a.cfg.lineInChannel, &a.cfg.lineInChannel,
                        &a.cfg.clockIn, &a.cfg.clockOut, &a.cfg.notesIn, &a.cfg.notesInChannel,

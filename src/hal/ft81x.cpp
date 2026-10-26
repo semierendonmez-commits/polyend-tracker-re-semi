@@ -685,7 +685,7 @@ void Ft81xDisplay::number(int16_t x, int16_t y, uint8_t font, uint16_t opt, int3
 bool Ft81xDisplay::bindFontSet(int set) {
     // The image holds both sets: binding only selects which one dlStart sets
     // up. Without a verified upload the UI keeps the ROM font roles.
-    fontSet_ = set == 1 ? 1 : 0;
+    fontSet_ = uint8_t(set >= 0 && set < fontdata::kFontSets ? set : 0);
     fontsBound_ = ok_ && fontsOk_;
     return fontsBound_;
 }

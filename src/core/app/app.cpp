@@ -143,7 +143,7 @@ bool App::boot() {
 void App::applySequencerSettings() {
     // Display font set (spec 05 §3.6, stock 0x5ffc8). Applied here because this
     // runs at boot after loadConfig and after every config Apply / reset.
-    applyFontSet(hal_.display, cfg.font);
+    applyFontSet(hal_.display, cfg.uiFont);   // OT fork: 0..2 (2 = Pixel)
     SequencerSettings& s = seq.settings();
     s.clockIn = cfg.clockIn;
     s.clockOut = cfg.clockOut;

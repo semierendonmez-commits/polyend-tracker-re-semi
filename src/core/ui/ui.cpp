@@ -969,6 +969,12 @@ void Ui::resampleKey() {
 
 void Ui::update(uint32_t now) {
     now_ = now;
+    // OT fork: animated themes move their colours ~8 times a second.
+    if (themeAnimated(app.cfg.uiTheme) && now - animAt_ >= 125) {
+        animAt_ = now;
+        themeTick(app.cfg.uiTheme, now);
+        dirty();
+    }
     // [I] Live resampling status: one notice per state change (armed,
     // armed and playing, recording, stopping), so other notices stay up;
     // the Resample screen shows the bar count.

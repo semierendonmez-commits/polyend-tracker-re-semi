@@ -81,7 +81,7 @@ uint32_t rd32(const std::vector<uint8_t>& m, uint32_t a) {
 
 bool SwDisplay::bindFontSet(int set) {
     if (!fontsUploaded_) fontsUploaded_ = writeRamG(ot::fontdata::kRamGBase, ot::fontdata::kBlob, ot::fontdata::kBlobSize);
-    fontSet_ = set == 1 ? 1 : 0;
+    fontSet_ = (set >= 0 && set < ot::fontdata::kFontSets) ? set : 0;
     fontsBound_ = fontsUploaded_ && !romOnly_;
     return fontsBound_;
 }

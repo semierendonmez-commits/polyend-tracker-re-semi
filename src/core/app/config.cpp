@@ -142,6 +142,7 @@ void Config::sanitize() {
     if (uiTheme >= kThemeTotal) uiTheme = 0;
     clampField<uint8_t>(bbReseed, kBBLocked, 0);
     clampField<uint8_t>(sliceThru, 1, 0);
+    clampField<uint8_t>(uiFont, 2, 0);
     if (synthVoices < 1 || synthVoices > kMaxSynthVoices) synthVoices = kDefaultSynthVoices;
     validateImage(image);
 }
@@ -173,8 +174,8 @@ void Config::toExt(uint8_t* out) const {
     out[8] = uiTheme;
     out[9] = bbReseed;
     out[10] = sliceThru;
-    out[11] = extReserved[0];
-    out[12] = extReserved[1];
+    out[11] = uiFont;
+    out[12] = extReserved;
     uint8_t sum = 0;
     for (uint32_t i = 0; i < kExtPayload; ++i) sum = uint8_t(sum + out[5 + i]);
     out[5 + kExtPayload] = sum;
@@ -195,8 +196,8 @@ bool Config::fromExt(const uint8_t* in, uint32_t len) {
     if (n >= 4 && in[8] >= kThemeCount && in[8] < kThemeTotal) uiTheme = in[8];
     bbReseed = (n >= 5 && in[9] <= kBBLocked) ? in[9] : 0;
     sliceThru = (n >= 6 && in[10] <= 1) ? in[10] : 0;
-    extReserved[0] = n >= 7 ? in[11] : 0;
-    extReserved[1] = n >= 8 ? in[12] : 0;
+    if (n >= 7 && in[11] == 2) uiFont = 2;   // the Pixel set; else the image's font decides
+    extReserved = n >= 8 ? in[12] : 0;
     return true;
 }
 
@@ -216,8 +217,8 @@ bool Config::fromImage(const uint8_t* img) {
     c.sliceDetector = sliceDetector;
     c.bbReseed = bbReseed;
     c.sliceThru = sliceThru;
-    c.extReserved[0] = extReserved[0];
-    c.extReserved[1] = extReserved[1];
+    c.uiFont = c.font;   // the stock font; an extension record may name the Pixel set
+    c.extReserved = extReserved;
     c.uiTheme = c.theme;     // the stock theme; an extension record may name a fork palette
     c.sanitize();
     *this = c;
@@ -242,6 +243,7 @@ bool Config::load(INvStore& nv) {
 
 bool Config::save(INvStore& nv) {
     if (uiTheme >= kThemeCount && uiTheme < kThemeTotal) theme = themeBase(uiTheme);   // a stock firmware shows the base
+    font = uiFont >= 2 ? 0 : uiFont;                                                     // Pixel -> Original for stock
     toImage();
     if (nv.size() < kImageSize || !nv.write(0, image, kImageSize)) return false;
     // Extension record (best effort): written once the option leaves its
@@ -249,7 +251,7 @@ bool Config::save(INvStore& nv) {
     if (nv.size() < kExtOffset + kExtSize) return true;
     uint8_t ext[kExtSize];
     if (cpuMeter == 0 && synthVoices == kDefaultSynthVoices && sliceDetector == 0 && uiTheme < kThemeCount &&
-        bbReseed == 0 && sliceThru == 0) {
+        bbReseed == 0 && sliceThru == 0 && uiFont < 2) {
         Config probe;
         if (!nv.read(kExtOffset, ext, kExtSize) || !probe.fromExt(ext, kExtSize)) return true;
     }
@@ -293,6 +295,7 @@ bool Config::load(IStorage& fs) {
 
 bool Config::save(IStorage& fs) {
     if (uiTheme >= kThemeCount && uiTheme < kThemeTotal) theme = themeBase(uiTheme);
+    font = uiFont >= 2 ? 0 : uiFont;
     toImage();
     fs.mkdir(kConfigDir);
     uint8_t buf[8 + kImageSize + kExtSize] = {};

@@ -215,4 +215,13 @@ TEST(ot_fork_extension_fields) {
     CHECK_EQ(br.uiTheme, 3);
     CHECK_EQ(br.bbReseed, 0);
     CHECK_EQ(br.sliceThru, 0);
+    // The Pixel font rides in the record; the stock font byte says Original.
+    FakeNvStore nv4;
+    Config f;
+    f.uiFont = 2;
+    CHECK(f.save(nv4));
+    Config fr;
+    CHECK(fr.load(nv4));
+    CHECK_EQ(fr.uiFont, 2);
+    CHECK_EQ(fr.font, 0);
 }

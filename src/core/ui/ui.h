@@ -509,6 +509,7 @@ private:
     uint64_t holdSent_ = 0;
     uint32_t downAt_[64] = {};
     uint32_t now_ = 0;
+    uint32_t animAt_ = 0;   // OT fork: last animated-theme tick
     uint32_t lastRender_ = 0;
     bool dirty_ = true;
     bool stripUnder_ = false;             // this frame drew the bottom strip under the screen

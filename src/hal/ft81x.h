@@ -94,14 +94,13 @@ public:
     //   0x000000 .. 0x05DBFF  snapshot band (readPixels), 800 x 240 RGB565 = 384,000 B
     //   0x05DC00 .. 0x06CBFF  Games frame (IDisplay::kRamGGameFrame = 384,000):
     //                         256 x 240 RGB332 = 61,440 B (spec 14 §3.1)
-    //   0x06CC00 .. 0x08C4DF  custom UI fonts, both sets + icon sheet
-    //                         (fontdata::kRamGBase + kBlobSize, uploaded once by init())
-    //   0x08C800 .. 0x09C7FF  cached display-list fragments: 16 slots x 4 KB
-    //                         (kFragRamG, IDisplay::kFragmentSlots, spec 05 §3.3)
-    //   0x09C800 .. 0x0A392F  free
+    //   0x06CC00 .. 0x0985DF  custom UI fonts, three sets (OT fork: + Pixel) + icon
+    //                         sheet (fontdata::kRamGBase + kBlobSize, uploaded once by init())
+    //   0x0985E0 .. 0x0A392F  free
     //   0x0A3930 .. 0x0F1A2F  image (IDisplay::kRamGCover = 670,000): RGB565,
-    //                         <= 400 x 400 x 2 = 320,000 B for the cover
-    //   0x0F1A30 .. 0x0FFFFF  free (images may extend up to kRamGSize)
+    //                         <= 400 x 400 x 2 = 320,000 B for the cover (the only image)
+    //   0x0F1C00 .. 0x0FFBFF  cached display-list fragments: 14 slots x 4 KB
+    //                         (kFragRamG, IDisplay::kFragmentSlots, spec 05 §3.3)
     // Images must start at or above kImageRamGMin so a screenshot never
     // overwrites a loaded image (and vice versa).
     static constexpr uint32_t kSnapRamG = 0x000000;
@@ -127,16 +126,19 @@ public:
     static_assert(IDisplay::kFontHandleBase + IDisplay::kFontHandleCount <= IDisplay::kIconHandle &&
                       IDisplay::kFontHandleBase > kGameHandle && IDisplay::kIconHandle < 15,
                   "font handles collide with the image / Games / scratch handles");
-    // Fragments after the font image (1 KB aligned), before the cover image.
-    static constexpr uint32_t kFragRamG = (fontdata::kRamGEnd + 0x3FFu) & ~0x3FFu;
+    // Fragments (OT fork): after the largest cover image (1 KB aligned), at the
+    // top of RAM_G; the font image with its third set fills the band before
+    // the cover.
+    static constexpr uint32_t kFragRamG =
+        (IDisplay::kRamGCover + 2u * IDisplay::kCoverMaxSide * IDisplay::kCoverMaxSide + 0x3FFu) & ~0x3FFu;
     static constexpr uint32_t kFragSlotBytes = 4096;
     static constexpr uint32_t kFragRamGEnd = kFragRamG + kFragSlotBytes * IDisplay::kFragmentSlots;
-    static_assert(kFragRamG == 0x08C800 && kFragRamGEnd == 0x09C800, "RAM_G map comment");
+    static_assert(kFragRamG == 0x0F1C00 && kFragRamGEnd == 0x0FFC00, "RAM_G map comment");
     static_assert(kFragRamG >= fontdata::kRamGEnd, "fragment slots overlap the font image");
     static_assert(kFragRamG >= IDisplay::kRamGGameFrame + IDisplay::kGameFrameBytes && kFragRamG >= kImageRamGMin,
                   "fragment slots overlap the Games frame / snapshot band");
-    static_assert(kFragRamG % 4 == 0 && kFragRamGEnd <= IDisplay::kRamGCover,
-                  "fragment slots must end before the cover image");
+    static_assert(kFragRamG % 4 == 0 && kFragRamGEnd <= IDisplay::kRamGSize,
+                  "fragment slots must end inside RAM_G");
 
     // Last frame's upload statistics (telemetry, docs/HARDWARE_TESTING.md):
     // bytes on the SPI wire for the command FIFO (data + the REG_CMD_READ /

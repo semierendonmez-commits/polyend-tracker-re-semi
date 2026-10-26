@@ -27,9 +27,9 @@ def read_raw(out_dir):
 def metric_offsets(out_dir):
     with open(os.path.join(out_dir, "font_data.h")) as f:
         h = f.read()
-    m = re.search(r"kFonts\[2\]\[5\] = \{(.*?)\};", h, re.S)
+    m = re.search(r"kFonts\[kFontSets\]\[5\] = \{(.*?)\};", h, re.S)
     offs = [int(a) for a in re.findall(r"\{(\d+),\s*\d+,", m.group(1))]
-    assert len(offs) == 10, offs
+    assert len(offs) == 15, offs
     return offs
 
 

@@ -10,7 +10,7 @@ alignas(4) const uint8_t kBlobZ[] = {
 #include "ui/fonts/font_data_z.inc"
 };
 const uint32_t kBlobZSize = sizeof(kBlobZ);
-const uint8_t kAdvance[10][128] = {
+const uint8_t kAdvance[kFontSets * 5][128] = {
 #include "ui/fonts/font_adv.inc"
 };
 #else

@@ -76,10 +76,12 @@ struct Config {
     // OT fork, extension record bytes 5..8: BB play modes re-cut (0 at every
     // stop, 1..4 every 1 / 2 / 4 / 8 loops, 5 locked), Beat Slice sample-thru
     // (0 off: a slice ends at the next slice, 1 on: plays to the sample end),
-    // two bytes kept for later options.
+    // the display font 0..2 (2 = the fork's Pixel set; the stock image keeps
+    // `font` = Original then), one byte kept for later.
     uint8_t bbReseed = 0;
     uint8_t sliceThru = 0;
-    uint8_t extReserved[2] = {};
+    uint8_t uiFont = 0;
+    uint8_t extReserved = 0;
     static constexpr uint8_t kBBLocked = 5;
     static constexpr uint8_t kDefaultSynthVoices = 4;
     static constexpr uint8_t kMaxSynthVoices = 8;

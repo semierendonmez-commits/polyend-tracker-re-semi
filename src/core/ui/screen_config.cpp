@@ -40,12 +40,13 @@ const char* const kLowMedHigh[] = {"Low", "Medium", "High"};
 // OT fork: the stock three, then the fork palettes (ui/theme.cpp).
 const char* const kThemes[] = {"Original",   "Monochrome", "Anniversary",    "Early Cyber", "Corporate", "Amber CRT",
                                "Green Phosphor", "Thermal", "Workstation", "Datamatic", "Dubplate",  "Rave Flyer",
-                               "Jungle", "Ice", "Sunset", "Teletext"};
+                               "Jungle", "Ice", "Sunset", "Teletext", "Vaporwave", "Blueprint", "Game Boy",
+                               "Sepia", "Hi Contrast", "Cyber Pulse", "Spectrum"};
 static_assert(sizeof(kThemes) / sizeof(kThemes[0]) == kThemeTotal, "one label per theme");
 const char* const kSliceModes[] = {"Stock", "Breaks"};
 const char* const kBBReseed[] = {"New at stop", "Every loop", "Every 2 loops", "Every 4 loops", "Every 8 loops", "Locked"};
 const char* const kSliceThru[] = {"Off", "On"};
-const char* const kFonts[] = {"Original", "New"};
+const char* const kFonts[] = {"Original", "New", "Pixel"};
 const char* const kRegions[] = {"Europe", "US", "Australia", "Japan"};
 const char* const kPreview[] = {"Off", "Track", "Pattern"};
 const char* const kRecOpts[] = {"Only notes", "Microtiming", "Velocity", "Microtiming + Velocity"};
@@ -86,7 +87,7 @@ const Opt kGeneral[] = {
     {"Radio region", kEnum, kCfg, CF(radioRegion), 0, 4, kRegions, 0},
     {"Display brightness", kEnum, kCfg, CF(brightness), 0, 3, kLowMedHigh, 0},
     {"Display theme", kEnum, kCfg, CF(uiTheme), 0, kThemeTotal, kThemes, 0},   // OT fork: 16 themes
-    {"Display font", kEnum, kCfg, CF(font), 0, 2, kFonts, 0},
+    {"Display font", kEnum, kCfg, CF(uiFont), 0, 3, kFonts, 0},   // OT fork: + Pixel (Departure Mono)
     {"Pads brightness", kEnum, kCfg, CF(padsBrightness), 0, 3, kLowMedHigh, 0},
     {"Pads preview", kEnum, kCfg, CF(padsPreview), 0, 3, kPreview, 0},
     {"Recording options", kEnum, kCfg, CF(recordingOptions), 0, 4, kRecOpts, 0},
@@ -504,6 +505,7 @@ void ConfigScreen::apply() {
         a.applySequencerSettings();
         if (v == &a.cfg.brightness) applyBacklight(a);
         if (v == &a.cfg.uiTheme) a.cfg.theme = themeBase(a.cfg.uiTheme);   // OT fork: keep the stock byte valid
+        if (v == &a.cfg.uiFont) a.cfg.font = a.cfg.uiFont >= 2 ? 0 : a.cfg.uiFont;
     } else {
         a.markProjectDirty();
         a.refreshPadNotes();

@@ -171,6 +171,7 @@ struct Palette {
     uint32_t accent, good;
     uint32_t note, instr, fx1, fx2;
     uint32_t orange, cyan;
+    uint8_t anim = 0;      // 0 still, 1 accent pulse (accent <-> cyan), 2 accent hue turning
 };
 
 const Palette kPalettes[kThemeTotal - kThemeCount] = {
@@ -187,7 +188,17 @@ const Palette kPalettes[kThemeTotal - kThemeCount] = {
     {"Ice", 0, 0x02060C, 0xDFF6FF, 0x4FC3F7, 0x80DEEA, 0xB3E5FC, 0xE1F5FE, 0x81D4FA, 0x4DD0E1, 0x90CAF9, 0x80DEEA},
     {"Sunset", 0, 0x140A1E, 0xFFE8D6, 0xFF6F59, 0xF9C80E, 0xFF9F1C, 0xF9C80E, 0xF15BB5, 0x9B5DE5, 0xFF9F1C, 0x9B5DE5},
     {"Teletext", 0, 0x000000, 0xFFFFFF, 0xFF0000, 0x00FF00, 0x00FFFF, 0xFFFF00, 0xFF00FF, 0x00FF00, 0xFFFF00, 0x00FFFF},
+    {"Vaporwave", 0, 0x1A0B2E, 0xF8E7FF, 0xFF71CE, 0x05FFA1, 0x01CDFE, 0xFFFB96, 0xB967FF, 0x05FFA1, 0xFF71CE, 0x01CDFE},
+    {"Blueprint", 0, 0x0B2545, 0xEAF4FF, 0xFFFFFF, 0x8DD3FF, 0xBFE3FF, 0xFFFFFF, 0x8DD3FF, 0xD6ECFF, 0xFFD166, 0x8DD3FF},
+    {"Game Boy", 0, 0x0F380F, 0x9BBC0F, 0xCADC9F, 0x9BBC0F, 0x9BBC0F, 0xCADC9F, 0x8BAC0F, 0xB5CC5F, 0xCADC9F, 0x9BBC0F},
+    {"Sepia", 0, 0x1B140D, 0xEBDCC3, 0xC0703A, 0xA3A35A, 0xD9B27C, 0xEBDCC3, 0xB5835A, 0xC9A97C, 0xC0703A, 0xA3B5A0},
+    {"Hi Contrast", 0, 0x000000, 0xFFFFFF, 0xFFFF00, 0x00FF00, 0xFFFFFF, 0xFFFF00, 0x00FFFF, 0xFF00FF, 0xFF8800, 0x00FFFF},
+    {"Cyber Pulse", 0, 0x04060E, 0xD8E6FF, 0xFF2E88, 0x39FF14, 0x00E5FF, 0xFFD500, 0xB388FF, 0x64FFDA, 0xFF8A00, 0x00E5FF, 1},
+    {"Spectrum", 0, 0x050505, 0xF0F0F0, 0xFF3040, 0x40FF80, 0x40C0FF, 0xFFE040, 0xC060FF, 0x60FFD0, 0xFF9020, 0x40C0FF, 2},
 };
+
+// Animation phase of the active animated theme (themeTick), 0..255.
+uint8_t gAnimPhase = 0;
 
 inline uint32_t mix(uint32_t a, uint32_t b, uint32_t t /* 0..255 */) {
     uint32_t out = 0;
@@ -232,9 +243,21 @@ const Theme& theme(uint8_t index) {
     // One derived theme is built at a time (the active one), in RAM.
     static uint32_t slots[kThemeSlotCount];
     static Theme t{};
-    static uint8_t built = 0xFF;
-    if (built != index) {
-        const Palette& p = kPalettes[index - kThemeCount];
+    static uint8_t built = 0xFF, builtPhase = 0;
+    if (built != index || (kPalettes[index - kThemeCount].anim && builtPhase != gAnimPhase)) {
+        Palette p = kPalettes[index - kThemeCount];
+        if (p.anim == 1) {          // Cyber Pulse: the accent breathes between pink and cyan
+            const uint32_t t = gAnimPhase < 128 ? gAnimPhase * 2u : (255u - gAnimPhase) * 2u;
+            p.accent = mix(p.accent, p.cyan, t > 255 ? 255 : t);
+            p.good = mix(p.good, 0xFF2E88, t > 255 ? 255 : t);   // the cursor breathes too
+        } else if (p.anim == 2) {   // Spectrum: the accent hue turns
+            const uint32_t h = gAnimPhase * 6u;   // 0..1530
+            const uint32_t seg = h / 256u, f = h % 256u;
+            static const uint32_t kKeys[7] = {0xFF3040, 0xFFE040, 0x40FF80, 0x40E0FF, 0x5060FF, 0xFF40E0, 0xFF3040};
+            p.accent = mix(kKeys[seg > 5 ? 5 : seg], kKeys[seg > 5 ? 6 : seg + 1], f);
+            p.good = mix(kKeys[(seg + 2) % 6], kKeys[(seg + 3) % 6], f);
+        }
+        builtPhase = gAnimPhase;
         const uint32_t* base = themes()[p.base].slots;
         for (int i = 0; i < kThemeSlotCount; ++i)
             slots[i] = i >= slot::kFlagBottomFade ? base[i] : recolour(p, base[i]);
@@ -244,6 +267,17 @@ const Theme& theme(uint8_t index) {
         built = index;
     }
     return t;
+}
+
+bool themeAnimated(uint8_t index) {
+    return index >= kThemeCount && index < kThemeTotal && kPalettes[index - kThemeCount].anim != 0;
+}
+
+void themeTick(uint8_t index, uint32_t ms) {
+    if (!themeAnimated(index)) return;
+    // Cyber Pulse: one breath in about 4 s; Spectrum: a turn in about 12 s.
+    const uint32_t period = kPalettes[index - kThemeCount].anim == 1 ? 4000u : 12000u;
+    gAnimPhase = uint8_t((ms % period) * 256u / period);
 }
 
 const char* themeName(uint8_t index) {
@@ -256,6 +290,6 @@ uint8_t themeBase(uint8_t index) {
     return index < kThemeTotal ? kPalettes[index - kThemeCount].base : 0;
 }
 
-const char* fontSetName(uint8_t set) { return set == kFontSetNew ? "New" : "Original"; }
+const char* fontSetName(uint8_t set) { return set == kFontSetNew ? "New" : (set == kFontSetPixel ? "Pixel" : "Original"); }
 
 }  // namespace ot

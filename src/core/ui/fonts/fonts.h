@@ -53,7 +53,7 @@ enum SmallSymbol : uint8_t {
 #if OT_FONTS_COMPRESSED
 extern const uint8_t kBlobZ[];             // fonts.cpp (font_data_z.inc)
 extern const uint32_t kBlobZSize;
-extern const uint8_t kAdvance[10][128];    // fonts.cpp (font_adv.inc), [set * 5 + role]
+extern const uint8_t kAdvance[kFontSets * 5][128];    // fonts.cpp (font_adv.inc), [set * 5 + role]
 #else
 extern const uint8_t kBlob[kBlobSize];   // fonts.cpp (font_data.inc)
 #endif
@@ -63,7 +63,7 @@ constexpr uint32_t kMetricBytes = 148;
 
 // Font `role` 0..4 (kFont1..kFont5 - 1) of set 0..1; out of range -> set 0 / font 1.
 inline const FontInfo& info(int set, int role) {
-    return kFonts[(set == 1) ? 1 : 0][(role >= 0 && role < 5) ? role : 0];
+    return kFonts[(set >= 0 && set < kFontSets) ? set : 0][(role >= 0 && role < 5) ? role : 0];
 }
 // Pen advance of character `ch` (metric block width table, 0 if no glyph).
 #if OT_FONTS_COMPRESSED

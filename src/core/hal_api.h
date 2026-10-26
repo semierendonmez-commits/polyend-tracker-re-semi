@@ -191,8 +191,9 @@ public:
     // into RAM_G); fragmentAppend(slot) later re-emits them (CMD_APPEND). Only
     // between dlStart() and swap(); a fragment inherits the graphics state at
     // the append point like CMD_APPEND does. Default: unsupported.
-    // 16 slots: the FT81x keeps them in RAM_G after the 1.9.5 font image.
-    static constexpr uint8_t kFragmentSlots = 16;
+    // OT fork: 14 slots, kept in RAM_G after the project cover image (the
+    // font image with the third set fills the band before the cover).
+    static constexpr uint8_t kFragmentSlots = 14;
     virtual bool fragmentsSupported() const { return false; }
     virtual void fragmentBegin(uint8_t slot) { (void)slot; }
     // False when the fragment could not be stored (too large, fault); the
