@@ -109,6 +109,25 @@ const EffectDesc kEffects[kEffectCount] = {
       {"Match", 0, 1, 1, 1, kFmtLabel, kOffOn},
       {"Ceiling", 0, 12, 0.5f, 0, kFmtFloat1, nullptr},
       {"Mix", 0, 100, 1, 100, kFmtPercent, nullptr}}},
+    {"Tuner", 0, {}},
+    {"Paulstretch",
+     2,
+     {{"Stretch", 2, 32, 1, 8, kFmtInt, nullptr}, {"Window", 0, 3, 1, 2, kFmtLabel, kPsWindows}}},
+    {"Granular",
+     6,
+     {{"Length", 0.25f, 8, 0.25f, 2, kFmtFloat2, nullptr},
+      {"Grain", 10, 500, 5, 80, kFmtMs, nullptr},
+      {"Density", 2, 200, 1, 30, kFmtInt, nullptr},
+      {"Spray", 0, 100, 1, 20, kFmtPercent, nullptr},
+      {"Pitch", 0, 12, 0.5f, 0, kFmtFloat1, nullptr},
+      {"Reverse", 0, 100, 1, 0, kFmtPercent, nullptr}}},
+    {"Strand",
+     5,
+     {{"Segment", 5, 300, 5, 40, kFmtMs, nullptr},
+      {"Shuffle", 0, 100, 1, 40, kFmtPercent, nullptr},
+      {"Repeat", 0, 100, 1, 20, kFmtPercent, nullptr},
+      {"Reverse", 0, 100, 1, 10, kFmtPercent, nullptr},
+      {"Length", 0.25f, 4, 0.25f, 1, kFmtFloat2, nullptr}}},
 };
 
 // y = sat(trunc(v)): the stock results truncate toward zero and saturate to
@@ -324,6 +343,9 @@ uint32_t outputFrames(int fx, const float* p, uint32_t n) {
         case kStretchNote:
             // A target of 0 means the current length.
             return p[0] <= 0.0f ? n : uint32_t(p[0] * kRate + 0.5f);
+        case kPaulstretch: return paulstretchFrames(p, n);
+        case kGranular: return granularFrames(p, n);
+        case kStrand: return strandFrames(p, n);
         default: return n;
     }
 }
@@ -576,6 +598,9 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
         case kDctCrush: dctCrush(p, in, w, out); break;
         case kRadio: radio(p, in, w, out); break;
         case kClipper: clipper(p, in, w, out); break;
+        case kPaulstretch: return paulstretch(p, in, n, out, w);
+        case kGranular: return granular(p, in, n, out, w);
+        case kStrand: return strand(p, in, n, out, w);
         case kFadeIn:
             // Linear ramp a = 0 -> 1, y = trunc(x a).
             // SPEC GAP: start/step (lg:0x79608) not decoded; a = i / n.

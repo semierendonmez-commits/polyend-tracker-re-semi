@@ -820,6 +820,9 @@ private:
     void markerDelta(int which, int d);
     void paramDelta(int d);
     bool fits(uint32_t newFrames, uint32_t extraSamples);
+    void lendScratch(int16_t* at, uint32_t samples);   // OT fork
+    void tune();                                        // OT fork Tuner
+    int tuneT_ = 0, tuneF_ = 0;
     void stopPreview();
     void selection(uint32_t* s0, uint32_t* s1) const;
     uint32_t undoFrames_ = 0;

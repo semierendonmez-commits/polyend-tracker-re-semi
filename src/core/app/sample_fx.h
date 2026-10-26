@@ -37,7 +37,11 @@ enum Effect : uint8_t {
     kDctCrush,     // OT fork
     kRadio,        // OT fork: shortwave receiver (CIPHER)
     kClipper,      // OT fork: NEXUSCLIP curves
-    kEffectCount = 21,
+    kTuner,        // OT fork: pitch detection, writes Tune / Finetune (no audio change)
+    kPaulstretch,  // OT fork: extreme time stretch
+    kGranular,     // OT fork: granular render (Argotlunar style)
+    kStrand,       // OT fork: zero-crossing segment shuffler (Leviathan Strand)
+    kEffectCount = 25,
 };
 
 constexpr int kMaxParams = 9;

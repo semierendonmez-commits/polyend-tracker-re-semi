@@ -7,11 +7,13 @@
 // which leaves the previous data at the new tail -- the one-level undo
 // buffer. Undo swaps back and clears it (spec 06 §6.3 F4). A preview result
 // is processed after the undo data and played through the file-preview path.
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
 #include "app/app.h"
 #include "app/sample_fx.h"
+#include "app/sample_fx_ot.h"
 #include "ui/screens.h"
 
 namespace ot {
@@ -167,14 +169,20 @@ bool EditorScreen::apply() {
     selection(&s0, &s1);
     const uint32_t sel = s1 - s0;
     const float* p = params[effect];
+    if (effect == sfx::kTuner) {   // OT fork: analysis only
+        tune();
+        return false;
+    }
     const uint32_t outSel = sfx::outputFrames(effect, p, sel);
     const uint32_t newLen = effect == sfx::kCrop ? outSel : len - sel + outSel;
-    if (!fits(newLen, 0)) return false;
+    const uint32_t scratch = 2u * sfx::scratchFloats(effect, p) + 2u;   // OT fork: in samples
+    if (!fits(newLen, scratch)) return false;
     stopPreview();
     a.allVoicesOff();   // voices point into the bank
     ui_.progress("Applying", 0);
     int16_t* t = a.bank.tail();
     const int16_t* cur = a.bank.data(slot_);
+    lendScratch(t + ch * newLen, scratch);
     for (uint32_t c = 0; c < ch; ++c) {
         const int16_t* src = cur + c * len;
         int16_t* dst = t + c * newLen;
@@ -187,6 +195,7 @@ bool EditorScreen::apply() {
         }
         ui_.progress("Applying", int((c + 1) * 100 / ch));
     }
+    sfx::setScratch(nullptr, 0);
     if (!a.bank.replaceFromTail(slot_, newLen, stereo)) {
         ui_.progressDone();
         return false;
@@ -211,6 +220,49 @@ bool EditorScreen::apply() {
     page = 1;
     refreshBar();
     return true;
+}
+
+// OT fork: free sample memory after the buffers in use as float scratch.
+void EditorScreen::lendScratch(int16_t* at, uint32_t samples) {
+    if (samples < 4) {
+        sfx::setScratch(nullptr, 0);
+        return;
+    }
+    uintptr_t u = reinterpret_cast<uintptr_t>(at);
+    u = (u + 3u) & ~uintptr_t(3);
+    sfx::setScratch(reinterpret_cast<float*>(u), (samples - 2u) / 2u);
+}
+
+// OT fork Tuner: the selection's pitch; Write puts Tune / Finetune on the
+// instrument so its unity note plays the C nearest to the detected pitch.
+void EditorScreen::tune() {
+    App& a = app_;
+    uint32_t s0, s1;
+    selection(&s0, &s1);
+    const uint32_t n = s1 - s0 > 44100u ? 44100u : s1 - s0;   // the first second is plenty
+    float hz = 0.0f, clarity = 0.0f;
+    static char msg[64];
+    if (!sfx::detectPitch(a.bank.data(slot_) + s0, n, &hz, &clarity)) {
+        ui_.ask("Tuner", "No clear pitch in the selection", nullptr, nullptr, "OK", nullptr, nullptr);
+        return;
+    }
+    static const char* const kNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    const float midi = 69.0f + 12.0f * std::log2(hz / 440.0f);
+    const int nearest = int(std::floor(midi + 0.5f));
+    const int cents = int(std::floor((midi - float(nearest)) * 100.0f + 0.5f));
+    sfx::tuneFor(hz, &tuneT_, &tuneF_);
+    std::snprintf(msg, sizeof(msg), "%s%d %+d cents  (%.1f Hz)  Write: Tune %+d, Fine %+d", kNames[((nearest % 12) + 12) % 12],
+                  nearest / 12 - 1, cents, double(hz), tuneT_, tuneF_);
+    ui_.ask("Tuner", msg, nullptr, "Close", "Write",
+            [](void* ctx, int key) {
+                if (key != 7) return;
+                auto* self = static_cast<EditorScreen*>(ctx);
+                Instrument& in = self->app_.instruments[self->slot_];
+                in.tune = int8_t(self->tuneT_);
+                in.finetune = int8_t(self->tuneF_);
+                self->app_.markInstrumentDirty(self->slot_, false);
+            },
+            this);
 }
 
 bool EditorScreen::undo() {
@@ -248,12 +300,15 @@ bool EditorScreen::preview(int note) {
     if (s0 != prevS0_ || s1 != prevS1_ || effect != prevEffect_) previewState = 0;
     // Keep the undo data at the tail intact: process after it.
     const uint32_t keep = undoAvail ? undoFrames_ * (undoStereo_ ? 2u : 1u) : 0u;
-    if (!fits(outSel, keep)) return false;
+    const uint32_t scratch = 2u * sfx::scratchFloats(effect, params[effect]) + 2u;   // OT fork
+    if (!fits(outSel, keep + scratch)) return false;
     int16_t* out = a.bank.tail() + keep;
     if (previewState == 0) {
         ui_.progress("Processing", 0);
         const int16_t* cur = a.bank.data(slot_);
+        lendScratch(out + ch * outSel, scratch);
         for (uint32_t c = 0; c < ch; ++c) sfx::process(effect, params[effect], cur + c * len + s0, sel, out + c * outSel, outSel);
+        sfx::setScratch(nullptr, 0);
         ui_.progressDone();
         previewState = 1;
         prevS0_ = s0;

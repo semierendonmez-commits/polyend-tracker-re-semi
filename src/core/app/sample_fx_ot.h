@@ -31,6 +31,26 @@ uint32_t radio(const float* p, const int16_t* in, uint32_t n, int16_t* out);
 uint32_t clipper(const float* p, const int16_t* in, uint32_t n, int16_t* out);
 float clipCurve(int curve, float x, float knee);   // tests
 
+// OT fork tools from the open-source list (sample_fx_mod.cpp).
+// Scratch memory for the heavy offline effects (the editor lends free sample
+// memory before processing; nullptr = none: they fall back to a copy).
+void setScratch(float* p, uint32_t floats);
+uint32_t scratchFloats(int fx, const float* p);   // floats an effect wants (0 = none)
+// YIN pitch of the selection: Hz and clarity 0..1; false when none found.
+bool detectPitch(const int16_t* in, uint32_t n, float* hz, float* clarity);
+// Tune (semitones) and finetune (cents) that put `hz` on the unity note's C.
+void tuneFor(float hz, int* tune, int* fine);
+// p: Stretch x, Window (0..3 = 50 / 100 / 200 / 400 ms).
+uint32_t paulstretchFrames(const float* p, uint32_t n);
+uint32_t paulstretch(const float* p, const int16_t* in, uint32_t n, int16_t* out, uint32_t m);
+// p: Length x, Grain ms, Density per second, Spray %, Pitch spread semitones, Reverse %.
+uint32_t granularFrames(const float* p, uint32_t n);
+uint32_t granular(const float* p, const int16_t* in, uint32_t n, int16_t* out, uint32_t m);
+// p: Segment ms, Shuffle %, Repeat %, Reverse %, Length x.
+uint32_t strandFrames(const float* p, uint32_t n);
+uint32_t strand(const float* p, const int16_t* in, uint32_t n, int16_t* out, uint32_t m);
+extern const char* const kPsWindows[4];
+
 // Radix-2 complex FFT in place (n a power of two; inverse unscaled).
 void fftInPlace(float* re, float* im, int n, bool inverse);
 
