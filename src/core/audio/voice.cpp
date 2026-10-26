@@ -867,7 +867,30 @@ OT_FASTRUN_FN void Voice::renderPlayer(float* out, uint32_t n) {
     };
 
     const uint8_t mode = mode_;
-    if (mode == uint8_t(PlayMode::Wavetable)) {
+    if (mode == uint8_t(PlayMode::Wavetable) && fm_ && fmDepth_ != 0.0f) {
+        // OT fork wavetable FM: the rate follows the source voice sample by
+        // sample (through zero: negative rates play the window backwards).
+        const int32_t mask = int32_t(wtSize_) - 1;
+        const float W = float(wtSize_);
+        const int16_t* base = d + wtOffset_;
+        const float* fm = fm_ + fmOff_;
+        const float depth = fmDepth_;
+        float ph = float(pos & mask) + float(frac) * (1.0f / 65535.0f);
+        for (uint32_t i = 0; i < n; ++i) {
+            glide();
+            const int32_t ip = int32_t(ph);
+            const float fr = ph - float(ip);
+            OT_SDRAM_ACCESS(2);
+            const float s0 = float(base[ip & mask]), s1 = float(base[(ip + 1) & mask]);
+            out[i] = (s0 + fr * (s1 - s0)) * (1.0f / 32768.0f);
+            ph += rate * (1.0f + depth * fm[i]);
+            if (ph >= W) ph -= W * float(int32_t(ph / W));
+            else if (ph < 0.0f) ph += W * float(int32_t(-ph / W) + 1);
+        }
+        pos = int32_t(ph) & mask;
+        frac = uint32_t((ph - float(int32_t(ph))) * 65535.0f);
+        if (frac > 65534u) frac = 65534u;
+    } else if (mode == uint8_t(PlayMode::Wavetable)) {
         // Loop one window of W samples; window changes at block boundaries (§2.2, §3.2).
         const int32_t mask = int32_t(wtSize_) - 1;
         const int16_t* base = d + wtOffset_;
@@ -1019,13 +1042,19 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
     for (uint32_t g = 0; g < kBlock; g += 8) {
         const int ev = env_.group(eg + g);
         if (ev) {
-            if (g > done) renderPlayer(x + done, g - done);
+            if (g > done) {
+                fmOff_ = done;   // OT fork wavetable FM: the source sample index
+                renderPlayer(x + done, g - done);
+            }
             done = g;
             if (ev & VolumeEnvelope::kEvForcedDone) startNote();
             if (ev & VolumeEnvelope::kEvIdle) playing_ = false;
         }
     }
-    if (done < kBlock) renderPlayer(x + done, kBlock - done);
+    if (done < kBlock) {
+        fmOff_ = done;
+        renderPlayer(x + done, kBlock - done);
+    }
     // Sample end (one-shot/slice) with no retrigger pending: the voice is done.
     if (!playing_ && !pending_.valid) env_.stop();
     float* __restrict oa = o.amp;

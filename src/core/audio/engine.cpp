@@ -666,6 +666,15 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
     float* const tapL = tapTrack >= 0 ? vout_[tapTrack].l : nullptr;
     float* const tapR = tapTrack >= 0 ? vout_[tapTrack].r : nullptr;
     for (int t = 0; t < kVoices; ++t) {
+        // OT fork wavetable FM: the source's output of this block (a track to
+        // the left) or of the last block (to the right).
+        const PerfOffsets& pf = voices_[t].perf();
+        if (pf.fmDepth) {
+            const int s = pf.fmSrc >= 1 && pf.fmSrc <= kVoices ? pf.fmSrc - 1 : (t + kVoices - 1) % kVoices;
+            voices_[t].setFm(s != t ? vout_[s].amp : nullptr, float(pf.fmDepth) * 0.04f);
+        } else {
+            voices_[t].setFm(nullptr, 0.0f);
+        }
         if (voices_[t].render(vc_[t], vout_[t], dsend_, rsend_, mL_, mR_, stems != nullptr || t == tapTrack)) {
             if (t == tapTrack) tapVoiceOn = true;
             anyVoice = true;

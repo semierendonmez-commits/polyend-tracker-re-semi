@@ -94,6 +94,10 @@ struct PerfOffsets {
     int8_t lfoSpeed[kAutomationCount] = {};   // LFO speed-index offsets
     int16_t bits = 0;            // bit-depth offset (bits)
     int16_t od = 0;              // overdrive units (0..100 scale)
+    // OT fork wavetable FM (Perform "WT FM Depth" / "WT FM Source"): depth
+    // -100..100, source 0 = the track to the left, 1..8 = track N.
+    int16_t fmDepth = 0;
+    int8_t fmSrc = 0;
 };
 
 // Output buffers of one voice for one block (all normalised to +-1).
@@ -117,6 +121,12 @@ public:
     void resetFx();
     // Performance offsets (kept across reset(); spec 06 §3.4 apply/revert).
     void setPerf(const PerfOffsets& p);
+    // OT fork: wavetable FM from another voice's post-volume output (this or
+    // the previous block), depth as a rate multiplier per unit (0 = off).
+    void setFm(const float* src, float depth) {
+        fm_ = src;
+        fmDepth_ = depth;
+    }
     const PerfOffsets& perf() const { return perf_; }
     void stop();
     bool active() const { return playing_ || env_.active(); }
@@ -254,6 +264,9 @@ private:
     Overrides ov_;
     bool reverseFx_ = false;
     PerfOffsets perf_;
+    const float* fm_ = nullptr;
+    float fmDepth_ = 0.0f;
+    uint32_t fmOff_ = 0;     // samples of the block already rendered (renderPlayer calls)
     int lfoSpeedFor(int slot, int base) const;
 
     // modulators

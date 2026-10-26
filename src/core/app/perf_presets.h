@@ -20,7 +20,7 @@ namespace perf {
 constexpr int kSlots = 12;
 constexpr int kRows = 4;          // stored rows 0..3 (0 = off)
 constexpr int kLiveRow = 4;       // MIDI-CC live value (spec 12 §B.2)
-constexpr int kFxCount = 30;      // 0 = empty, 1..21 stock, 22..29 OT fork generators
+constexpr int kFxCount = 32;      // 0 = empty, 1..21 stock, 22..29 OT fork generators, 30..31 WT FM
 
 // FX ids (spec 12 §E.2).
 enum Fx : uint8_t {
@@ -32,6 +32,7 @@ enum Fx : uint8_t {
     // BBCut play modes / Mutate globally.
     kAcidAccent, kAcidSlide, kAcidMutate,
     kBBCutA, kBBCutB, kBBRolls, kBBRecut,
+    kFmDepth, kFmSource,   // OT fork wavetable FM between tracks (voice.h PerfOffsets)
 };
 
 // Value descriptor (spec 12 §E.1): min, max, label table, exclusive-with

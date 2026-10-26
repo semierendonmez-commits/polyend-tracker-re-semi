@@ -328,6 +328,31 @@ TEST(loop_modes_boundaries) {
         auto out = renderVoice(v, 20, c);
         for (float s : out) CHECK(idxOf(s) >= 768 && idxOf(s) < 1024);
         CHECK_NEAR(v.rate(), wavetablePitchTable(256)[60], 1e-6);
+        // OT fork wavetable FM: a constant source of 0.5 at depth 1 plays the
+        // window 1.5 times as fast; at -2 the rate goes through zero.
+        Voice f;
+        f.noteOn(&ins, data.data(), 65535, 60, -1, 0, 0, 0, 0);
+        std::vector<float> src(kBlock, 0.5f);
+        f.setFm(src.data(), 1.0f);
+        auto fo = renderVoice(f, 4, c);
+        double sum = 0;
+        int nstep = 0;
+        for (size_t i = 1; i < fo.size(); ++i) {
+            CHECK(idxOf(fo[i]) >= 767 && idxOf(fo[i]) <= 1024);
+            const int d = idxOf(fo[i]) - idxOf(fo[i - 1]);
+            if (d > 0 && d < 64) {
+                sum += d;
+                ++nstep;
+            }
+        }
+        CHECK(nstep > 100);
+        CHECK_NEAR(sum / nstep, 1.5 * wavetablePitchTable(256)[60], 0.08);
+        std::vector<float> neg(kBlock, -1.0f);
+        f.setFm(neg.data(), 2.0f);   // rate x (1 - 2) = backwards
+        auto bo = renderVoice(f, 2, c);
+        int back = 0;
+        for (size_t i = 1; i < bo.size(); ++i) back += idxOf(bo[i]) < idxOf(bo[i - 1]);
+        CHECK(back > int(bo.size()) / 2);
     }
     {   // granular: grain of L samples around P, windowed
         Instrument ins = plainInstrument(65535, PlayMode::Granular);

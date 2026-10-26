@@ -23,6 +23,7 @@ const char* const kLength[] = {"---", "1", "2", "4", "8", "16", "32", "64", "128
 // OT fork: BBCut play-mode rolls and re-cut (0 = no change).
 const char* const kBBRollLabels[] = {"---", "None", "Dense", "Fade"};
 const char* const kBBRecutLabels[] = {"---", "Now", "1 loop", "2 loops", "4 loops", "8 loops", "Locked"};
+const char* const kFmSrcLabels[] = {"Left", "Trk 1", "Trk 2", "Trk 3", "Trk 4", "Trk 5", "Trk 6", "Trk 7", "Trk 8"};
 
 // spec 06 §3.2 / spec 12 §E.2 ranges; LP/HP/BP exclude each other (§E.1).
 // Names: stock 1.9.2 screen (owner photo 2026-10-23) for the first 12; the rest
@@ -58,6 +59,8 @@ const FxDesc kFx[kFxCount] = {
     {"BBCut B", -6, 6, nullptr, 0, 0, true},
     {"BBCut Rolls", 0, 3, kBBRollLabels, 0, 0, true},
     {"BBCut Recut", 0, 6, kBBRecutLabels, 0, 0, true},
+    {"WT FM Depth", -100, 100, nullptr, 0, 0, false},
+    {"WT FM Source", 0, 8, kFmSrcLabels, 0, 0, false},
 };
 }  // namespace
 

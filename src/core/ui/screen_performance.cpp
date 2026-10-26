@@ -80,6 +80,10 @@ const char* fxPickDesc(void*, int i) {
         "BBCut play modes: None drops the rolls, Dense adds rolls at cut starts, Fade turns them into fade-out rolls.",
         "BBCut play modes and BBCut Mutate: Now cuts again at every pad press; 1..8 loops re-cuts while playing; "
         "Locked keeps the cuts (overrides Config > BB play modes).",
+        "Wavetable instruments: frequency modulation from another track's sound (by default the track to the "
+        "left), sample by sample; larger values give brighter, harsher spectra, negative inverts the modulator.",
+        "Where WT FM Depth takes its modulator from: the track to the left, or track 1..8 (with WT FM Depth on "
+        "several tracks they can modulate each other).",
     };
     return i >= 0 && i < perf::kFxCount ? kHelp[i] : "";
 }
@@ -288,6 +292,8 @@ void PerformanceScreen::applyAll(bool revertEverything) {
                 case perf::kAcidAccent: acidAcc = v; break;
                 case perf::kAcidSlide: acidSlide = v; break;
                 case perf::kAcidMutate: acidMut = v; break;
+                case perf::kFmDepth: p.fmDepth = int16_t(v); break;
+                case perf::kFmSource: p.fmSrc = int8_t(v); break;
                 default: break;
             }
         }
