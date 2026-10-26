@@ -134,6 +134,7 @@ TEST(config_menu_lists_all_options_with_defaults) {
         {"BB play modes", 3, 0, 6, 0, 0},     {"Beat Slice thru", 3, 0, 2, 0, 0},   // OT fork
         {"Scale lock", 3, 0, 2, 0, 0},        {"Screen saver", 3, 0, 5, 0, 0},      // OT fork
         {"Level meter", 3, 0, 2, 0, 0},
+        {"Reverb model", 3, 0, 4, 0, 0},      {"Delay model", 3, 0, 3, 0, 0},
     };
     const Want midi[] = {
         {"Clock in", 3, 0, 3, 0, 0},          {"Clock out", 3, 0, 4, 0, 0},
@@ -165,7 +166,7 @@ TEST(config_menu_lists_all_options_with_defaults) {
         int n;
     };
     const CatWant cats[] = {
-        {"Project Settings", project, 10}, {"General", general, 19}, {"MIDI", midi, 11},
+        {"Project Settings", project, 10}, {"General", general, 21}, {"MIDI", midi, 11},
         {"USB", usb, 1},                   // [I] 2.x (Tracker Mini order)
         {"Metronome", metro, 5},           {"Firmware", firmware, 4}, {"Info", info, 4},
     };
@@ -186,7 +187,7 @@ TEST(config_menu_lists_all_options_with_defaults) {
             if (w.def >= 0) CHECK_EQ(c.optionIndex(k, i), w.def);
         }
     }
-    CHECK_EQ(total, 54);   // stock 42 + 2.x CPU meter, Synth voices, three Info lines, USB Storage; OT Auto slice, BB play modes, Beat Slice thru, Scale lock, Screen saver, Level meter
+    CHECK_EQ(total, 56);   // stock 42 + 2.x CPU meter, Synth voices, three Info lines, USB Storage; OT Auto slice, BB play modes, Beat Slice thru, Scale lock, Screen saver, Level meter
     char t[48];
     c.optionText(3, 0, t, sizeof t);   // USB Storage: Off
     CHECK_STR(t, "Off");
@@ -207,8 +208,8 @@ TEST(config_menu_lists_all_options_with_defaults) {
             CHECK_EQ(o.help != nullptr, want);
             helps += o.help != nullptr;
         }
-    CHECK_EQ(helps, 34);   // stock 25 + 2.x CPU meter, Synth voices and USB Storage; OT Auto slice, BB, thru, scale lock, saver, meter
-    CHECK_EQ(configHelpCount(), 34);
+    CHECK_EQ(helps, 36);   // stock 25 + 2.x CPU meter, Synth voices and USB Storage; OT Auto slice, BB, thru, scale lock, saver, meter
+    CHECK_EQ(configHelpCount(), 36);
     c.optionText(5, 1, t, sizeof t);
     CHECK(std::strlen(t) > 0);
 }

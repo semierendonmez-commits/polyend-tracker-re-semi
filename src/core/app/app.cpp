@@ -227,6 +227,8 @@ void App::applyEngineSettings() {
     m.satTone = uint8_t(100 - (cfg.satToneInv > 100 ? 100 : cfg.satToneInv));
     m.limCeiling = cfg.limCeiling;
     m.limLink = cfg.limLink != 0;
+    m.reverbModel = cfg.reverbModel;   // OT fork send-effect models
+    m.delayModel = cfg.delayModel;
     m.metronomeVolume = cfg.metronomeVolume;
     m.previewVolume = cfg.previewVolume > 100 ? 100 : cfg.previewVolume;
     // Config "Line in channel" (spec 15 §2.2 #11): clamp > 2 -> 2 and push it

@@ -16,6 +16,9 @@ float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : 
 // Saturation mode labels 0..4 as listed by the stock Master page [S snap 022]
 // (mode 0 = plain hard saturation, spec 04 §5.4; supersedes the [I] labels).
 const char* kSatNames[5] = {"Hard Clip", "Soft Clip", "Saturate", "Overdrive", "Drive+"};
+// OT fork send-effect models (Config::reverbModel / delayModel, fx_models.h).
+const char* const kRevModels[4] = {"Stock", "Hall", "Shimmer", "Gated"};
+
 // Global mixer channels (spec 06 §4.5): Delay, Reverb, Dry Mix, Line In.
 const uint32_t kGlobalLevel[4] = {pf::kMixDelay, pf::kMixReverb, pf::kMixDry, pf::kLineInLevel};
 const uint32_t kGlobalMute[4] = {pf::kMixDelayMute, pf::kMixReverbMute, pf::kMixDryMute, pf::kLineInMute};
@@ -379,6 +382,7 @@ void MixerScreen::refreshBar() {
             }
             levelText(p.u8(pf::kLineInReverb), v, sizeof(v));
             b.set(4, "Line in", v, !lineInOff(p));
+            b.set(5, "Model", kRevModels[a.cfg.reverbModel < 4 ? a.cfg.reverbModel : 0]);   // OT fork
             setBack(b);
         } else if (sub == 2) {
             const uint8_t fl = p.u8(pf::kDelayFlags);
@@ -464,6 +468,7 @@ void MixerScreen::refreshBar() {
 bool MixerScreen::isListParam(int sub, int param) {
     switch (sub) {
         case 0: return param == 1;
+        case 1: return param == 5;   // OT fork reverb model
         case 2: return param >= 0 && param <= 2;
         case 3: return param == 3;
         default: return false;
@@ -484,6 +489,11 @@ void MixerScreen::masterChange(int d) {
             case 3: p.setU8(pf::kSpace, uint8_t(clampi(p.u8(pf::kSpace) + d, 0, 8))); break;
         }
     } else if (sub == 1) {
+        if (param == 5) {   // OT fork reverb model
+            a.cfg.reverbModel = uint8_t(clampi(a.cfg.reverbModel + d, 0, Config::kReverbModels - 1));
+            a.markConfigDirty();
+            return;
+        }
         if (param < 4) {
             const uint32_t off = pf::kReverbSize + 4 * uint32_t(param);
             const float mx = param == 3 ? 0.85f : 1.0f;
@@ -703,7 +713,7 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                 sub = 0;
                 param = 0;
             } else {
-                const int maxF = sub == 2 ? 6 : 4;
+                const int maxF = sub == 2 ? 6 : (sub == 1 ? 5 : 4);   // OT fork: Reverb F6 = model
                 if (f <= maxF && !(sub == 3 && f == 3)) param = (sub == 3 && f == 4) ? 3 : f;
             }
         } else {
@@ -741,7 +751,7 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                 }
             } else if (page == 0 && sub == 0) param = clampi(param + (id == btn::Right ? 1 : -1), 0, 3);
             else if (page == 0) {
-                const int mx = sub == 1 ? 4 : sub == 2 ? 6 : sub == 3 ? 3 : 4;
+                const int mx = sub == 1 ? 5 : sub == 2 ? 6 : sub == 3 ? 3 : 4;
                 param = clampi(param + (id == btn::Right ? 1 : -1), 0, mx);
                 if (sub == 2) {
                     const bool sync = app_.project.u8(pf::kDelayFlags) & 0x40;
@@ -750,7 +760,8 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                 }
                 // A disabled Line in send (Line In muted) is skipped like
                 // Rate / Time [I]; it is the last parameter of the page.
-                if ((sub == 1 || sub == 2) && param == (sub == 1 ? 4 : 6) && lineInOff(app_.project)) --param;
+                if (sub == 2 && param == 6 && lineInOff(app_.project)) --param;
+                if (sub == 1 && param == 4 && lineInOff(app_.project)) param += id == btn::Right ? 1 : -1;   // OT fork: model at 5
             }
             break;
         case btn::Delete:
@@ -964,7 +975,8 @@ void MixerScreen::draw(Gfx& g) {
             // (Diffusion 0.80 = 80 % of the well; its range ends at 0.85).
             for (int i = 0; i < 4; ++i) columnBar(g, th, i, p.f32(pf::kReverbSize + 4 * uint32_t(i)));
             lineInBar(g, th, 4, p.u8(pf::kLineInReverb), lineInOff(p));
-            column(g, th, 5, 3);
+            optionList(g, th, 5, kRevModels, 4, a.cfg.reverbModel < 4 ? a.cfg.reverbModel : 0);   // OT fork
+            column(g, th, 6, 2);
             columnFocus(g, th, param);
         } else if (sub == 2) {
             // On/Off and rate lists, bars for the rest [S round 3, snap 007];

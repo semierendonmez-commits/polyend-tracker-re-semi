@@ -13,6 +13,7 @@
 #include "audio/block_profile.h"
 #include "audio/cpu_meter.h"
 #include "audio/effects.h"
+#include "audio/fx_models.h"
 #include "audio/governor.h"
 #include "audio/stream_source.h"
 #include "audio/synth_bank.h"
@@ -131,6 +132,9 @@ struct MixerSettings {
     // 0..12 dB down, stereo-linked limiter detection.
     uint8_t satDrive = 0, satMix = 100, satTone = 100, limCeiling = 0;
     bool limLink = false;
+    // OT fork send-effect models (config): 0 stock, reverb 1 Hall 2 Shimmer
+    // 3 Gated, delay 1 Tape 2 Lo-fi (fx_models.h).
+    uint8_t reverbModel = 0, delayModel = 0;
     // line input (§1.3, §5.4, §5.5)
     uint8_t lineInChannel = 0;        // 0 stereo, 1 left->both, 2 right->both
     uint8_t lineInLevel = 86;
@@ -375,6 +379,10 @@ private:
     VoiceOut vout_[kVoices + 1];
     Delay delay_;
     Reverb reverb_;
+    FdnReverb fdn_;        // OT fork reverb models
+    TapeDelay tape_;       // OT fork delay models
+    uint8_t revModel_ = 0, dlyModel_ = 0;
+    float cTapeHz_ = -1.0f;
     Limiter limL_, limR_;
     LineDynamics dynL_, dynR_;   // DYN0/DYN1, line-in send path (spec 04 §5.6)
     bool dynActive_ = false;     // dynamics state not yet settled
@@ -407,6 +415,7 @@ private:
     float dynDrive_ = 1.0f, dynMakeup_ = 1.0f, dynMix_ = 1.0f, dynToneA_ = 1.0f, dynCeil_ = 1.0f;
     float dynZ_[2] = {};
     bool dynOn_ = false, dynLink_ = false;
+    uint32_t cDynKey_ = 0xFFFFFFFFu;
     volatile int32_t head_[kVoices] = {};   // voicePlayhead() snapshot (init() sets -1)
 
     // metronome click instruments (normal / accent finetune, spec 07 Q10)

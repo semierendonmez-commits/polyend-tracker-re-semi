@@ -248,6 +248,9 @@ bool AudioEngine::init(int16_t* fx, size_t fxSamples, int16_t* pool, size_t pool
     bank_.init(pool, pool ? poolSamples : 0);
     delay_.init(fx);
     reverb_.init(fx + Delay::kMemorySamples);
+    static_assert(FdnReverb::kMemorySamples <= Reverb::kMemorySamples, "reverb models share the reverb memory");
+    fdn_.init(fx + Delay::kMemorySamples);
+    tape_.init(fx, fx + kDelayLineLen);
     for (int v = 0; v <= kVoices; ++v) {
         voices_[v].reset();
         voices_[v].setSeed(0x9E3779B9u * uint32_t(v + 1));
@@ -475,6 +478,27 @@ void AudioEngine::updateParams() {
     }
     delay_.setFeedbackK(delayFeedbackK(m.delayFeedback));
     delay_.setPingPong(m.delayPingPong);
+    // OT fork models (the stock effects keep their parameters too).
+    revModel_ = m.reverbModel <= 3 ? m.reverbModel : 0;
+    dlyModel_ = m.delayModel <= 2 ? m.delayModel : 0;
+    if (revModel_) {
+        fdn_.setModel(revModel_);
+        fdn_.setSize(m.reverbSize);
+        fdn_.setDamping(m.reverbDamping);
+        fdn_.setDiffusion(m.reverbDiffusion);
+        fdn_.setPredelay(m.reverbPredelay);
+    }
+    if (dlyModel_) {
+        tape_.setModel(dlyModel_);
+        tape_.setTimeSamples(t);
+        tape_.setFeedback(float(m.delayFeedback) / 100.0f);
+        tape_.setPingPong(m.delayPingPong);
+        const float hz = float(m.delayFilterHz) + float(dlyModel_) * 100000.0f;   // model in the cache key
+        if (hz != cTapeHz_) {
+            tape_.setFilter(float(m.delayFilterHz));
+            cTapeHz_ = hz;
+        }
+    }
     // Reverb (§5.2).
     reverb_.setSize(m.reverbSize);
     reverb_.setDamping(m.reverbDamping);
@@ -492,18 +516,21 @@ void AudioEngine::updateParams() {
         limL_.setCoefs(ca, cr);
         limR_.setCoefs(ca, cr);
     }
-    // OT fork Dynamics (Master 4/4).
-    dynDrive_ = std::pow(10.0f, float(m.satDrive) / 20.0f);
-    dynMakeup_ = 1.0f / std::sqrt(dynDrive_);
-    dynMix_ = float(m.satMix > 100 ? 100 : m.satMix) / 100.0f;
-    {
+    // OT fork Dynamics (Master 4/4); the curves only when a setting moved.
+    const uint32_t dynKey = uint32_t(m.satDrive) | (uint32_t(m.satMix) << 8) | (uint32_t(m.satTone) << 16) |
+                            (uint32_t(m.limCeiling) << 24);
+    if (dynKey != cDynKey_) {
+        cDynKey_ = dynKey;
+        dynDrive_ = std::pow(10.0f, float(m.satDrive) / 20.0f);
+        dynMakeup_ = 1.0f / std::sqrt(dynDrive_);
+        dynMix_ = float(m.satMix > 100 ? 100 : m.satMix) / 100.0f;
         // Tone: one-pole low-pass, 100 % open, 0 % ~ 1 kHz.
         const float t = float(m.satTone > 100 ? 100 : m.satTone) / 100.0f;
         const float fc = 1000.0f * std::pow(20.0f, t);   // 1 kHz .. 20 kHz
         dynToneA_ = t >= 0.999f ? 1.0f : 1.0f - std::exp(-6.2831853f * fc / 44100.0f);
+        dynCeil_ = std::pow(10.0f, -float(m.limCeiling) / 20.0f);
+        dynOn_ = m.satDrive > 0 || m.satMix < 100 || dynToneA_ < 1.0f;
     }
-    dynCeil_ = std::pow(10.0f, -float(m.limCeiling) / 20.0f);
-    dynOn_ = m.satDrive > 0 || m.satMix < 100 || dynToneA_ < 1.0f;
     dynLink_ = m.limLink;
     // Mixer gains (§5.4, §5.5).
     master_.set(trkGain(m.masterVolume));
@@ -739,9 +766,9 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
     }
     // 5. effects (false: bypassed, outputs all zero)
     const uint32_t pc5 = stamp();
-    const bool dly = delay_.process(dsend_, dL_, dR_);
+    const bool dly = dlyModel_ ? tape_.process(dsend_, dL_, dR_) : delay_.process(dsend_, dL_, dR_);
     const uint32_t pc6 = stamp();
-    const bool rev = reverb_.process(rsend_, rL_, rR_);
+    const bool rev = revModel_ ? fdn_.process(rsend_, rL_, rR_) : reverb_.process(rsend_, rL_, rR_);
     const uint32_t pc7 = stamp();
     // 6. DRY (shaped) + returns (MSUM gains 1/2 fixed at 1.0, spec 07 Q3)
     //    + line-in -> MSUM (shaped) (§5.4). All inputs zero -> zero (every

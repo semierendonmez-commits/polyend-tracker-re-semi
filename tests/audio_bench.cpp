@@ -1225,6 +1225,19 @@ int main(int argc, char** argv) {
         r.eng->metronomeClick(true, 100);
         r.eng->previewBuffer(noise.data(), uint32_t(noise.size()), false);
         report("worst", timeBlocks(r, 2000, lineNoise));
+        // OT fork send-effect models in the worst set (fx_models.h).
+        m.reverbModel = 1;
+        report("wHall", timeBlocks(r, 2000, lineNoise));
+        m.reverbModel = 2;
+        report("wShimmer", timeBlocks(r, 2000, lineNoise));
+        m.reverbModel = 3;
+        report("wGated", timeBlocks(r, 2000, lineNoise));
+        m.reverbModel = 0;
+        m.delayModel = 1;
+        report("wTape", timeBlocks(r, 2000, lineNoise));
+        m.delayModel = 2;
+        report("wLofi", timeBlocks(r, 2000, lineNoise));
+        m.delayModel = 0;
     }
     {   // synth4: 4 test-engine voices in Synth 1 (sustained), reverb send
         Rig r;
