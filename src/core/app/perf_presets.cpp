@@ -43,7 +43,7 @@ const FxDesc kFx[kFxCount] = {
     {"Filter LFO Speed", -28, 28, nullptr, 0, 0, false},
     {"Grain/WT LFO Speed", -28, 28, nullptr, 0, 0, false},
     {"Step Repeater", 0, 15, kRepeater, 0, 0, false},
-    {"Pattern Play Mode", 0, 32, nullptr, 0, 0, false},   // labels: seq::playModeLabel; 23..32 OT BBCut
+    {"Pattern Play Mode", 0, 36, nullptr, 0, 0, false},   // labels: seq::playModeLabel; 23..32 OT BBCut, 33..36 TILT
     {"Pattern Length", 0, 8, kLength, 0, 0, true},
     {"Bit Depth", -12, 12, nullptr, 0, 0, false},
     {"Overdrive", -100, 100, nullptr, 0, 0, false},

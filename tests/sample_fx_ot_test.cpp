@@ -56,7 +56,7 @@ std::vector<int16_t> run(int fx, const float* p, const std::vector<int16_t>& in)
 }  // namespace
 
 TEST(table_entries) {
-    CHECK_EQ(sfx::kEffectCount, 19);
+    CHECK_EQ(sfx::kEffectCount, 21);
     CHECK(std::strcmp(sfx::effect(sfx::kTranscode).name, "Transcode") == 0);
     CHECK(std::strcmp(sfx::effect(sfx::kDctCrush).name, "DCT Crush") == 0);
     float p[sfx::kMaxParams];
@@ -154,4 +154,41 @@ TEST(dct_crush) {
     p[3] = 100;   // freeze every frame: the first frame's spectrum repeats
     const auto fr = run(sfx::kDctCrush, p, x);
     CHECK(fr.size() == x.size());
+}
+
+// Clipper: every curve is bounded at 0 dBFS, near-linear far below it, and
+// the effect never exceeds the ceiling.
+TEST(clipper_curves_and_ceiling) {
+    for (int c = 0; c < 7; ++c) {
+        for (float x = -4.0f; x <= 4.0f; x += 0.01f) {
+            const float y = sfx::clipCurve(c, x, 0.3f);
+            CHECK(y <= 1.0001f && y >= -1.0001f);
+        }
+        const float small = sfx::clipCurve(c, 0.05f, 0.3f);
+        CHECK(small > 0.03f && small < 0.1f);
+    }
+    std::vector<int16_t> in(4410), out(4410);
+    for (size_t i = 0; i < in.size(); ++i) in[i] = int16_t(20000.0 * std::sin(double(i) * 0.05));
+    const float p[6] = {0, 12, 30, 1, 6, 100};   // Hard, +12 dB, Match, ceiling -6 dB
+    sfx::clipper(p, in.data(), uint32_t(in.size()), out.data());
+    int peak = 0;
+    for (int16_t v : out) peak = std::abs(v) > peak ? std::abs(v) : peak;
+    CHECK(peak <= 16500 && peak >= 16000);   // -6 dB of full scale
+}
+
+// Radio: band-limited (a 15 kHz tone mostly gone), noise and whistle added,
+// same output on two calls (both channels of a stereo sample match).
+TEST(radio_band_and_repeatable) {
+    std::vector<int16_t> in(44100), a(44100), b(44100);
+    for (size_t i = 0; i < in.size(); ++i) in[i] = int16_t(12000.0 * std::sin(double(i) * 2.0 * 3.14159265 * 15000.0 / 44100.0));
+    const float quiet[8] = {1, 0, 0, 0, 800, 0, 0, 100};
+    sfx::radio(quiet, in.data(), uint32_t(in.size()), a.data());
+    double e = 0;
+    for (size_t i = 4410; i < a.size(); ++i) e += double(a[i]) * a[i];
+    const double rms = std::sqrt(e / double(a.size() - 4410));
+    CHECK(rms < 600.0);   // 12000 * 0.707 in, the band filter takes it out
+    const float p[8] = {1, 60, 30, 15, 800, 25, 20, 100};
+    sfx::radio(p, in.data(), uint32_t(in.size()), a.data());
+    sfx::radio(p, in.data(), uint32_t(in.size()), b.data());
+    CHECK(a == b);
 }

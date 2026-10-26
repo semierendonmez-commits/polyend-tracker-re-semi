@@ -35,7 +35,9 @@ enum Effect : uint8_t {
     kFadeOut,
     kTranscode,    // OT fork (sample_fx_ot.cpp)
     kDctCrush,     // OT fork
-    kEffectCount = 19,
+    kRadio,        // OT fork: shortwave receiver (CIPHER)
+    kClipper,      // OT fork: NEXUSCLIP curves
+    kEffectCount = 21,
 };
 
 constexpr int kMaxParams = 9;

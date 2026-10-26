@@ -684,7 +684,7 @@ void PatternScreen::onButton(uint8_t id, uint8_t state) {
                 } else if (col == 1) {
                     pops::writeInstrument(a.pattern(), r, a.currentInstrument());
                 } else if (ui_.isDown(col == 2 ? btn::Fx1 : btn::Fx2)) {
-                    pops::writeFxType(a.pattern(), r, col, kFxMenuOrder[clampi(a.project.u8(pf::kLastFxType), 0, kFxCount - 1)]);
+                    pops::writeFxType(a.pattern(), r, col, kFxMenuOrder[lastFxOrder(col)]);
                 } else {
                     pops::writeFxValue(a.pattern(), r, col, 0);
                 }
@@ -1079,7 +1079,7 @@ void PatternScreen::editEncoder(int d) {
         if (typeMode) {
             pops::stepFxType(a.pattern(), r, col, d);
             const StepFx& f = a.pattern().tracks[r.t0].steps[r.s0].fx[fxSlotForColumn(col)];
-            a.project.setU8(pf::kLastFxType, uint8_t(pops::fxOrderIndex(f.type)));
+            noteLastFx(col, pops::fxOrderIndex(f.type));
         } else {
             pops::stepFxValue(a.pattern(), r, col, d);
         }
@@ -1227,13 +1227,27 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
     refreshBar();
 }
 
+// OT fork: the last FX type per column (Fx1 / Fx2), on top of the project's
+// single "last FX type" byte (which stays the stock field).
+int PatternScreen::lastFxOrder(int column) const {
+    const int k = column == 3 ? 1 : 0;
+    const int v = lastFxCol_[k] >= 0 ? lastFxCol_[k] : app_.project.u8(pf::kLastFxType);
+    return v < 0 ? 0 : (v >= kFxCount ? kFxCount - 1 : v);
+}
+
+void PatternScreen::noteLastFx(int column, int orderIdx) {
+    if (orderIdx < 0 || orderIdx >= kFxCount) return;
+    lastFxCol_[column == 3 ? 1 : 0] = int8_t(orderIdx);
+    app_.project.setU8(pf::kLastFxType, uint8_t(orderIdx));
+}
+
 void PatternScreen::writeFxPad(const SelRect& r, int pad) {
     App& a = app_;
     const int slot = fxSlotForColumn(col);
     if (ui_.isDown(col == 2 ? btn::Fx1 : btn::Fx2)) {
         const uint8_t type = kFxMenuOrder[pad < kFxCount ? pad : kFxCount - 1];
         pops::writeFxType(a.pattern(), r, col, type);
-        a.project.setU8(pf::kLastFxType, uint8_t(pad < kFxCount ? pad : kFxCount - 1));
+        noteLastFx(col, pad < kFxCount ? pad : kFxCount - 1);
     } else {
         const uint8_t type = a.pattern().tracks[r.t0].steps[r.s0].fx[slot].type;
         pops::writeFxValue(a.pattern(), r, col, pops::fxValueFromPad(type, pad));
@@ -1270,7 +1284,9 @@ void PatternScreen::openPicker(int which) {
         }
     } else {
         const int slot = fxSlotForColumn(which);
-        pop_.open(3, "FX", kFxCount, pops::fxOrderIndex(st.fx[slot].type), fxItem, nullptr);
+        // OT fork: an empty FX cell opens the list at the last effect used in its column.
+        const int at = st.fx[slot].type ? pops::fxOrderIndex(st.fx[slot].type) : lastFxOrder(which);
+        pop_.open(3, "FX", kFxCount, at, fxItem, nullptr);
         pop_.setDescription([](void*, int i) { return fxHelpText(kFxMenuOrder[i < kFxCount ? i : 0]); });
     }
     // Stock popup header band over the title bar (Ui; Part 2 §7.2).
@@ -1354,7 +1370,7 @@ void PatternScreen::commitPicker() {
             a.patternEdited();
         }
     } else if (kind == 3) {
-        a.project.setU8(pf::kLastFxType, uint8_t(v));
+        noteLastFx(col, v);
         a.markProjectDirty();
         if (edit()) {
             SelRect r;

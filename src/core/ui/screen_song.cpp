@@ -297,6 +297,8 @@ void SongScreen::deleteJob() {
 void SongScreen::onButton(uint8_t id, uint8_t state) {
     App& a = app_;
     Sequencer& s = a.seq;
+    // OT fork: Note / Instr / Fx1 / Fx2 held colour the blocks (redraw on change).
+    if (id == btn::Note || id == btn::Instr || id == btn::Fx1 || id == btn::Fx2) ui_.dirty();
     if (id == btn::Song) {
         // spec 06 §2.5.
         if (state == kPress) {
@@ -593,6 +595,13 @@ void SongScreen::draw(Gfx& g) {
     // Slot grid: dark tile (121212, soft edge) per empty track, white
     // rounded cell where the track of that slot's pattern has notes.
     bool used[kRows][kGridCols] = {};
+    // OT fork: with Note / Instr / Fx1 / Fx2 held, a used block takes a hue:
+    // Note = the track's average pitch (low red .. high violet), Instr = its
+    // most used instrument, Fx1 / Fx2 = how many steps carry that column's FX.
+    int8_t hue[kRows][kGridCols];
+    std::memset(hue, -1, sizeof(hue));
+    const int colourKey = ui_.isDown(btn::Note) ? 1 : ui_.isDown(btn::Instr) ? 2 : ui_.isDown(btn::Fx1) ? 3
+                                                                             : ui_.isDown(btn::Fx2) ? 4 : 0;
     const int rows = n - first < kRows ? n - first : kRows;
     for (int r = 0; r < rows; ++r) {
         const int num = a.project.playlist[first + r];
@@ -601,6 +610,28 @@ void SongScreen::draw(Gfx& g) {
         for (int c = 0; c < kGridCols; ++c) {
             const Track* tr = cur ? &a.pattern().tracks[ft + c] : a.findStoredTrack(num, ft + c);
             used[r][c] = tr && trackUsed(*tr);   // ext track without a block: empty
+            if (!used[r][c] || !colourKey) continue;
+            int sum = 0, cnt = 0, fx = 0, best = 0, bestN = 0;
+            uint8_t insN[kInstrumentCount + 8] = {};
+            const int len = tr->lastStep + 1;
+            for (int st = 0; st < len; ++st) {
+                const Step& x = tr->steps[st];
+                if (x.note >= 0) {
+                    sum += x.note;
+                    ++cnt;
+                    const int in = x.instrument < sizeof(insN) ? x.instrument : 0;
+                    if (++insN[in] > bestN) {
+                        bestN = insN[in];
+                        best = in;
+                    }
+                }
+                if (x.fx[colourKey == 4 ? 1 : 0].type) ++fx;
+            }
+            int h = 0;
+            if (colourKey == 1) h = cnt ? clampi((sum / cnt - 24) * 11 / 72, 0, 11) : 0;
+            else if (colourKey == 2) h = best % 12;
+            else h = len > 0 ? clampi(fx * 12 / len, 0, 11) : 0;
+            hue[r][c] = int8_t(h);
         }
     }
     g.lineWidth(32);   // RECTS corners r 2: boxes 1 px beyond the vertices
@@ -615,12 +646,30 @@ void SongScreen::draw(Gfx& g) {
         bool any = false;
         for (int r = 0; r < rows; ++r)
             for (int c = 0; c < kGridCols; ++c)
-                if (used[r][c] && a.trackMuted(ft + c) == (pass == 1)) {
+                if (used[r][c] && hue[r][c] < 0 && a.trackMuted(ft + c) == (pass == 1)) {
                     if (!any) g.rectsBegin(pass ? th.slot(slot::kSongList + 2) : white);
                     any = true;
                     g.rectsAdd(kGridX + 41 - kPitchX + kPitchX * c, kGridY + 2 + kPitchY * r, 36, 22);
                 }
         if (any) g.rectsEnd();
+    }
+    if (colourKey) {
+        // Twelve hues, one batch each (Fx: dark to bright of one hue).
+        static const uint32_t kHue[12] = {0xFF4D4D, 0xFF8A3D, 0xFFC53D, 0xE6E64D, 0x9BE15D, 0x4DD98A,
+                                          0x2EC4B6, 0x3DA5FF, 0x5C7CFF, 0x8E7DFF, 0xC27DFF, 0xFF5CD1};
+        static const uint32_t kHeat[12] = {0x203040, 0x284058, 0x30506E, 0x386085, 0x40709C, 0x4880B3,
+                                           0x5090CA, 0x58A0E0, 0x70B4F0, 0x90C8F8, 0xB4DCFC, 0xE0F0FF};
+        for (int h = 0; h < 12; ++h) {
+            bool any = false;
+            for (int r = 0; r < rows; ++r)
+                for (int c = 0; c < kGridCols; ++c)
+                    if (hue[r][c] == h) {
+                        if (!any) g.rectsBegin(colourKey >= 3 ? kHeat[h] : kHue[h]);
+                        any = true;
+                        g.rectsAdd(kGridX + 41 - kPitchX + kPitchX * c, kGridY + 2 + kPitchY * r, 36, 22);
+                    }
+            if (any) g.rectsEnd();
+        }
     }
     g.lineWidth(16);
     // Playback progress (stock 1.9.2 photo): a 2-px green line across the

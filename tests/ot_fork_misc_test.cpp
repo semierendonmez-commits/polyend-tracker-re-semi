@@ -3,7 +3,10 @@
 
 #include <vector>
 
+#include <string>
+
 #include "app/auto_slice.h"
+#include "sequencer/seq_playmodes.h"
 #include "ui/theme.h"
 
 using namespace ot;
@@ -77,4 +80,22 @@ TEST(flux_slicer_finds_every_hit_of_a_fast_break) {
     CHECK(b.start(s.data(), n, out, &c2));
     b.finish();
     CHECK(c2 < count);
+}
+
+// TILT play modes T1..T4: every position is a step of the track, labels,
+// and a new seed draws a new path.
+TEST(tilt_play_modes) {
+    CHECK(std::string(seq::playModeLabel(seq::kPlayFirstTilt)) == "T1");
+    CHECK(std::string(seq::playModeLabel(seq::kPlayFirstTilt + 3)) == "T4");
+    for (int m = 0; m < seq::kTiltModeCount; ++m)
+        for (int len : {1, 2, 7, 16, 64, 128}) {
+            int diff = 0;
+            for (int k = 0; k < 300; ++k) {
+                const int a = seq::tiltStep(m, k, len, 1234u);
+                CHECK(a >= 0 && a < len);
+                diff += a != seq::tiltStep(m, k, len, 98765u);
+            }
+            if (len >= 16 && m != 3 && diff == 0) std::printf("tilt mode %d len %d: same path\n", m, len);
+            if (len >= 16 && m != 3) CHECK(diff > 0);
+        }
 }

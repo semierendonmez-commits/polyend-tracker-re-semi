@@ -100,6 +100,7 @@ void rebuildTables(App& a, State& st) {
         std::memcpy(seq::gBBPlayTables[m], st.tableTmp, sizeof(st.tableTmp));
     }
     seq::gBBPlayTablesReady = true;
+    seq::gTiltSeed = st.tableSeed * 2654435761u + 1u;   // a new TILT game too
 }
 
 // BBCut Mutate: the same settings, a new random draw over the slot's steps.

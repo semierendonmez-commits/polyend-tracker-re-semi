@@ -199,6 +199,9 @@ private:
     gen::Result genPrev_;
     int genPrevT0_ = 0, genPrevT1_ = 0, genPrevS0_ = 0, genPrevN_ = 0;
     int genPrevStep_ = -2;          // playhead row drawn last (redraw on change)
+    int8_t lastFxCol_[2] = {-1, -1};   // OT fork: last FX type (menu order) per column, -1 = the project's
+    int lastFxOrder(int column) const;
+    void noteLastFx(int column, int orderIdx);
     uint32_t countInUntil_ = 0;     // "Counting in" popup end (ms), 0 = none
     bool countInDrawn_ = false;
     int8_t padVoice_[48];
@@ -441,6 +444,7 @@ private:
     int snapPage_ = 0, snapSub_ = 0, snapParam_ = 0;
     int solo_ = -1;
     int globalSolo_ = -1;
+    int synthSolo_ = -1;            // OT fork: soloed synth slot (Global Mixer)
     // Level meters (spec 06 §4.4).
     uint32_t lastMeter_ = 0;
     uint32_t lastDecay_ = 0;

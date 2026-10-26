@@ -432,7 +432,9 @@ void MixerScreen::refreshBar() {
     }
     for (int s = 0; s < kSynthSlotCount; ++s) {
         synthui::gainText(a.synthSlot(s).gainDb, v, sizeof(v));
-        b.set(kSynthCol + s, v);
+        const bool m = a.engine.synth().slotMuted(s);   // OT fork: synth mute / solo
+        if (ui_.shift()) b.set(kSynthCol + s, v, synthSolo_ == s ? "Unsolo" : "Solo");
+        else b.set(kSynthCol + s, v, m ? "Unmute" : "Mute", !m);
         b.highlight(kSynthCol + s, held_[kSynthCol + s]);
     }
 }
@@ -552,7 +554,21 @@ void MixerScreen::mixerKey(int i, uint8_t state) {
     if (state != kRelease || !held_[i]) return;
     held_[i] = false;
     if (changed_[i]) return;
-    if (page == 2 && i >= kSynthCol) return;   // synth columns: level only (no mute / solo)
+    if (page == 2 && i >= kSynthCol + kSynthSlotCount) return;
+    if (page == 2 && i >= kSynthCol) {
+        // OT fork: synth mute; Shift = solo among the synths (again: unsolo).
+        const int sl = i - kSynthCol;
+        audio::SynthBank& sb = a.engine.synth();
+        if (ui_.shift()) {
+            const bool unsolo = synthSolo_ == sl;
+            synthSolo_ = unsolo ? -1 : sl;
+            for (int k = 0; k < kSynthSlotCount; ++k) sb.setSlotMuted(k, !unsolo && k != sl);
+        } else {
+            sb.setSlotMuted(sl, !sb.slotMuted(sl));
+        }
+        refreshBar();
+        return;
+    }
     // spec 06 §4.4 release without change: mute / solo.
     if (page == 1) {
         // 2.x: solo mutes the 15 other tracks of both banks; unsolo unmutes
@@ -997,7 +1013,8 @@ void MixerScreen::draw(Gfx& g) {
         std::snprintf(hd[4 + s].name, sizeof(hd[4 + s].name), "%s", kSynthNames[s]);
         bd[nb++] = Body{x, 47};
         bd[nb++] = Body{x + 50, 47};
-        br[nr++] = wg::ValueBarItem{x, 64, 47, 359, synthBar(a.synthSlot(s).gainDb)};
+        const bool sm = a.engine.synth().slotMuted(s);   // OT fork: a muted synth's fader in the muted colour
+        br[nr++] = wg::ValueBarItem{x, 64, 47, 359, synthBar(a.synthSlot(s).gainDb), sm ? off : wg::kThemeColour};
         br[nr++] = wg::ValueBarItem{x + 50, 64, 47, 359, float(synthMeter[s]) / 100.0f, green};
     }
     headers(g, th, hd, 4 + kSynthSlotCount);

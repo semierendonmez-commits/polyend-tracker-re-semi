@@ -211,6 +211,90 @@ const uint8_t kPlayModeTables[kPlayModeTableCount][kPlayModeTableLen][2] = {
 // OT fork: BBCut tables (straight playback until the app builds them).
 uint8_t gBBPlayTables[kBBModeCount][kPlayModeTableLen][3];
 bool gBBPlayTablesReady = false;
+volatile uint32_t gTiltSeed = 0x1F123BB5u;
+
+namespace {
+uint32_t hash32(uint32_t x) {
+    x ^= x >> 16;
+    x *= 0x7FEB352Du;
+    x ^= x >> 15;
+    x *= 0x846CA68Bu;
+    x ^= x >> 16;
+    return x;
+}
+}  // namespace
+
+// TILT balls (OT fork). Each mode simulates k moves from the start, so the
+// path only depends on (k, len, seed): every track with the same length
+// follows the same ball, a new seed draws a new game.
+int tiltStep(int tiltMode, int k, int len, uint32_t seed) {
+    if (len <= 1) return 0;
+    k &= kPlayModeTableLen - 1;
+    const int last = len - 1;
+    switch (tiltMode) {
+        case 0: {   // Bounce: ping-pong, the speed (1 or 2) is drawn at every wall
+            int pos = 0, dir = 1, speed = 1 + int(hash32(seed) & 1u);
+            for (int i = 0; i < k; ++i) {
+                pos += dir * speed;
+                if (pos >= last) {
+                    pos = last - (pos - last);
+                    dir = -1;
+                    speed = 1 + int(hash32(seed + uint32_t(i)) & 1u);
+                } else if (pos <= 0) {
+                    pos = -pos;
+                    dir = 1;
+                    speed = 1 + int(hash32(seed + uint32_t(i)) & 1u);
+                }
+                if (pos < 0) pos = 0;
+                if (pos > last) pos = last;
+            }
+            return pos;
+        }
+        case 1: {   // Flipper: forward; now and then a flipper kicks the ball back
+            int pos = 0;
+            const int kickMax = len / 4 > 2 ? len / 4 : 2;
+            for (int i = 0; i < k; ++i) {
+                const uint32_t h = hash32(seed ^ (uint32_t(i) * 0x9E3779B9u));
+                if (h % 6u == 0u) pos -= 2 + int((h >> 8) % uint32_t(kickMax - 1));
+                else pos += 1;
+                pos = ((pos % len) + len) % len;
+            }
+            return pos;
+        }
+        case 2: {   // Gravity: thrown up the track, slows, falls back, bounces
+            int pos4 = 0, vel4 = 6 + int(hash32(seed) % 7u);
+            for (int i = 0; i < k; ++i) {
+                pos4 += vel4;
+                vel4 -= 1;
+                if (pos4 >= last * 4) {
+                    pos4 = last * 4;
+                    vel4 = -vel4 / 2;
+                }
+                if (pos4 <= 0) {
+                    pos4 = 0;
+                    vel4 = -vel4 * 3 / 4;
+                    if (vel4 < 3) vel4 = 6 + int(hash32(seed + uint32_t(i)) % 7u);   // thrown again
+                }
+            }
+            return pos4 / 4 > last ? last : pos4 / 4;
+        }
+        default: {   // Multiball: two balls, one from each end, taking turns
+            int a = 0, da = 1, b = last, db = -1;
+            for (int i = 0; i < k; ++i) {
+                if (i & 1) {
+                    b += db;
+                    if (b <= 0 || b >= last) db = -db;
+                } else {
+                    a += da;
+                    if (a <= 0 || a >= last) da = -da;
+                }
+                a = a < 0 ? 0 : (a > last ? last : a);
+                b = b < 0 ? 0 : (b > last ? last : b);
+            }
+            return (k & 1) ? b : a;
+        }
+    }
+}
 
 // [BIN:0xc8f40..0xc8f53] by group g0..g4 (spec 12 §D).
 const uint8_t kRollInjectValue[5] = {4, 13, 11, 1, 10};
@@ -236,7 +320,8 @@ const char* playModeLabel(uint8_t mode) {
     static const char kLabels[kPlayModeCount][5] = {
         "Fwd", "Back", "Rnd", "C1",  "C2",  "C3",  "C4",  "C5",  "C6",  "C7",  "C8", "C9",
         "C10", "C11",  "C12", "C13", "C14", "C15", "C16", "C17", "C18", "C19", "C20",
-        "B1",  "B2",   "B3",  "B4",  "B5",  "B6",  "B7",  "B8",  "B9",  "B10"};
+        "B1",  "B2",   "B3",  "B4",  "B5",  "B6",  "B7",  "B8",  "B9",  "B10",
+        "T1",  "T2",   "T3",  "T4"};
     return mode < kPlayModeCount ? kLabels[mode] : "";
 }
 

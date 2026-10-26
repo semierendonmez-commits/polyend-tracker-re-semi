@@ -811,15 +811,29 @@ TEST(global_mixer_synth_columns) {
     CHECK(frameHas(h, "Synth 1"));
     CHECK(frameHas(h, "Synth 3"));
     CHECK(frameHas(h, "-9.00 dB"));
-    // Hold F6 (Synth 2) + Up: +0.5 dB; release without change: no mute.
+    // Hold F6 (Synth 2) + Up: +0.5 dB; release after a change: no mute.
     const float g0 = a.synthSlot(1).gainDb;
     h.down(btn::F6);
     h.tap(btn::Up);
     h.up(btn::F6);
     CHECK(std::fabs(a.synthSlot(1).gainDb - (g0 + 0.5f)) < 1e-4f);
     const SynthSlotRecord r1 = a.synthSlot(1);
+    CHECK(!a.engine.synth().slotMuted(1));
+    // OT fork: a tap mutes / unmutes the synth (the level stays); Shift = solo.
     h.tap(btn::F6);
     CHECK(a.synthSlot(1).gainDb == r1.gainDb);
+    CHECK(a.engine.synth().slotMuted(1));
+    CHECK(frameHas(h, "Unmute"));
+    h.tap(btn::F6);
+    CHECK(!a.engine.synth().slotMuted(1));
+    h.down(btn::Shift);
+    h.tap(btn::F7);
+    h.up(btn::Shift);
+    CHECK(a.engine.synth().slotMuted(0) && a.engine.synth().slotMuted(1) && !a.engine.synth().slotMuted(2));
+    h.down(btn::Shift);
+    h.tap(btn::F7);
+    h.up(btn::Shift);
+    CHECK(!a.engine.synth().slotMuted(0) && !a.engine.synth().slotMuted(1) && !a.engine.synth().slotMuted(2));
     // Hold + Delete: 0 dB.
     h.down(btn::F5);
     h.tap(btn::Delete);

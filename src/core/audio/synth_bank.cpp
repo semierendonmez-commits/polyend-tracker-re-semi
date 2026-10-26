@@ -66,6 +66,13 @@ void SynthBank::setSlotRecord(int s, const SynthSlotRecord& r) {
     recDirty_[s] = true;
 }
 
+void SynthBank::setSlotMuted(int s, bool m) {
+    if (s < 0 || s >= kSynthSlots || muted_[s] == m) return;
+    muted_[s] = m;
+    recApplied_[s] = false;   // re-derive the gains on the next block
+    recDirty_[s] = true;
+}
+
 bool SynthBank::slotAvailable(int s) const {
     const SynthSlotRecord& r = slotRecord(s);
     if (r.model >= uint32_t(kSynthModelCount)) return false;
@@ -201,7 +208,7 @@ void SynthBank::sync() {
             for (int k = 0; k < kSynthSeqMacros; ++k) sl.page[k] = sl.rec.macros[k] > 127 ? 127 : sl.rec.macros[k];
             sl.macroDirty = true;
             sl.gainLin = std::isfinite(sl.rec.gainDb) ? dbToGain(clampf(sl.rec.gainDb, -96.0f, 12.0f)) : 0.0f;
-            if (sl.rec.gainDb <= -96.0f) sl.gainLin = 0.0f;
+            if (sl.rec.gainDb <= -96.0f || muted_[s]) sl.gainLin = 0.0f;
             // Balance (linear, spec 04 §4.3) and SEND law, cached per record;
             // the send gains include the (L + R) / 2 of the mono effect input.
             const float pan = std::isfinite(sl.rec.pan) ? clampf(sl.rec.pan, -100.0f, 100.0f) : 0.0f;

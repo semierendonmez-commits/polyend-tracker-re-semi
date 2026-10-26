@@ -20,7 +20,12 @@ constexpr uint8_t kPlayFirstTable = 3;   // "C1"
 // stopped (a new cut set on every play start).
 constexpr uint8_t kPlayFirstBB = 23;
 constexpr int kBBModeCount = 10;
-constexpr uint8_t kPlayModeCount = 33;   // 0..32
+// OT fork: modes 33..36 ("T1".."T4") play the track with a TILT pinball ball
+// (Bounce, Flipper, Gravity, Multiball), a new path per seed (gTiltSeed, set
+// by the app like the BBCut cut sets).
+constexpr uint8_t kPlayFirstTilt = 33;
+constexpr int kTiltModeCount = 4;
+constexpr uint8_t kPlayModeCount = 37;   // 0..36
 
 constexpr int kPlayModeTableCount = 20;
 constexpr int kPlayModeTableLen = 128;
@@ -30,6 +35,7 @@ constexpr int kPlayModeTableLen = 128;
 // only while the sequencer is stopped; read by the sequencer.
 extern uint8_t gBBPlayTables[kBBModeCount][kPlayModeTableLen][3];
 extern bool gBBPlayTablesReady;   // false: the B modes play forward
+extern volatile uint32_t gTiltSeed;
 
 // Stock behaviour: a roll-selector-2 miss leaves the previous injected roll
 // in place (spec 12 §D quirk). OpenTracker fixes it; set false for stock.
@@ -43,11 +49,18 @@ extern const uint8_t kPlayModeTables[kPlayModeTableCount][kPlayModeTableLen][2];
 extern const uint8_t kRollInjectValue[5];
 
 inline bool isTableMode(uint8_t mode) { return mode >= kPlayFirstTable && mode < kPlayModeCount; }
-inline bool isBBMode(uint8_t mode) { return mode >= kPlayFirstBB && mode < kPlayModeCount; }
+inline bool isBBMode(uint8_t mode) { return mode >= kPlayFirstBB && mode < kPlayFirstTilt; }
+inline bool isTiltMode(uint8_t mode) { return mode >= kPlayFirstTilt && mode < kPlayModeCount; }
+// TILT ball position after k moves (k mod 128) on a track of `len` steps.
+int tiltStep(int tiltMode, int k, int len, uint32_t seed);
 
 // Step for table mode `mode` at counter k with last step index L (spec 12 §D):
 // 0 if stepByte = 0, else (stepByte - 1) mod (L + 1). Writes the roll selector.
 inline int tableStep(uint8_t mode, int k, int lastIndex, uint8_t& rollSel) {
+    if (isTiltMode(mode)) {
+        rollSel = 0;
+        return tiltStep(mode - kPlayFirstTilt, k, lastIndex + 1, gTiltSeed);
+    }
     if (isBBMode(mode)) {
         if (!gBBPlayTablesReady) {
             rollSel = 0;

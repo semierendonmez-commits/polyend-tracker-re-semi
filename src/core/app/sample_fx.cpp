@@ -91,6 +91,24 @@ const EffectDesc kEffects[kEffectCount] = {
       {"Bits", 1, 12, 1, 4, kFmtInt, nullptr},
       {"Freeze", 0, 100, 1, 0, kFmtPercent, nullptr},
       {"Mix", 0, 100, 1, 100, kFmtPercent, nullptr}}},
+    {"Radio",
+     8,
+     {{"Band", 0, 3, 1, 1, kFmtLabel, kRdBands},
+      {"Fading", 0, 100, 1, 60, kFmtPercent, nullptr},
+      {"Fade rate", 0, 100, 1, 30, kFmtPercent, nullptr},
+      {"Whistle", 0, 100, 1, 15, kFmtPercent, nullptr},
+      {"Pitch", 100, 3000, 10, 800, kFmtHz, nullptr},
+      {"Noise", 0, 100, 1, 25, kFmtPercent, nullptr},
+      {"Crashes", 0, 100, 1, 20, kFmtPercent, nullptr},
+      {"Mix", 0, 100, 1, 100, kFmtPercent, nullptr}}},
+    {"Clipper",
+     6,
+     {{"Curve", 0, 6, 1, 0, kFmtLabel, kClCurves},
+      {"Drive", 0, 24, 0.5f, 6, kFmtFloat1, nullptr},
+      {"Knee", 0, 100, 1, 30, kFmtPercent, nullptr},
+      {"Match", 0, 1, 1, 1, kFmtLabel, kOffOn},
+      {"Ceiling", 0, 12, 0.5f, 0, kFmtFloat1, nullptr},
+      {"Mix", 0, 100, 1, 100, kFmtPercent, nullptr}}},
 };
 
 // y = sat(trunc(v)): the stock results truncate toward zero and saturate to
@@ -556,6 +574,8 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
             return wsola(in, n, m, uint32_t(double(p[1]) * 44.1), out, cap);
         case kTranscode: transcode(p, in, w, out); break;
         case kDctCrush: dctCrush(p, in, w, out); break;
+        case kRadio: radio(p, in, w, out); break;
+        case kClipper: clipper(p, in, w, out); break;
         case kFadeIn:
             // Linear ramp a = 0 -> 1, y = trunc(x a).
             // SPEC GAP: start/step (lg:0x79608) not decoded; a = i / n.

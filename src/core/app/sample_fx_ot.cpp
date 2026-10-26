@@ -536,3 +536,173 @@ int16_t alawRoundTrip(int16_t x) { return alawToLinear(linearToAlaw(x)); }
 
 }  // namespace sfx
 }  // namespace ot
+
+namespace ot {
+namespace sfx {
+
+const char* const kRdBands[4] = {"2.4 kHz", "3 kHz", "4 kHz", "6 kHz"};
+const char* const kClCurves[7] = {"Hard", "Smooth", "Crisp", "Classic", "Pro", "Tube", "Tape"};
+const char* const kOffOn[2] = {"Off", "On"};
+
+namespace {
+
+// RBJ biquad (direct form I), low-pass / high-pass.
+struct Biquad {
+    float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    void set(bool high, float fc, float q) {
+        const float w = 2.0f * 3.14159265f * fc / 44100.0f;
+        const float c = std::cos(w), al = std::sin(w) / (2.0f * q);
+        const float a0 = 1.0f + al;
+        if (high) {
+            b0 = (1.0f + c) / 2.0f / a0;
+            b1 = -(1.0f + c) / a0;
+        } else {
+            b0 = (1.0f - c) / 2.0f / a0;
+            b1 = (1.0f - c) / a0;
+        }
+        b2 = b0;
+        a1 = -2.0f * c / a0;
+        a2 = (1.0f - al) / a0;
+    }
+    float run(float x) {
+        const float y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+        x2 = x1;
+        x1 = x;
+        y2 = y1;
+        y1 = y;
+        return y;
+    }
+};
+
+// The receiver's passband: 300 Hz high-pass, two low-pass stages at the band edge.
+struct Band {
+    Biquad hp, lp1, lp2;
+    void set(float bw) {
+        hp.set(true, 300.0f, 0.707f);
+        lp1.set(false, bw, 0.6f);
+        lp2.set(false, bw, 0.9f);
+    }
+    float run(float x) { return lp2.run(lp1.run(hp.run(x))); }
+};
+
+struct RLcg {
+    uint32_t s;
+    float uni() {   // [-1, 1)
+        s = s * 1664525u + 1013904223u;
+        return float(int32_t(s)) * (1.0f / 2147483648.0f);
+    }
+    float pos() { return 0.5f * (uni() + 1.0f); }
+};
+
+inline int16_t toI16(float v) {
+    const float x = v * 32767.0f;
+    return int16_t(x > 32767.0f ? 32767 : (x < -32768.0f ? -32768 : int(x)));
+}
+
+}  // namespace
+
+uint32_t radio(const float* p, const int16_t* in, uint32_t n, int16_t* out) {
+    static const float kBw[4] = {2400.0f, 3000.0f, 4000.0f, 6000.0f};
+    const int bi = int(p[0]) < 0 || int(p[0]) > 3 ? 1 : int(p[0]);
+    const float depth = p[1] / 100.0f, rate = p[2] / 100.0f, whistle = p[3] / 100.0f, pitch = p[4];
+    const float noise = p[5] / 100.0f, crashes = p[6] / 100.0f, mix = p[7] / 100.0f;
+    Band sig, nb, cb;
+    sig.set(kBw[bi]);
+    nb.set(kBw[bi]);
+    cb.set(kBw[bi]);
+    RLcg rng{0x5EED1234u};
+    const float f1 = 0.05f + rate * 1.2f, f2 = f1 * 0.37f;   // QSB: two slow LFOs
+    const float ph1 = 1.3f, ph2 = 4.1f;
+    float crash = 0;   // decaying static burst
+    const float crashDecay = std::exp(-1.0f / (0.03f * 44100.0f));
+    const float crashChance = crashes * 3.0f / 44100.0f;   // up to ~3 per second
+    double wph = 0;
+    for (uint32_t i = 0; i < n; ++i) {
+        const float t = float(i) / 44100.0f;
+        const float x = float(in[i]) / 32768.0f;
+        float lfo = 0.5f + 0.35f * std::sin(6.2831853f * f1 * t + ph1) + 0.25f * std::sin(6.2831853f * f2 * t + ph2);
+        lfo = lfo < 0 ? 0 : (lfo > 1 ? 1 : lfo);
+        const float fade = 1.0f - depth * lfo;
+        // AGC: the receiver turns up as the signal fades, so the band noise rises.
+        const float agc = 1.0f + 1.5f * (1.0f - fade);
+        if (rng.pos() < crashChance) crash = 0.4f + 0.5f * rng.pos();
+        crash *= crashDecay;
+        const float nz = nb.run(rng.uni()) * noise * 0.35f * agc;
+        const float cr = cb.run(rng.uni()) * crash * 1.2f;
+        const float drift = pitch + 2.0f * std::sin(6.2831853f * 0.13f * t);
+        wph += double(drift) / 44100.0;
+        if (wph >= 1.0) wph -= 1.0;
+        const float wh = whistle * 0.2f * std::sin(6.2831853f * float(wph));
+        float y = sig.run(x) * fade * (1.0f + 0.5f * (1.0f - fade)) + nz + cr + wh;
+        y = std::tanh(y * 1.2f);
+        out[i] = toI16(mix * y + (1.0f - mix) * x);
+    }
+    return n;
+}
+
+float clipCurve(int curve, float x, float knee) {
+    const float a = x < 0 ? -x : x, sg = x < 0 ? -1.0f : 1.0f;
+    switch (curve) {
+        case 1: {   // Smooth: quadratic knee from (1 - s) to (1 + s)
+            const float s = knee;
+            if (s <= 0.0001f || a <= 1.0f - s) return a >= 1.0f ? sg : x;
+            if (a >= 1.0f + s) return sg;
+            const float d = a - (1.0f - s);
+            return sg * (a - d * d / (4.0f * s));
+        }
+        case 2: {   // Crisp: a short fixed knee from -2.5 dB, then a hard cut
+            const float k = 0.75f;
+            if (a <= k) return x;
+            if (a - k >= 2.0f * (1.0f - k)) return sg;
+            const float y = k + (a - k) * (1.0f - (a - k) / (4.0f * (1.0f - k)));
+            return sg * (y > 1.0f ? 1.0f : y);
+        }
+        case 3: return std::tanh(x);   // Classic
+        case 4: {   // Pro: linear up to the knee, 2:1 in dB above it, bounded
+            static const float kKnee[4] = {1.0f, 0.75f, 0.5f, 0.25f};
+            const float k = kKnee[int(knee * 3.99f)];
+            if (a <= k) return x;
+            const float y = k * std::sqrt(a / k);   // 2:1 in dB
+            return sg * (y > 1.0f ? 1.0f : y);
+        }
+        case 5: {   // Tube: asymmetric tanh (even harmonics); DC blocked by the caller
+            const float y = std::tanh(1.2f * x + 0.3f) - std::tanh(0.3f);
+            return y > 1.0f ? 1.0f : (y < -1.0f ? -1.0f : y);
+        }
+        case 6: return 0.63661977f * std::atan(1.5707963f * x);   // Tape: arctan shoulder
+        default: return a >= 1.0f ? sg : x;                       // Hard
+    }
+}
+
+uint32_t clipper(const float* p, const int16_t* in, uint32_t n, int16_t* out) {
+    const int curve = int(p[0]) < 0 || int(p[0]) > 6 ? 0 : int(p[0]);
+    const float drive = std::pow(10.0f, p[1] / 20.0f);
+    const float knee = p[2] / 100.0f;
+    const bool match = p[3] >= 0.5f;
+    const float ceil = std::pow(10.0f, -p[4] / 20.0f);
+    const float mix = p[5] / 100.0f;
+    float peak = 0;
+    if (match)
+        for (uint32_t i = 0; i < n; ++i) {
+            const float a = std::fabs(float(in[i]) / 32768.0f);
+            peak = a > peak ? a : peak;
+        }
+    const float pre = (match && peak > 1e-5f ? 1.0f / peak : 1.0f) * drive;
+    float dcx = 0, dcy = 0;   // DC blocker (Tube)
+    for (uint32_t i = 0; i < n; ++i) {
+        const float x = float(in[i]) / 32768.0f;
+        float y = clipCurve(curve, x * pre, knee);
+        if (curve == 5) {
+            const float o = y - dcx + 0.995f * dcy;
+            dcx = y;
+            dcy = o;
+            y = o;
+        }
+        y = y > ceil ? ceil : (y < -ceil ? -ceil : y);
+        out[i] = toI16(mix * y + (1.0f - mix) * x);
+    }
+    return n;
+}
+
+}  // namespace sfx
+}  // namespace ot

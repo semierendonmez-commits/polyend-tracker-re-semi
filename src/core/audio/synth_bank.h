@@ -138,6 +138,9 @@ public:
     // The project record of slot s (spec 21 §3.3). Gain / pan / sends ramp,
     // polyphony applies to new notes, a model change silences the slot.
     void setSlotRecord(int s, const SynthSlotRecord& r);
+    // OT fork: Global Mixer mute of a synth slot (session state, not in the record).
+    void setSlotMuted(int s, bool m);
+    bool slotMuted(int s) const { return s >= 0 && s < kSynthSlots && muted_[s]; }
     const SynthSlotRecord& slotRecord(int s) const { return slots_[clampSlot(s)].rec; }
     SynthSlotView slotView(int s) const;
     bool slotAvailable(int s) const;
@@ -313,6 +316,7 @@ private:
     // before its data is read, so a later write is seen at the next block).
     volatile bool rebind_[kSynthSlots] = {};  // engine / patch must be re-read
     volatile bool recDirty_[kSynthSlots] = {};
+    volatile bool muted_[kSynthSlots] = {};
     SynthSlotRecord pendRec_[kSynthSlots];
     struct Audition {
         volatile uint8_t req = 0;   // 1 note on, 2 note off
