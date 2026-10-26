@@ -405,6 +405,11 @@ bool PerformanceScreen::anyTrackKey() const {
 }
 
 void PerformanceScreen::onEncoder(int d) {
+    if (sceneKeys()) {   // OT fork: Fx1 / Fx2 + encoder = scene morph time
+        morphIdx_ = uint8_t(clampi(morphIdx_ + (d > 0 ? 1 : -1), 0, 5));
+        ui_.dirty();
+        return;
+    }
     // OT fork: Shift + encoder in edit mode opens the FX chooser for the
     // column (the encoder or the pads pick, Shift release / push applies).
     if (edit && ui_.shift() && !anyTrackKey() && src.valid()) {
@@ -508,6 +513,32 @@ void PerformanceScreen::onButton(uint8_t id, uint8_t state) {
             ui_.dirty();
             return;
         }
+    }
+    // OT fork scenes: Fx1 / Fx2 held turn F1..F8 into scene keys.
+    if (id == btn::Fx1 || id == btn::Fx2) {
+        ui_.dirty();
+        return;
+    }
+    if (sceneKeys() && btn::isFKey(id)) {
+        if (state == kPress) {
+            if (ui_.isDown(btn::Fx2)) storeScene(id);
+            else recallScene(id);
+        }
+        ui_.dirty();
+        return;
+    }
+    if (id == btn::Insert) {   // OT fork Perform recording into FX 2
+        if (state != kPress) return;
+        rec_ = !rec_;
+        if (rec_) {
+            a.pushUndo();
+            for (auto& r : recStep_) r = -1;
+            ui_.notify("Perform rec: FX into FX 2");
+        } else {
+            ui_.notify("Perform rec off");
+        }
+        ui_.dirty();
+        return;
     }
     if (id == btn::Performance) {
         // 2.x: the Performance key toggles the track bank (2x-01 §5); held
@@ -643,6 +674,8 @@ void PerformanceScreen::perfSlotCc(uint8_t slot, uint8_t value) {
 
 void PerformanceScreen::update(uint32_t now) {
     App& a = app_;
+    sceneTick(now);
+    recTick();
     if (now - lastPoll_ >= kCcPollMs) {
         lastPoll_ = now;
         bool apply = false;
@@ -725,6 +758,14 @@ void PerformanceScreen::draw(Gfx& g) {
     const Theme& th = ui_.th();
     // 2.x bank B: right-hand text "Tracks 9-16" (M1 plan spec gap 5).
     const char* right = bank ? (edit ? "EDIT  Tracks 9-16" : "Tracks 9-16") : (edit ? "EDIT" : nullptr);
+    char rbuf[40];
+    if (sceneKeys() || rec_ || morphing_) {   // OT fork: scenes / recording
+        static const char* const kMorph[6] = {"Morph off", "Morph 1/4", "Morph 1/2", "Morph 1 bar", "Morph 2 bars",
+                                              "Morph 4 bars"};
+        std::snprintf(rbuf, sizeof(rbuf), "%s%s%s", rec_ ? "REC  " : "", sceneKeys() || morphing_ ? kMorph[morphIdx_] : "",
+                      !sceneKeys() && !morphing_ && right ? right : "");
+        right = rbuf;
+    }
     ui_.drawTitle(g, "Performance FX", right);
     if (!src.valid()) return;
     // spec 20 §4.10 / VISUAL_DIFF §8.10: 12 FX panels (class 0x0b) 63 px
@@ -868,6 +909,178 @@ void PerformanceScreen::draw(Gfx& g) {
         const bool queued = pending_[t] || app_.seq.queuedTrackPattern(t) != 0;
         if (!queued || blinkOn_ || ui_.shift()) g.text(cx, wg::kLabelY2, kFont2, vc, l.bottom, IDisplay::kOptCenter);
     }
+    drawScenes(g);   // OT fork: Fx1 / Fx2 held
 }
 
+
+// ---------------------------------------------------------------------------
+// OT fork: scenes (SETBOOK) and Perform recording (BLACKBOX)
+
+bool PerformanceScreen::sceneKeys() const { return ui_.isDown(btn::Fx1) || ui_.isDown(btn::Fx2); }
+
+void PerformanceScreen::storeScene(int i) {
+    if (i < 0 || i >= Config::kScenes || !src.valid()) return;
+    uint8_t* sc = app_.cfg.scenes[i];
+    sc[0] = 1;
+    uint16_t on = 0;
+    for (int s = 0; s < perf::kSlots; ++s) {
+        sc[1 + s] = src.type(s);
+        sc[13 + s] = src.row(s);
+        sc[25 + 2 * s] = uint8_t(uint16_t(cur[s]));
+        sc[26 + 2 * s] = uint8_t(uint16_t(cur[s]) >> 8);
+    }
+    for (int t = 0; t < kTrackCount; ++t)
+        if (fxOn[t]) on = uint16_t(on | (1u << t));
+    sc[49] = uint8_t(on);
+    sc[50] = uint8_t(on >> 8);
+    scene_ = i;
+    app_.markConfigDirty();
+    char m[32];
+    std::snprintf(m, sizeof(m), "Scene %d stored", i + 1);
+    ui_.notify(m);
+}
+
+void PerformanceScreen::recallScene(int i) {
+    if (i < 0 || i >= Config::kScenes || !src.valid()) return;
+    const uint8_t* sc = app_.cfg.scenes[i];
+    if (!sc[0]) {
+        ui_.notify("Empty scene: Fx2 + F key stores");
+        return;
+    }
+    App& a = app_;
+    static const uint32_t kQuarterBars[6] = {0, 1, 2, 4, 8, 16};
+    const float tempo = a.seq.isPlaying() ? a.engine.tempo() : a.project.tempo();
+    const float barMs = tempo > 1.0f ? 4.0f * 60000.0f / tempo : 2000.0f;
+    morphMs_ = uint32_t(barMs * float(kQuarterBars[morphIdx_]) / 4.0f);
+    morphFxOn_ = uint16_t(sc[49] | (sc[50] << 8));
+    for (int s = 0; s < perf::kSlots; ++s) {
+        morphOn_[s] = false;
+        const uint8_t ty = src.type(s);
+        if (ty != sc[1 + s]) continue;   // the column holds another FX now: left alone
+        const perf::FxDesc& f = perf::fx(ty);
+        const int16_t v = int16_t(uint16_t(sc[25 + 2 * s] | (sc[26 + 2 * s] << 8)));
+        morphOn_[s] = true;
+        morphFrom_[s] = cur[s];
+        morphTo_[s] = int16_t(clampi(v, f.min, f.max));
+        morphRow_[s] = sc[13 + s];
+    }
+    scene_ = i;
+    morphT0_ = a.micros() / 1000u;
+    morphing_ = true;
+    sceneTick(morphT0_ + (morphMs_ ? 0 : 1));   // no morph: applied at once
+}
+
+void PerformanceScreen::sceneTick(uint32_t now) {
+    if (!morphing_) return;
+    (void)now;
+    const uint32_t t = app_.micros() / 1000u - morphT0_;
+    const bool done = t >= morphMs_;
+    const float p = done || !morphMs_ ? 1.0f : float(t) / float(morphMs_);
+    for (int s = 0; s < perf::kSlots; ++s) {
+        if (!morphOn_[s]) continue;
+        const uint8_t ty = src.type(s);
+        const perf::FxDesc& f = perf::fx(ty);
+        // Number FX glide; list FX (labels, play mode, repeater) switch at the end.
+        const bool numeric = !f.labels && ty != perf::kPlayMode;
+        if (done) {
+            cur[s] = morphTo_[s];
+            src.setRow(s, morphRow_[s] <= perf::kLiveRow ? morphRow_[s] : 0);
+            liveValid[s] = false;
+            if (src.row(s) == perf::kLiveRow) {
+                live[s] = cur[s];
+                liveValid[s] = true;
+            }
+        } else if (numeric) {
+            cur[s] = int16_t(float(morphFrom_[s]) + float(morphTo_[s] - morphFrom_[s]) * p);
+        }
+    }
+    if (done) {
+        for (int tr = 0; tr < kTrackCount; ++tr) fxOn[tr] = (morphFxOn_ >> tr) & 1u;
+        morphing_ = false;
+        refreshBar();
+    }
+    applyAll(false);
+    ui_.dirty();
+}
+
+namespace {
+// Step FX standing for a Perform FX value on a track (Perform recording):
+// type 0 when the FX has no step FX counterpart.
+StepFx perfToStepFx(uint8_t ty, int v) {
+    StepFx f;
+    auto c = [](int x, int lo, int hi) { return uint8_t(x < lo ? lo : (x > hi ? hi : x)); };
+    switch (ty) {
+        case perf::kVolume: f.type = 18; f.value = c(50 + v / 2, 0, 100); break;
+        case perf::kPanning: f.type = 31; f.value = c(50 + v / 2, 0, 100); break;
+        case perf::kTune: f.type = 40; f.value = c(24 + v, 0, 48); break;
+        case perf::kLowPass: f.type = 27; f.value = c(50 + v / 2, 0, 100); break;
+        case perf::kHighPass: f.type = 28; f.value = c(50 + v / 2, 0, 100); break;
+        case perf::kBandPass: f.type = 29; f.value = c(50 + v / 2, 0, 100); break;
+        case perf::kDelaySend: f.type = 30; f.value = c(50 + v / 2, 0, 100); break;
+        case perf::kReverbSend: f.type = 32; f.value = c(50 + v / 2, 0, 100); break;
+        case perf::kStart: f.type = 22; f.value = c(50 + v / 2, 0, 100); break;
+        case perf::kDirection: f.type = 26; f.value = c(v, 0, 1); break;
+        case perf::kVolLfo: f.type = 23; f.value = c(v < 0 ? -v : v, 0, 24); break;
+        case perf::kPanLfo: f.type = 24; f.value = c(v < 0 ? -v : v, 0, 30); break;
+        case perf::kFineLfo: f.type = 33; f.value = c(v < 0 ? -v : v, 0, 30); break;
+        case perf::kFilterLfo: f.type = 35; f.value = c(v < 0 ? -v : v, 0, 30); break;
+        case perf::kPosLfo: f.type = 36; f.value = c(v < 0 ? -v : v, 0, 30); break;
+        case perf::kRepeater:   // the sub-step rates as a Roll (rate 1..8)
+            if (v >= 9) {
+                f.type = 3;
+                f.value = c(v - 8, 1, 8);
+            }
+            break;
+        case perf::kBitDepth: f.type = 38; f.value = c(16 - (v < 0 ? -v : v), 1, 16); break;
+        case perf::kOverdrive: f.type = 37; f.value = c(v, 0, 100); break;
+        default: break;
+    }
+    return f;
+}
+}  // namespace
+
+void PerformanceScreen::recTick() {
+    App& a = app_;
+    if (!rec_ || !a.seq.isPlaying() || !src.valid()) return;
+    bool any = false;
+    Pattern& pat = a.pattern();
+    for (int t = 0; t < kTrackCount; ++t) {
+        if (!fxOn[t] || trackPatternOf(t) != a.patternNumber()) continue;
+        const int st = a.seq.step(t);
+        if (st < 0 || st >= kStepCount || st == recStep_[t]) continue;
+        recStep_[t] = int16_t(st);
+        // The first active slot with a step FX counterpart (column order).
+        for (int s = 0; s < perf::kSlots; ++s) {
+            const uint8_t ty = src.type(s);
+            if (!ty || !cur[s]) continue;
+            const StepFx f = perfToStepFx(ty, cur[s]);
+            if (!f.type) continue;
+            pat.tracks[t].steps[st].fx[1] = f;
+            any = true;
+            break;
+        }
+    }
+    if (any) {
+        a.patternEdited();
+        a.markProjectDirty();
+    }
+}
+
+void PerformanceScreen::drawScenes(Gfx& g) {
+    if (!sceneKeys()) return;
+    const Theme& th = ui_.th();
+    const bool store = ui_.isDown(btn::Fx2);
+    g.fill(0, kBarY, kScreenW, kScreenH - kBarY, th.slot(slot::kEmptyPanel + 1));
+    for (int i = 0; i < Config::kScenes; ++i) {
+        const int x = i * 100;
+        const bool has = app_.cfg.scenes[i][0] != 0;
+        const uint32_t bg = i == scene_ ? th.accent : (has ? wg::mix(th.bg, th.good, 110) : th.panel2);
+        g.fill(x + 3, kBarY + 4, 94, kScreenH - kBarY - 8, bg);
+        char t[24];
+        std::snprintf(t, sizeof(t), "Scene %d", i + 1);
+        const uint32_t tc = i == scene_ ? th.bg : th.text;
+        g.text(x + 50, kBarY + 18, kFont2, tc, t, IDisplay::kOptCenter);
+        g.text(x + 50, kBarY + 40, kFont1, tc, store ? "Store" : (has ? "Recall" : "empty"), IDisplay::kOptCenter);
+    }
+}
 }  // namespace ot

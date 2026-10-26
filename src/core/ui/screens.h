@@ -711,6 +711,25 @@ private:
     void changeType(int d);
     void setType(int c, uint8_t ty);
     bool fxPick_ = false;   // OT fork: Shift + encoder FX chooser open (edit mode)
+    // OT fork scenes (SETBOOK): Fx1 + F1..F8 recalls a scene (with a morph of
+    // the number FX over morphIdx_ bars), Fx2 + F1..F8 stores it. Perform
+    // recording (BLACKBOX): Insert writes the playing Perform FX into FX 2.
+    void storeScene(int i);
+    void recallScene(int i);
+    void sceneTick(uint32_t now);
+    void recTick();
+    void drawScenes(Gfx& g);
+    bool sceneKeys() const;
+    int scene_ = -1;
+    uint8_t morphIdx_ = 0;   // 0 off, 1..5 = 1/4, 1/2, 1, 2, 4 bars
+    bool morphing_ = false;
+    uint32_t morphT0_ = 0, morphMs_ = 0;
+    int16_t morphFrom_[12] = {}, morphTo_[12] = {};
+    uint8_t morphRow_[12] = {};
+    bool morphOn_[12] = {};
+    uint16_t morphFxOn_ = 0;
+    bool rec_ = false;
+    int16_t recStep_[kTrackCount] = {};
     void swapColumn(int nc);
     void play();
     bool anyTrackKey() const;

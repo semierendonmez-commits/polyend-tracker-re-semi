@@ -122,6 +122,18 @@ struct Config {
     void toExt(uint8_t* out) const;                          // kExtSize bytes
     bool fromExt(const uint8_t* in, uint32_t len);           // false: none / bad (fields unchanged)
 
+    // --- OT fork Perform scenes (SETBOOK), record "OTS" after the extension
+    // record: 8 scenes of the 12 Perform columns (type, row, value) and the
+    // tracks' FX switches. Global, like the global Perform presets.
+    static constexpr int kScenes = 8;
+    static constexpr int kSceneBytes = 52;   // valid, types[12], rows[12], values i16[12], fxOn u16, 1 spare
+    static constexpr uint32_t kScenesOffset = kExtOffset + kExtSize;
+    static constexpr uint32_t kScenesSize = 5 + kScenes * kSceneBytes + 1;   // "OTS", version, count, data, sum
+    uint8_t scenes[kScenes][kSceneBytes] = {};
+    bool anyScene() const;
+    void toScenes(uint8_t* out) const;                        // kScenesSize bytes
+    bool fromScenes(const uint8_t* in, uint32_t len);
+
     Config();
     void setDefaults();
     void sanitize();

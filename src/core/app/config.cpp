@@ -216,6 +216,36 @@ bool Config::fromExt(const uint8_t* in, uint32_t len) {
     return true;
 }
 
+bool Config::anyScene() const {
+    for (int i = 0; i < kScenes; ++i)
+        if (scenes[i][0]) return true;
+    return false;
+}
+
+void Config::toScenes(uint8_t* out) const {
+    out[0] = 'O';
+    out[1] = 'T';
+    out[2] = 'S';
+    out[3] = 1;
+    out[4] = uint8_t(kScenes);
+    std::memcpy(out + 5, scenes, sizeof(scenes));
+    uint8_t sum = 0;
+    for (uint32_t i = 0; i < sizeof(scenes); ++i) sum = uint8_t(sum + out[5 + i]);
+    out[5 + sizeof(scenes)] = sum;
+}
+
+bool Config::fromScenes(const uint8_t* in, uint32_t len) {
+    if (len < kScenesSize || in[0] != 'O' || in[1] != 'T' || in[2] != 'S' || in[3] != 1 || in[4] != kScenes)
+        return false;
+    uint8_t sum = 0;
+    for (uint32_t i = 0; i < sizeof(scenes); ++i) sum = uint8_t(sum + in[5 + i]);
+    if (sum != in[5 + sizeof(scenes)]) return false;
+    std::memcpy(scenes, in + 5, sizeof(scenes));
+    for (auto& s : scenes)
+        if (s[0] > 1) s[0] = 0;
+    return true;
+}
+
 bool Config::fromImage(const uint8_t* img) {
     if (std::memcmp(img, kSignature, sizeof(kSignature)) != 0) return false;
     Config c;
@@ -239,6 +269,7 @@ bool Config::fromImage(const uint8_t* img) {
     c.reverbModel = reverbModel;
     c.delayModel = delayModel;
     std::memcpy(c.extReserved, extReserved, sizeof(extReserved));
+    std::memcpy(c.scenes, scenes, sizeof(scenes));
     c.uiTheme = c.theme;     // the stock theme; an extension record may name a fork palette
     c.sanitize();
     *this = c;
@@ -259,6 +290,9 @@ bool Config::load(INvStore& nv) {
     scaleLock = screenSaver = levelMeter = reverbModel = delayModel = 0;
     if (nv.size() >= kExtOffset + kExtSize && nv.read(kExtOffset, ext, kExtSize)) fromExt(ext, kExtSize);
     else if (nv.size() >= kExtOffset + kExtSize - 1 && nv.read(kExtOffset, ext, kExtSize - 1)) fromExt(ext, kExtSize - 1);   // v1 record
+    std::memset(scenes, 0, sizeof(scenes));
+    uint8_t sc[kScenesSize];
+    if (nv.size() >= kScenesOffset + kScenesSize && nv.read(kScenesOffset, sc, kScenesSize)) fromScenes(sc, kScenesSize);
     return true;
 }
 
@@ -271,21 +305,32 @@ bool Config::save(INvStore& nv) {
     // default; a store that never had one keeps its erased bytes past 0xF4.
     if (nv.size() < kExtOffset + kExtSize) return true;
     uint8_t ext[kExtSize];
+    bool writeExt = true;
     if (cpuMeter == 0 && synthVoices == kDefaultSynthVoices && sliceDetector == 0 && uiTheme < kThemeCount &&
         bbReseed == 0 && sliceThru == 0 && uiFont < 2 && scaleLock == 0 && screenSaver == 0 && levelMeter == 0 &&
-        reverbModel == 0 && delayModel == 0) {
+        reverbModel == 0 && delayModel == 0 && !anyScene()) {
         Config probe;
-        if (!nv.read(kExtOffset, ext, kExtSize) || !probe.fromExt(ext, kExtSize)) return true;
+        writeExt = nv.read(kExtOffset, ext, kExtSize) && probe.fromExt(ext, kExtSize);
     }
-    toExt(ext);
-    nv.write(kExtOffset, ext, kExtSize);
+    if (writeExt) {
+        toExt(ext);
+        nv.write(kExtOffset, ext, kExtSize);
+    }
+    if (nv.size() >= kScenesOffset + kScenesSize) {   // scenes: once there are any
+        uint8_t sc[kScenesSize];
+        Config probe;
+        if (anyScene() || (nv.read(kScenesOffset, sc, kScenesSize) && probe.fromScenes(sc, kScenesSize))) {
+            toScenes(sc);
+            nv.write(kScenesOffset, sc, kScenesSize);
+        }
+    }
     return true;
 }
 
 bool Config::load(IStorage& fs) {
     IStorage::Handle h = fs.open(kConfigPath, IStorage::kRead);
     if (h < 0) return false;
-    uint8_t buf[8 + kImageSize + kExtSize + sizeof(Config)] = {};
+    uint8_t buf[8 + kImageSize + kExtSize + kScenesSize + sizeof(Config)] = {};
     int32_t n = 0, r;
     while (n < int32_t(sizeof(buf)) && (r = fs.read(h, buf + n, uint32_t(sizeof(buf) - n))) > 0) n += r;
     fs.close(h);
@@ -302,6 +347,8 @@ bool Config::load(IStorage& fs) {
         sliceThru = 0;
         scaleLock = screenSaver = levelMeter = reverbModel = delayModel = 0;
         fromExt(buf + 8 + kImageSize, avail - kImageSize);
+        std::memset(scenes, 0, sizeof(scenes));
+        if (avail >= kImageSize + kExtSize + kScenesSize) fromScenes(buf + 8 + kImageSize + kExtSize, kScenesSize);
         return true;
     }
     if (buf[4] != kFileV1) return false;
@@ -321,13 +368,14 @@ bool Config::save(IStorage& fs) {
     font = uiFont >= 2 ? 0 : uiFont;
     toImage();
     fs.mkdir(kConfigDir);
-    uint8_t buf[8 + kImageSize + kExtSize] = {};
+    uint8_t buf[8 + kImageSize + kExtSize + kScenesSize] = {};
     std::memcpy(buf, kFileMagic, 4);
     buf[4] = kFileV2;
     buf[5] = uint8_t(kImageSize);
     buf[6] = uint8_t(kImageSize >> 8);
     std::memcpy(buf + 8, image, kImageSize);
     toExt(buf + 8 + kImageSize);
+    toScenes(buf + 8 + kImageSize + kExtSize);
     if (fs.exists(kConfigPath)) fs.remove(kConfigPath);
     IStorage::Handle h = fs.open(kConfigPath, IStorage::kWrite);
     if (h < 0) return false;

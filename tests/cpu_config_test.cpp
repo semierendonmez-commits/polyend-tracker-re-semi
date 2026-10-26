@@ -253,4 +253,21 @@ TEST(ot_fork_extension_fields) {
     CHECK_EQ(gr.scaleLock, 0);
     CHECK_EQ(gr.screenSaver, 0);
     CHECK_EQ(gr.reverbModel, 0);
+    // Perform scenes ride in their own "OTS" record (EEPROM and file).
+    FakeNvStore nv6;
+    Config h;
+    CHECK(!h.anyScene());
+    h.scenes[2][0] = 1;
+    h.scenes[2][1] = 3;
+    h.scenes[2][25] = 0xF6;   // value -10
+    h.scenes[2][26] = 0xFF;
+    CHECK(h.save(nv6));
+    Config hr;
+    CHECK(hr.load(nv6));
+    CHECK(hr.anyScene());
+    CHECK_EQ(int(hr.scenes[2][1]), 3);
+    CHECK_EQ(int(int16_t(hr.scenes[2][25] | (hr.scenes[2][26] << 8))), -10);
+    nv6.mem[Config::kScenesOffset + 20] ^= 0x55;   // a broken record is ignored
+    CHECK(hr.load(nv6));
+    CHECK(!hr.anyScene());
 }
