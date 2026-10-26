@@ -670,6 +670,17 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
         for (int i = 0; i < n; ++i) run(g, tx[i] + 4, ty + 6, kFont4, names[i], gc(th, kGcTabText));
         g.noClip();
     });
+    // OT fork track links: "<N" at the right of a linked track's header (it
+    // follows track N).
+    for (int v = 0; v < nT; ++v) {
+        const int t = firstTrack + v;
+        if (t >= kTrackCount) break;
+        const uint8_t src = a.fork.link[t].source;
+        if (!src) continue;
+        char tag[8];
+        std::snprintf(tag, sizeof(tag), "<%d", src);
+        g.text(trackX(v) + L.trackW - 6, band0 + 14, kFont2, th.accent, tag, IDisplay::kOptCenterY | IDisplay::kOptRightX);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -678,7 +689,7 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
 void PatternScreen::drawBar(Gfx& g) {
     const Theme& th = ui_.th();
     if (ui_.askOpen() || ui_.kb.isOpen()) return;   // Ui draws its own labels over the strip
-    if (ui_.shift() && focus < 0 && !pop_.isOpen() && !fillOpen && !genOpen && !recArmPage) {
+    if (ui_.shift() && focus < 0 && !pop_.isOpen() && !fillOpen && !genOpen && !linkOpen && !recArmPage) {
         drawMuteBar(g);
         return;
     }
@@ -904,11 +915,12 @@ void PatternScreen::draw(Gfx& g) {
     }
     const bool rightPop = pop_.isOpen();
     BottomBar& b = ui_.bar;
-    b.setStripStyle(fillOpen || genOpen ? wg::StripStyle::kDark : wg::StripStyle::kNormal);   // 050505 / 434343 under Fill [S snap 019]
+    b.setStripStyle(fillOpen || genOpen || linkOpen ? wg::StripStyle::kDark : wg::StripStyle::kNormal);   // 050505 / 434343 under Fill [S snap 019]
     // The Fill popup's overlay covers the whole grid (spec 20 §4.1 Fill
     // popup: full overlay label (0, 32, 800, 389)); the grid is not drawn.
     if (fillOpen) drawFill(g);
     else if (genOpen) drawGen(g);   // OT fork: the Generate popup covers the grid the same way
+    else if (linkOpen) drawLink(g);   // OT fork: the Link popup too
     else drawGrid(g);
     if (!ui_.kb.isOpen()) b.drawStrip(g, th);
     // fullScreen(): this screen draws strip, title, hairline and labels

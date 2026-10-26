@@ -15,7 +15,18 @@ Image: `PolyendTrackerOTs221.ptf` (installs like the upstream image, see Install
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
-### Latest update (2.2.1-semi.5)
+### Latest update (2.2.1-semi.6)
+
+| **Track Link: a track plays live with another track's notes** | **Linked track: "<1" on its header** |
+|---|---|
+| ![Track Link popup](screenshots/2.2.1-semi/link-popup.png) | ![Linked track in the grid](screenshots/2.2.1-semi/link-grid.png) |
+
+- **Track Link** (Pattern page 3, F4): a track follows another track live. Whenever the source
+  plays a note (steps, rolls, play modes, Mutate, live Grids, pads), the linked track plays
+  its own instrument at the same moment: Follow or fixed note, transpose, level, chance, FX
+  copy. Mute the source and only the layer is heard. Saved with the project.
+
+### Previous update (2.2.1-semi.5)
 
 | **Generate: Grids (Mutable drum map, live)** | **Generate: Marbles (deja vu)** |
 |---|---|
@@ -46,7 +57,7 @@ and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**
   bridge); a stock firmware plays them as Random.
 - **PLT synth model** (Synth 1-3): **2-Op FM** and **Harmonic** in the manner of Plaits.
 
-### Previous update (2.2.1-semi.4)
+### Earlier update (2.2.1-semi.4)
 
 | **Master 5/5: Sidechain (two sources, targets on the pads)** | **Theme: Acid House (animated)** |
 |---|---|
@@ -153,6 +164,8 @@ explains the selected parameter. One undo step per Generate; Seed 0 is random.
   three tracks), live under the Perform FX Grids X / Y / Density.
 - **Marbles:** random notes with deja vu (T and X generators, Steps, Range, two-track mode).
 - Genotype mode **Drummer**: a Markov chain over all the selected drum tracks together.
+- **Track Link** (F4 on the same page): the cursor track plays live with another track's notes,
+  its own instrument (note, transpose, level, chance, FX copy).
 
 ### Live (Performance)
 - **Play modes B1..B10** (BBCut), **T1..T4** (TILT: Bounce, Flipper, Gravity, Multiball) and
@@ -206,7 +219,7 @@ explains the selected parameter. One undo step per Generate; Seed 0 is random.
 ### Build
 - The fork builds without Games by default. Its flash budget is 800 KB (upstream 720 KB); the
   hard limit, the stock 1.9.2 image extent (877,664 B), is checked on every build. Image size
-  about 787 KB; all host tests and simulator checks pass.
+  about 792 KB; all host tests and simulator checks pass.
 
 ## Screenshots (2.2.1, on an original Tracker)
 

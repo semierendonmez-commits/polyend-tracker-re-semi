@@ -12,6 +12,32 @@ namespace {
 constexpr uint8_t kVersion = 1;
 constexpr uint8_t kRecSidechain = 1;
 constexpr int kScBytes = 10;
+constexpr uint8_t kRecLinks = 2;
+constexpr int kLinkBytes = 8;
+
+void putLink(uint8_t* p, const TrackLink& l) {
+    p[0] = l.source;
+    p[1] = l.instr;
+    p[2] = uint8_t(l.note);
+    p[3] = uint8_t(l.transpose);
+    p[4] = l.level;
+    p[5] = l.chance;
+    p[6] = l.fx;
+    p[7] = l.reserved;
+}
+void getLink(const uint8_t* p, int len, TrackLink& l) {
+    uint8_t b[kLinkBytes];
+    putLink(b, l);
+    for (int i = 0; i < len && i < kLinkBytes; ++i) b[i] = p[i];
+    l.source = b[0];
+    l.instr = b[1];
+    l.note = int8_t(b[2]);
+    l.transpose = int8_t(b[3]);
+    l.level = b[4];
+    l.chance = b[5];
+    l.fx = b[6];
+    l.reserved = b[7];
+}
 
 void path(char* out, size_t n, const char* dir) { std::snprintf(out, n, "%.200s/%s", dir, ForkProject::kFileName); }
 
@@ -36,6 +62,13 @@ void getSc(const uint8_t* p, int len, audio::SidechainSettings& s) {
 
 void ForkProject::setDefault() {
     for (auto& s : sc) s = audio::SidechainSettings{};
+    for (auto& l : link) l = TrackLink{};
+}
+
+bool ForkProject::anyLink() const {
+    for (const auto& l : link)
+        if (l.source) return true;
+    return false;
 }
 
 bool ForkProject::isDefault() const {
@@ -46,7 +79,7 @@ bool ForkProject::isDefault() const {
         putSc(b, d.sc[k]);
         if (std::memcmp(a, b, kScBytes) != 0) return false;
     }
-    return true;
+    return !anyLink();
 }
 
 void ForkProject::sanitize() {
@@ -61,6 +94,18 @@ void ForkProject::sanitize() {
         if (s.thresh > 100) s.thresh = 100;
         s.targets &= uint16_t((1u << audio::kScTargetCount) - 1);
     }
+    for (int t = 0; t < 16; ++t) {
+        TrackLink& l = link[t];
+        if (l.source > 16 || l.source == t + 1) l.source = 0;
+        if (l.instr > 66) l.instr = 0;
+        if (t >= 8 && l.instr < 48) l.instr = 64;   // tracks 9..16: synths and MIDI only
+        if (l.note < -1) l.note = -1;
+        if (l.transpose < -24) l.transpose = -24;
+        if (l.transpose > 24) l.transpose = 24;
+        if (l.level > 100) l.level = 100;
+        if (l.chance > 100) l.chance = 100;
+        if (l.fx > 1) l.fx = 0;
+    }
 }
 
 bool ForkProject::load(IStorage& fs, const char* dir) {
@@ -70,7 +115,7 @@ bool ForkProject::load(IStorage& fs, const char* dir) {
     if (!fs.exists(p)) return false;
     IStorage::Handle h = fs.open(p, IStorage::kRead);
     if (h < 0) return false;
-    uint8_t buf[256];
+    uint8_t buf[512];
     const int32_t n = fs.read(h, buf, sizeof(buf));
     fs.close(h);
     if (n < 6 || std::memcmp(buf, "OTF1", 4) != 0) return false;
@@ -84,6 +129,11 @@ bool ForkProject::load(IStorage& fs, const char* dir) {
                 const int off = k * kScBytes, l = len - off;
                 if (l > 0) getSc(buf + at + off, l > kScBytes ? kScBytes : l, sc[k]);
             }
+        if (id == kRecLinks)
+            for (int k = 0; k < 16; ++k) {
+                const int off = k * kLinkBytes, l = len - off;
+                if (l > 0) getLink(buf + at + off, l > kLinkBytes ? kLinkBytes : l, link[k]);
+            }
         at += len;
     }
     sanitize();
@@ -95,7 +145,7 @@ bool ForkProject::save(IStorage& fs, const char* dir) const {
     path(p, sizeof(p), dir);
     if (fs.exists(p)) fs.remove(p);
     if (isDefault()) return true;
-    uint8_t buf[6 + 2 + 2 * kScBytes];
+    uint8_t buf[6 + 2 + 2 * kScBytes + 2 + 16 * kLinkBytes];
     std::memcpy(buf, "OTF1", 4);
     buf[4] = kVersion;
     buf[5] = 1;
@@ -103,9 +153,17 @@ bool ForkProject::save(IStorage& fs, const char* dir) const {
     buf[7] = 2 * kScBytes;
     putSc(buf + 8, sc[0]);
     putSc(buf + 8 + kScBytes, sc[1]);
+    int n = 8 + 2 * kScBytes;
+    if (anyLink()) {
+        buf[5] = 2;
+        buf[n] = kRecLinks;
+        buf[n + 1] = 16 * kLinkBytes;
+        for (int k = 0; k < 16; ++k) putLink(buf + n + 2 + k * kLinkBytes, link[k]);
+        n += 2 + 16 * kLinkBytes;
+    }
     IStorage::Handle h = fs.open(p, IStorage::kWrite);
     if (h < 0) return false;
-    const bool ok = fs.write(h, buf, sizeof(buf)) == int32_t(sizeof(buf));
+    const bool ok = fs.write(h, buf, uint32_t(n)) == int32_t(n);
     fs.close(h);
     return ok;
 }

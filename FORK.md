@@ -195,6 +195,38 @@ title.
   values play the window backwards). Two or three tracks can modulate each
   other.
 
+## Track Link (Pattern, page 3, F4)
+
+A track can follow another track live: whenever the **source** track plays a
+note, the linked track plays its own instrument at the same moment. Everything
+that makes the source play counts: its steps, rolls, arps, Chance / Random FX,
+the play modes (B, T, G, M, TM, R), Acid / BBCut Mutate, the live Grids kit,
+the Perform step repeater and the pads. Use it to layer a mutating line with
+another sound, double a break with a kick, or send a generated part to a MIDI
+synth as well. Not a copy: the steps stay on the source, so every change is
+followed at once.
+
+| Field | |
+|---|---|
+| Source | Off, Track 1..16 (not itself) |
+| Instrument | what the linked track plays (tracks 9..16: synths and MIDI) |
+| Note | Follow (the source's note) or a fixed note (drum layers) |
+| Transpose | -24..+24 semitones |
+| Level | % of the source note's volume |
+| Chance | % of the source's notes it plays |
+| FX | None, or Copy: the source step's FX come along (slice, volume, ...) |
+
+- Changes apply at once; F8, Pattern or Rec close the popup. The right column
+  lists every link of the project; a linked track's header shows "<N".
+- The linked track's own steps still play. The source's OFF / gate end the
+  linked note, unless the linked track has played its own note since.
+- **Muted source:** its steps keep running silently, so only the layer is
+  heard (its Tempo, Swing, Break, CC and pitch bend FX are skipped). A muted
+  linked track stays silent.
+- Links do not chain (a track following a linked track hears only that
+  track's own notes). Saved with the project (`otfork.bin`); a stock firmware
+  ignores them.
+
 ## Sample Editor effects
 
 | Effect | Parameters |
@@ -361,7 +393,8 @@ synth slot mute (a gain), the TILT / Genotype play modes (a step looked up per
 track per step), the master peak for the level meter, the Dynamics stage and
 linked limiter (only when used), the reverb / delay models (only when
 selected), wavetable FM (only with WT FM Depth on), the sidechains (only
-when set), the master colour, DeRez, the chaos LFO shapes and the PLT engine.
+when set), the master colour, DeRez, the chaos LFO shapes, the PLT engine and
+track links (only when set).
 `make perf-gate` has bench scenarios for them (wHall .. wColor, wSidechain,
 pltfm / pltharm).
 

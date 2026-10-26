@@ -232,6 +232,7 @@ void App::applyEngineSettings() {
     m.delayModel = cfg.delayModel;
     m.sc[0] = fork.sc[0];   // OT fork sidechain (project)
     m.sc[1] = fork.sc[1];
+    seq.setLinks(fork.link);   // OT fork track links (project)
     m.metronomeVolume = cfg.metronomeVolume;
     m.previewVolume = cfg.previewVolume > 100 ? 100 : cfg.previewVolume;
     // Config "Line in channel" (spec 15 §2.2 #11): clamp > 2 -> 2 and push it

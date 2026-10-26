@@ -166,7 +166,7 @@ bool PatternScreen::midiChordEntry(int t, uint8_t note, uint8_t velocity) {
     // Gated on the play state only (0xc916c); an armed, stopped sequencer
     // still takes step entry (spec 17 §1.4 step 8).
     if (!edit() || a.seq.isPlaying()) return false;
-    if (focus != -1 || fillOpen || genOpen || pop_.isOpen() || ui_.kb.isOpen() || ui_.askOpen()) return false;
+    if (focus != -1 || fillOpen || genOpen || linkOpen || pop_.isOpen() || ui_.kb.isOpen() || ui_.askOpen()) return false;
     const SelRect r = target();
     if (t < r.t0 || t > r.t1) return false;
     if (note > 127) note = 60;   // spec 06 §1.6: a note > 127 becomes 60
@@ -207,6 +207,7 @@ void PatternScreen::start(int opt) {
     focus = -1;
     fillOpen = false;
     genOpen = false;
+    linkOpen = false;
     recArmPage = false;
     colKey_ = 0;
     pickerKey_ = 0;
@@ -350,6 +351,10 @@ void PatternScreen::refreshBar() {
         genBar(b);
         return;
     }
+    if (linkOpen) {
+        linkBar(b);
+        return;
+    }
     if (fillOpen) {
         // Fill bar (spec 16 §B.3): the list fields F1/F3/F4 show their
         // lists above the bar (drawFill); F2/F5/F6 carry values.
@@ -479,10 +484,12 @@ void PatternScreen::refreshBar() {
             b.setName(0, "Pattern", "name");
             b.setName(1, "Track", "name");
             b.set(2, "Generate", nullptr, e);   // OT fork: pattern generators
+            b.setName(3, "Track", "link");       // OT fork: track links
             b.set(7, "More");
             b.underline(0, wg::kUnderlineAvailable);
             b.underline(1, wg::kUnderlineAvailable);
             b.underline(2, wg::kUnderlineEditMode);
+            b.underline(3, wg::kUnderlineAvailable);
             b.pages(7, 3, page);
             break;
     }
@@ -503,6 +510,12 @@ void PatternScreen::onButton(uint8_t id, uint8_t state) {
     if (patternHeld_ && id != btn::Pattern && state == kPress) patternCombo_ = true;
     if (genOpen) {
         if (state == kPress) genButton(id);
+        refreshBar();
+        ui_.dirty();
+        return;
+    }
+    if (linkOpen) {
+        if (state == kPress) linkButton(id);
         refreshBar();
         ui_.dirty();
         return;
@@ -887,6 +900,10 @@ void PatternScreen::pageButton(int f, uint8_t state) {
         if (e) genOpenPopup();
         return;
     }
+    if (f == 3) {   // OT fork: track links (not an edit: available without edit mode)
+        linkOpenPopup();
+        return;
+    }
     if (f == 0) {
         char title[40];
         std::snprintf(title, sizeof(title), "Edit Pattern %d Name", a.patternNumber());
@@ -1013,7 +1030,7 @@ void PatternScreen::focusDelta(int d) {
 #if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
 bool PatternScreen::encoderOnList() const {
     if (pop_.isOpen()) return true;          // note / instrument / FX lists
-    if (fillOpen || genOpen || focus >= 0) return false;
+    if (fillOpen || genOpen || linkOpen || focus >= 0) return false;
     return !edit();                          // stopped, not editing: the rows
 }
 #endif
@@ -1030,6 +1047,12 @@ void PatternScreen::onEncoder(int d) {
     // spec 06 §1.7 dispatch order.
     if (genOpen) {
         genDelta(d);
+        refreshBar();
+        ui_.dirty();
+        return;
+    }
+    if (linkOpen) {
+        linkDelta(d);
         refreshBar();
         ui_.dirty();
         return;
@@ -1092,6 +1115,12 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
     App& a = app_;
     if (genOpen) {
         if (state == kPress) genPad(pad);
+        refreshBar();
+        ui_.dirty();
+        return;
+    }
+    if (linkOpen) {
+        if (state == kPress) linkPad(pad);
         refreshBar();
         ui_.dirty();
         return;
@@ -1564,7 +1593,7 @@ void PatternScreen::update(uint32_t now) {
         ui_.dirty();
     }
     const bool barPage0 =
-        page == 0 && focus < 0 && !fillOpen && !genOpen && !ui_.shift() && !recArmPage && !pop_.isOpen();
+        page == 0 && focus < 0 && !fillOpen && !genOpen && !linkOpen && !ui_.shift() && !recArmPage && !pop_.isOpen();
     // spec 06 §1.2: F1 shows the queued pattern number, its colour
     // alternating every 200 ms.
     const int q = a.seq.queuedPattern();

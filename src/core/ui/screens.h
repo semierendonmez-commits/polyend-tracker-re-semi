@@ -68,6 +68,10 @@ public:
     float fillValueFrac(int val) const;             // From/To bar fraction 0..1
     int fillField = 0;
     pops::FillParams fill[4];
+    // Link popup (OT fork track links, screen_pattern_link.cpp).
+    bool linkOpen = false;
+    int linkField = 0;
+    void linkItemText(int field, int i, char* out, int cap) const;
     // Generate popup (OT fork: Acid, Call & Answer, BBCut, Turnaround, Genotype).
     bool genOpen = false;
     int genKind = 0;
@@ -156,6 +160,16 @@ private:
     void genBar(BottomBar& b);
     void drawGen(Gfx& g);
     void drawGenPreview(Gfx& g, int x, int y, int w, int h);
+    void linkOpenPopup();
+    int linkGet(int field) const;
+    void linkRange(int field, int* lo, int* hi) const;
+    void linkSet(int field, int value, bool wrap = false);
+    void linkDelta(int d, bool wrap = false);
+    void linkValueText(int field, char* out, int cap) const;
+    void linkButton(uint8_t id);
+    void linkPad(uint8_t pad);
+    void linkBar(BottomBar& b);
+    void drawLink(Gfx& g);
     void pageButton(int f, uint8_t state);
     void drawGrid(Gfx& g);
     void drawGridVertical(Gfx& g, bool threeTracks);

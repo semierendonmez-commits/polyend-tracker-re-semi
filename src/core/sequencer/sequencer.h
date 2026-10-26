@@ -15,6 +15,7 @@
 #include "sequencer/seq_rng.h"
 #include "sequencer/seq_sink.h"
 #include "sequencer/seq_tables.h"
+#include "sequencer/track_link.h"
 
 namespace ot {
 
@@ -68,6 +69,9 @@ public:
     void attach(ISequencerSink* sink, ISequencerHost* host, Project* project, Pattern* bufA, Pattern* bufB,
                 Pattern* stage = nullptr);
     SequencerSettings& settings() { return settings_; }
+    // OT fork track links (one per track; audio context, like the engine settings).
+    void setLinks(const TrackLink* links);
+    const TrackLink& link(int t) const { return links_[t]; }
     void seedRandom(uint32_t s) { rng_.seed(s); }
     uint32_t randomState() const { return rng_.state(); }
 
@@ -279,6 +283,7 @@ private:
         uint8_t liveInstr = 0;   // the held live note's instrument (its recorded OFF gets it)
         int16_t liveStep = -1;
         int16_t skipStep = -1;
+        bool linkOwned = false;   // OT fork: the sounding note came from the track's link
     };
 
     static bool validTrack(int t) { return t >= 0 && t < kTracks; }
@@ -334,6 +339,13 @@ private:
     void reloadPerfLengths();
     int loopStart() const { return selection_ ? selStart_ : 0; }
     bool isMuted(int t) const;
+    // OT fork track links.
+    void linkFire(int src, const NoteRec& rec, bool chord, uint8_t chordValue);
+    TrackLink links_[kTrackCount];
+    uint16_t followers_[kTrackCount] = {};   // per source: the tracks linked to it
+    uint8_t linkDepth_ = 0;                   // > 0 while a link plays (no chains)
+    int8_t silentTrack_ = -1;                 // a muted source: steps run, it stays silent
+    uint32_t linkRng_ = 0x2545F491u;
     const MidiInstrument midiInstr(uint8_t instr) const;
 
     // MIDI out helpers (spec 03 §4.1, §4.4).

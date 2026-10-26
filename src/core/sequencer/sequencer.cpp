@@ -431,8 +431,10 @@ void Sequencer::processTrack(int t) {
     // (4) micro-delay and arp counters.
     if (tr.delayActive && tr.delayCounter < 0xFF) ++tr.delayCounter;
     if (tr.arpActive) ++tr.arpCounter;
-    // (5) disabled or muted: counters only.
-    if (!tr.enabled || muted) return;
+    // (5) disabled or muted: counters only. OT fork: a muted track that
+    // other tracks are linked to runs silently, so its links still play.
+    if (!tr.enabled || (muted && !followers_[t])) return;
+    silentTrack_ = int8_t(muted ? t : -1);
 
     // Delayed note (spec 03 §3.4). Checked before the step start so a delay
     // that reaches into the next step fires before that step (spec 03 §7.4: OT choice).
@@ -456,6 +458,7 @@ void Sequencer::processTrack(int t) {
         if (isMidiLike(rec.instr)) noteOffTrack(t, NoteOffMode::Off);
         triggerNote(t, rec, false, 0);
     }
+    silentTrack_ = -1;
 }
 
 void Sequencer::stepStart(int t) {
@@ -581,6 +584,7 @@ void Sequencer::stepStart(int t) {
                 if (p.rec.note >= 0) p.rec.volume = int8_t(rng_.rangeIncl(0, v > 100 ? 100 : v));
                 break;
             case 8: case 9: case 10: case 11: case 12: case 37:
+                if (silentTrack_ == t) break;   // OT fork: a muted link source sends nothing
                 if (isMidiInstr(p.rec.instr)) {
                     sendCcFx(t, uint8_t(ccLetter(type)), v, p.rec);
                 } else if (sink_) {
@@ -592,6 +596,7 @@ void Sequencer::stepStart(int t) {
                 }
                 break;
             case 13:  // Break
+                if (silentTrack_ == t) break;
                 breakPending_ = true;
                 break;
             case 14:  // Chord
@@ -599,6 +604,7 @@ void Sequencer::stepStart(int t) {
                 p.chordValue = uint8_t(v >= kChordCount ? kChordCount - 1 : v);
                 break;
             case 15:  // Tempo
+                if (silentTrack_ == t) break;
                 if (v > 4) {
                     overrideBpm_ = clampf(2.0f * float(v), kTempoFxMin, kTempoFxMax);
                     tempoOverride_ = true;
@@ -607,6 +613,7 @@ void Sequencer::stepStart(int t) {
                 }
                 break;
             case 17:  // Swing
+                if (silentTrack_ == t) break;
                 swing_ = float(clampi(v, 25, 75));
                 swingOn_ = true;
                 break;
@@ -630,7 +637,7 @@ void Sequencer::stepStart(int t) {
                 break;
             }
             case 34:  // Pitch bend for MIDI instruments at step start
-                if (isMidiLike(p.rec.instr)) sendPitchBendFx(p.rec.instr, v);
+                if (silentTrack_ != t && isMidiLike(p.rec.instr)) sendPitchBendFx(p.rec.instr, v);
                 break;
             default:
                 break;
@@ -721,6 +728,14 @@ void Sequencer::triggerNote(int t, const NoteRec& rec0, bool chord, uint8_t chor
         rec.note = int8_t(clampi(rec.note + gModeXpose[t][tr.step & (kPlayModeTableLen - 1)], 0, 127));
     tr.gate = 0;
     if (rec.note < 0) return;
+    // OT fork track links: the linked tracks play with this note; a muted
+    // source stays silent itself.
+    tr.linkOwned = linkDepth_ > 0;
+    if (linkDepth_ == 0 && followers_[t]) linkFire(t, rec, chord, chordValue);
+    if (silentTrack_ == t) {
+        tr.sounding = false;
+        return;
+    }
     if (rec.instr < 48) {
         if (t >= kVoiceTracks) return;  // sample note-ons on tracks 9..12 are dropped
         if (sink_) {
@@ -792,8 +807,63 @@ void Sequencer::triggerNote(int t, const NoteRec& rec0, bool chord, uint8_t chor
     tr.sounding = true;
 }
 
+void Sequencer::setLinks(const TrackLink* links) {
+    for (int t = 0; t < kTracks; ++t) followers_[t] = 0;
+    for (int f = 0; f < kTracks; ++f) {
+        TrackLink l = links ? links[f] : TrackLink{};
+        if (l.source < 1 || l.source > kTracks || l.source - 1 == f || l.instr > 66 ||
+            (f >= kVoiceTracks && l.instr < 48))
+            l.source = 0;
+        // A link switched off or moved: its note ends.
+        if (links_[f].source != l.source && tracks_[f].linkOwned && (tracks_[f].sounding || tracks_[f].midiCount))
+            noteOffTrack(f, NoteOffMode::Off);
+        links_[f] = l;
+        if (l.source) followers_[l.source - 1] |= uint16_t(1u << f);
+    }
+}
+
+void Sequencer::linkFire(int src, const NoteRec& rec, bool chord, uint8_t chordValue) {
+    ++linkDepth_;
+    for (int f = 0; f < kTracks; ++f) {
+        if (!((followers_[src] >> f) & 1u)) continue;
+        const TrackLink& l = links_[f];
+        TrackState& ft = tracks_[f];
+        if (!ft.enabled || isMuted(f)) continue;
+        if (l.chance < 100) {
+            linkRng_ = linkRng_ * 1664525u + 1013904223u;
+            if (int((linkRng_ >> 16) % 100u) >= l.chance) continue;
+        }
+        NoteRec r;
+        r.instr = l.instr;
+        r.note = int8_t(clampi((l.note < 0 ? int(rec.note) : int(l.note)) + l.transpose, 0, 127));
+        r.volume = rec.volume;
+        if (l.level < 100) {
+            const int v = rec.volume >= 0 ? rec.volume : (host_ ? host_->instrumentVolume(r.instr) : 100);
+            r.volume = int8_t(v * l.level / 100);
+        }
+        if (l.fx) {
+            r.fxA = rec.fxA;
+            r.fxB = rec.fxB;
+        }
+        if ((ft.sounding || ft.midiCount) && releaseBefore(ft.last.instr, r.instr)) noteOffTrack(f, NoteOffMode::Off);
+        triggerNote(f, r, chord, chordValue);
+        ft.last = r;
+        ft.gateLimit = -1;
+        ft.sinceTrigger = 1;
+    }
+    --linkDepth_;
+}
+
 void Sequencer::noteOffTrack(int t, NoteOffMode mode) {
     TrackState& tr = tracks_[t];
+    // OT fork track links: the source's note-offs end its linked notes.
+    if (linkDepth_ == 0 && followers_[t]) {
+        ++linkDepth_;
+        for (int f = 0; f < kTracks; ++f)
+            if (((followers_[t] >> f) & 1u) && tracks_[f].linkOwned && (tracks_[f].sounding || tracks_[f].midiCount))
+                noteOffTrack(f, mode);
+        --linkDepth_;
+    }
     if (tr.midiCount) {
         const uint8_t status = uint8_t(0x80 | (tr.midiCh - 1));
         for (int i = 0; i < tr.midiCount; ++i) sendMidi(status, tr.midiNotes[i], 0, 3);
