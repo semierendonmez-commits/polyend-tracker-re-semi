@@ -98,10 +98,14 @@ struct Config {
     uint8_t satToneInv = 0;
     uint8_t limCeiling = 0;
     uint8_t limLink = 0;
-    uint8_t extReserved[7] = {};
+    // OT fork, byte 22: master colour after the saturation (Airwindows
+    // style): 0 off, 1 ToTape, 2 Console, 3 Density, 4 PurestDrive.
+    uint8_t satColor = 0;
+    uint8_t extReserved[6] = {};
+    static constexpr uint8_t kSatColors = 5;
     static constexpr uint8_t kBBLocked = 5;
     static constexpr uint8_t kScreenSaverMax = 4;
-    static constexpr uint8_t kReverbModels = 4;   // Stock, Plate, Hall, Shimmer (fork)
+    static constexpr uint8_t kReverbModels = 7;   // Stock, Hall, Shimmer, Gated, Texture, Plate, Room (fork)
     static constexpr uint8_t kDelayModels = 3;    // Stock, Tape, Lo-fi (fork)
     static constexpr uint8_t kDefaultSynthVoices = 4;
     static constexpr uint8_t kMaxSynthVoices = 8;

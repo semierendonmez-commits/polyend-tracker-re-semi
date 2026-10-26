@@ -255,6 +255,8 @@ bool AudioEngine::init(int16_t* fx, size_t fxSamples, int16_t* pool, size_t pool
     reverb_.init(fx + Delay::kMemorySamples);
     static_assert(FdnReverb::kMemorySamples <= Reverb::kMemorySamples, "reverb models share the reverb memory");
     fdn_.init(fx + Delay::kMemorySamples);
+    plate_.init(fx + Delay::kMemorySamples);   // the same memory: one model at a time
+    tex_.init(fx + Delay::kMemorySamples);
     tape_.init(fx, fx + kDelayLineLen);
     for (int v = 0; v <= kVoices; ++v) {
         voices_[v].reset();
@@ -486,10 +488,29 @@ void AudioEngine::updateParams() {
     delay_.setFeedbackK(delayFeedbackK(m.delayFeedback));
     delay_.setPingPong(m.delayPingPong);
     // OT fork models (the stock effects keep their parameters too).
-    revModel_ = m.reverbModel <= 3 ? m.reverbModel : 0;
+    // Models: 1 Hall, 2 Shimmer, 3 Gated, 6 Room (FDN), 4 Texture, 5 Plate.
+    // They share the reverb memory: the one taking over clears it.
+    const uint8_t rm = m.reverbModel <= 6 ? m.reverbModel : 0;
+    if (rm != revModel_) {
+        if (rm == 0) reverb_.clear();
+        else if (rm == 4) tex_.activate();
+        else if (rm == 5) plate_.activate();
+        else fdn_.activate();
+    }
+    revModel_ = rm;
     dlyModel_ = m.delayModel <= 2 ? m.delayModel : 0;
-    if (revModel_) {
-        fdn_.setModel(revModel_);
+    if (revModel_ == 4) {
+        tex_.setSize(m.reverbSize);
+        tex_.setDamping(m.reverbDamping);
+        tex_.setDiffusion(m.reverbDiffusion);
+        tex_.setPredelay(m.reverbPredelay);
+    } else if (revModel_ == 5) {
+        plate_.setSize(m.reverbSize);
+        plate_.setDamping(m.reverbDamping);
+        plate_.setDiffusion(m.reverbDiffusion);
+        plate_.setPredelay(m.reverbPredelay);
+    } else if (revModel_) {
+        fdn_.setModel(revModel_ == 6 ? 4 : revModel_);
         fdn_.setSize(m.reverbSize);
         fdn_.setDamping(m.reverbDamping);
         fdn_.setDiffusion(m.reverbDiffusion);
@@ -524,8 +545,8 @@ void AudioEngine::updateParams() {
         limR_.setCoefs(ca, cr);
     }
     // OT fork Dynamics (Master 4/4); the curves only when a setting moved.
-    const uint32_t dynKey = uint32_t(m.satDrive) | (uint32_t(m.satMix) << 8) | (uint32_t(m.satTone) << 16) |
-                            (uint32_t(m.limCeiling) << 24);
+    const uint32_t dynKey = (uint32_t(m.satDrive) | (uint32_t(m.satMix) << 8) | (uint32_t(m.satTone) << 16) |
+                             (uint32_t(m.limCeiling) << 24)) ^ (uint32_t(m.satColor) * 0x9E3779B9u);
     if (dynKey != cDynKey_) {
         cDynKey_ = dynKey;
         dynDrive_ = std::pow(10.0f, float(m.satDrive) / 20.0f);
@@ -536,7 +557,7 @@ void AudioEngine::updateParams() {
         const float fc = 1000.0f * std::pow(20.0f, t);   // 1 kHz .. 20 kHz
         dynToneA_ = t >= 0.999f ? 1.0f : 1.0f - std::exp(-6.2831853f * fc / 44100.0f);
         dynCeil_ = std::pow(10.0f, -float(m.limCeiling) / 20.0f);
-        dynOn_ = m.satDrive > 0 || m.satMix < 100 || dynToneA_ < 1.0f;
+        dynOn_ = m.satDrive > 0 || m.satMix < 100 || dynToneA_ < 1.0f || m.satColor != 0;
     }
     dynLink_ = m.limLink;
     // Mixer gains (§5.4, §5.5).
@@ -831,7 +852,10 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
     const uint32_t pc5 = stamp();
     const bool dly = dlyModel_ ? tape_.process(dsend_, dL_, dR_) : delay_.process(dsend_, dL_, dR_);
     const uint32_t pc6 = stamp();
-    const bool rev = revModel_ ? fdn_.process(rsend_, rL_, rR_) : reverb_.process(rsend_, rL_, rR_);
+    const bool rev = revModel_ == 4   ? tex_.process(rsend_, rL_, rR_)
+                     : revModel_ == 5 ? plate_.process(rsend_, rL_, rR_)
+                     : revModel_      ? fdn_.process(rsend_, rL_, rR_)
+                                      : reverb_.process(rsend_, rL_, rR_);
     // OT fork sidechain on the returns and the line input.
     auto duckBus = [](float* a, float* b, const float* g) {
         for (uint32_t i = 0; i < kBlock; ++i) {
@@ -879,14 +903,28 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
                 // tone low-pass.
                 const int mode = m.saturationMode > 4 ? 0 : m.saturationMode;
                 const float dr = dynDrive_, mk = dynMakeup_, wet = dynMix_, dry = 1.0f - dynMix_, a = dynToneA_;
+                const int col = m.satColor < 5 ? m.satColor : 0;
                 float* ch[2] = {mL_, mR_};
                 for (int sd = 0; sd < 2; ++sd) {
                     float z = dynZ_[sd];
                     float* x = ch[sd];
-                    for (uint32_t i = 0; i < kBlock; ++i) {
-                        const float y = dry * x[i] + wet * mk * saturate(x[i] * dr, mode ? mode : 1);
-                        z += a * (y - z);
-                        x[i] = z;
+                    if (col) {
+                        // OT fork master colour: drive into the colour model,
+                        // make-up, mix, tone (the saturation list stays as is).
+                        float w[kBlock];
+                        for (uint32_t i = 0; i < kBlock; ++i) w[i] = x[i] * dr;
+                        colorBlock(col, w, kBlock, color_[sd]);
+                        for (uint32_t i = 0; i < kBlock; ++i) {
+                            const float y = dry * x[i] + wet * mk * w[i];
+                            z += a * (y - z);
+                            x[i] = z;
+                        }
+                    } else {
+                        for (uint32_t i = 0; i < kBlock; ++i) {
+                            const float y = dry * x[i] + wet * mk * saturate(x[i] * dr, mode ? mode : 1);
+                            z += a * (y - z);
+                            x[i] = z;
+                        }
                     }
                     dynZ_[sd] = z;
                 }

@@ -14,7 +14,9 @@
 #include "audio/cpu_meter.h"
 #include "audio/effects.h"
 #include "audio/fx_models.h"
+#include "audio/fx_models2.h"
 #include "audio/sidechain.h"
+#include "audio/master_color.h"
 #include "audio/governor.h"
 #include "audio/stream_source.h"
 #include "audio/synth_bank.h"
@@ -136,6 +138,7 @@ struct MixerSettings {
     // OT fork send-effect models (config): 0 stock, reverb 1 Hall 2 Shimmer
     // 3 Gated, delay 1 Tape 2 Lo-fi (fx_models.h).
     uint8_t reverbModel = 0, delayModel = 0;
+    uint8_t satColor = 0;   // OT fork master colour (master_color.h)
     // OT fork sidechain (project, Master 5/5).
     SidechainSettings sc[2];
     // line input (§1.3, §5.4, §5.5)
@@ -388,7 +391,10 @@ private:
     Delay delay_;
     Reverb reverb_;
     FdnReverb fdn_;        // OT fork reverb models
+    PlateReverb plate_;    // OT fork: Dattorro plate (fx_models2.h)
+    TextureReverb tex_;    // OT fork: granular cloud
     SidechainEnv scEnv_[2];   // OT fork sidechain
+    ColorState color_[2];     // OT fork master colour
     float scGain_[2][kBlock] = {}, scBoth_[kBlock] = {};
     volatile uint32_t scTrig_ = 0;
     uint32_t scVoiceLive_ = 0;   // voices that rendered the last block

@@ -65,6 +65,7 @@ const FxDesc kFx[kFxCount] = {
     {"Grids Y", -100, 100, nullptr, 0, 0, true},
     {"Grids Density", -100, 100, nullptr, 0, 0, true},
     {"Loop Lock", -100, 100, nullptr, 0, 0, true},
+    {"DeRez", 0, 100, nullptr, 0, 0, false},
 };
 }  // namespace
 

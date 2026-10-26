@@ -7,6 +7,7 @@
 
 #include "audio/effects.h"
 #include "audio/fx_models.h"
+#include "audio/fx_models2.h"
 
 using namespace ot;
 using namespace ot::audio;
@@ -118,4 +119,87 @@ TEST(tape_delay_repeats_decay) {
             CHECK(idleLate > 0);
             for (auto& v : mem) v = 0;
         }
+}
+
+TEST(texture_plate_room_models) {
+    std::vector<int16_t> mem(Reverb::kMemorySamples, 0x2222);   // garbage: each model clears it
+    {
+        FdnReverb fx;   // Room = model 4
+        fx.init(mem.data());
+        fx.setModel(4);
+        fx.setSize(0.5f);
+        fx.setPredelay(0.2f);
+        Run on, t1, t2, late;
+        int idle = 0;
+        run(fx, 300, 0.5f, on, idle);
+        run(fx, 60, 0.0f, t1, idle);
+        run(fx, 300, 0.0f, t2, idle);
+        int idleLate = 0;
+        run(fx, 3000, 0.0f, late, idleLate);
+        std::printf("  room: on %.4f tail %.4f / %.5f idle %d\n", on.rms, t1.rms, t2.rms, idleLate);
+        CHECK(on.finite && t1.finite && t2.finite && late.finite);
+        CHECK(on.rms > 0.02 && t2.rms < t1.rms && idleLate > 0);
+    }
+    for (int k = 0; k < 2; ++k) {
+        PlateReverb plate;
+        TextureReverb tex;
+        Run on, t1, t2, late;
+        int idle = 0, idleLate = 0;
+        if (k == 0) {
+            plate.init(mem.data());
+            plate.activate();
+            plate.setSize(0.8f);
+            plate.setDamping(0.3f);
+            run(plate, 600, 0.5f, on, idle);
+            run(plate, 100, 0.0f, t1, idle);
+            run(plate, 600, 0.0f, t2, idle);
+            run(plate, 6000, 0.0f, late, idleLate);
+        } else {
+            tex.init(mem.data());
+            tex.activate();
+            tex.setSize(1.0f);
+            tex.setDiffusion(1.0f);
+            run(tex, 600, 0.5f, on, idle);
+            run(tex, 100, 0.0f, t1, idle);
+            run(tex, 600, 0.0f, t2, idle);
+            run(tex, 6000, 0.0f, late, idleLate);
+        }
+        std::printf("  %s: on %.4f tail %.4f / %.5f late %.6f idle %d\n", k ? "texture" : "plate", on.rms, t1.rms,
+                    t2.rms, late.rms, idleLate);
+        CHECK(on.finite && t1.finite && t2.finite && late.finite);
+        CHECK(on.rms > 0.01 && on.peak <= 1.0f);
+        CHECK(t2.rms < t1.rms);
+        CHECK(idleLate > 0);
+    }
+}
+
+#include "audio/master_color.h"
+
+TEST(master_colour_curves_bounded) {
+    for (int model = 1; model <= 4; ++model) {
+        ColorState st;
+        float x[kBlock];
+        float mx = 0.0f;
+        bool finite = true;
+        for (int b = 0; b < 200; ++b) {
+            for (uint32_t i = 0; i < kBlock; ++i) x[i] = 1.6f * noise();
+            colorBlock(model, x, kBlock, st);
+            for (uint32_t i = 0; i < kBlock; ++i) {
+                finite = finite && std::isfinite(x[i]);
+                mx = std::fmax(mx, std::fabs(x[i]));
+            }
+        }
+        // Small signals pass nearly unchanged (gentle curves).
+        ColorState s2;
+        for (uint32_t i = 0; i < kBlock; ++i) x[i] = 0.01f * float(i % 7) - 0.03f;
+        float y[kBlock];
+        for (uint32_t i = 0; i < kBlock; ++i) y[i] = x[i];
+        colorBlock(model, y, kBlock, s2);
+        float err = 0.0f;
+        for (uint32_t i = 64; i < kBlock; ++i) err = std::fmax(err, std::fabs(y[i] - x[i]));
+        std::printf("  colour %d: max %.3f small-signal err %.4f\n", model, double(mx), double(err));
+        CHECK(finite);
+        CHECK(mx < 1.6f);
+        if (model != 1) CHECK(err < 0.01f);   // ToTape filters (head bump / roll-off)
+    }
 }

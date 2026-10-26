@@ -89,6 +89,7 @@ const char* fxPickDesc(void*, int i) {
         "Live Grids tracks: moves the map position Y.",
         "Live Grids tracks: more or fewer hits on all three parts.",
         "M1..M3, TM8 / TM16, R1 / R2 play modes: + locks the loop (repeats), - lets it change more every loop.",
+        "Sample-rate reduction on the tracks' samples (sample and hold): 0 off, 100 a few hundred Hz.",
     };
     return i >= 0 && i < perf::kFxCount ? kHelp[i] : "";
 }
@@ -304,6 +305,7 @@ void PerformanceScreen::applyAll(bool revertEverything) {
                 case perf::kAcidMutate: acidMut = v; break;
                 case perf::kFmDepth: p.fmDepth = int16_t(v); break;
                 case perf::kFmSource: p.fmSrc = int8_t(v); break;
+                case perf::kDeRez: p.derez = int16_t(v); break;
                 default: break;
             }
         }

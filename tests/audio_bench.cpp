@@ -1238,6 +1238,17 @@ int main(int argc, char** argv) {
         m.delayModel = 2;
         report("wLofi", timeBlocks(r, 2000, lineNoise));
         m.delayModel = 0;
+        // OT fork reverb models from the open-source list, and the master colour.
+        m.reverbModel = 4;
+        report("wTexture", timeBlocks(r, 2000, lineNoise));
+        m.reverbModel = 5;
+        report("wPlate", timeBlocks(r, 2000, lineNoise));
+        m.reverbModel = 6;
+        report("wRoom", timeBlocks(r, 2000, lineNoise));
+        m.reverbModel = 0;
+        m.satColor = 1;
+        report("wColor", timeBlocks(r, 2000, lineNoise));
+        m.satColor = 0;
         // OT fork sidechain: SC 1 follows track 1, SC 2 is a line-in follower;
         // both duck all 14 targets (the worst case: every target multiplies).
         m.sc[0].source = 1;

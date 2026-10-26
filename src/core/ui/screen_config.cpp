@@ -48,8 +48,9 @@ const char* const kSliceModes[] = {"Stock", "Breaks"};
 const char* const kBBReseed[] = {"New at stop", "Every loop", "Every 2 loops", "Every 4 loops", "Every 8 loops", "Locked"};
 const char* const kSliceThru[] = {"Off", "On"};
 const char* const kSaver[] = {"Off", "1 min", "2 min", "5 min", "10 min"};
-const char* const kRevModel[] = {"Stock", "Hall", "Shimmer", "Gated"};
+const char* const kRevModel[] = {"Stock", "Hall", "Shimmer", "Gated", "Texture", "Plate", "Room"};
 const char* const kDlyModel[] = {"Stock", "Tape", "Lo-fi"};
+const char* const kSatColor[] = {"Off", "ToTape", "Console", "Density", "PurestDrive"};
 const char* const kFonts[] = {"Original", "New", "Pixel"};
 const char* const kRegions[] = {"Europe", "US", "Australia", "Japan"};
 const char* const kPreview[] = {"Off", "Track", "Pattern"};
@@ -110,6 +111,7 @@ const Opt kGeneral[] = {
     {"Level meter", kEnum, kCfg, CF(levelMeter), 0, 2, kSliceThru, 0},      // OT fork (Off / On)
     {"Reverb model", kEnum, kCfg, CF(reverbModel), 0, Config::kReverbModels, kRevModel, 0},   // OT fork
     {"Delay model", kEnum, kCfg, CF(delayModel), 0, Config::kDelayModels, kDlyModel, 0},      // OT fork
+    {"Master colour", kEnum, kCfg, CF(satColor), 0, Config::kSatColors, kSatColor, 0},        // OT fork
 };
 const Opt kMidi[] = {
     {"Clock in", kEnum, kCfg, CF(clockIn), 0, 3, kClockIn, 0},

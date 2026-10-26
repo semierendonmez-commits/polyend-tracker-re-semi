@@ -31,8 +31,9 @@ public:
     static constexpr int kLines = 4, kDiff = 4, kDiffCap = 512;
     static constexpr uint32_t kMemorySamples = kPreCap + kLines * kLineCap + kShimCap;
     void init(int16_t* mem);
-    // 1 Hall, 2 Shimmer, 3 Gated; a change clears the memory on the next block.
+    // 1 Hall, 2 Shimmer, 3 Gated, 4 Room; a change clears the memory on the next block.
     void setModel(int m);
+    void activate() { clearPending_ = true; dirty_ = true; }   // the memory was used by another model
     int model() const { return model_; }
     void setSize(float v) { if (v != size_) { size_ = v; dirty_ = true; } }
     void setDamping(float v) { if (v != damp_) { damp_ = v; dirty_ = true; } }

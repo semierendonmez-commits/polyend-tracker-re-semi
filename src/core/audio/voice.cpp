@@ -611,6 +611,27 @@ void Voice::updateLfo(int s, const VoiceControl& c, int speed) {
     m.out = 2.0f * clampf(v, -1.0f, 1.0f) - A;
 }
 
+// OT fork DeRez: hold each sample for 1 / rate samples (rate 1 .. 0.01),
+// the phase carried across blocks.
+void Voice::derez(float* xl, float* xr) {
+    const float d = float(perf_.derez > 100 ? 100 : perf_.derez) / 100.0f;
+    const float rate = 1.0f - 0.99f * d * d;   // a finer law at the start
+    float ph = drPh_, hl = drHoldL_, hr = drHoldR_;
+    for (uint32_t i = 0; i < kBlock; ++i) {
+        ph += rate;
+        if (ph >= 1.0f) {
+            ph -= 1.0f;
+            hl = xl[i];
+            if (xr) hr = xr[i];
+        }
+        xl[i] = hl;
+        if (xr) xr[i] = hr;
+    }
+    drPh_ = ph;
+    drHoldL_ = hl;
+    drHoldR_ = hr;
+}
+
 // OT fork chaos LFO shapes, 0..1 (HetrickCV / Nonlinear Circuits, CC0, and
 // ZetaCarinae ideas): one LFO period is one step of the map or one orbit.
 float Voice::chaosLfo(Mod& m, uint8_t shape, uint32_t cycle, float ph) {
@@ -1135,6 +1156,7 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
     }
     // Sample end (one-shot/slice) with no retrigger pending: the voice is done.
     if (!playing_ && !pending_.valid) env_.stop();
+    if (perf_.derez > 0) derez(x, nullptr);   // OT fork Perform DeRez
     if (duck_)   // OT fork sidechain: the gain rides on the envelope
         for (uint32_t i = 0; i < kBlock; ++i) eg[i] *= duck_[i];
     float* __restrict oa = o.amp;

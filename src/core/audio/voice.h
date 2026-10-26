@@ -98,6 +98,9 @@ struct PerfOffsets {
     // -100..100, source 0 = the track to the left, 1..8 = track N.
     int16_t fmDepth = 0;
     int8_t fmSrc = 0;
+    // OT fork Perform "DeRez" (Airwindows DeRez idea): sample-rate
+    // reduction 0..100 (a sample-and-hold on the source).
+    int16_t derez = 0;
 };
 
 // Output buffers of one voice for one block (all normalised to +-1).
@@ -273,6 +276,8 @@ private:
     PerfOffsets perf_;
     const float* fm_ = nullptr;
     const float* duck_ = nullptr;
+    float drPh_ = 0.0f, drHoldL_ = 0.0f, drHoldR_ = 0.0f;   // OT fork DeRez
+    void derez(float* xl, float* xr);
     float fmDepth_ = 0.0f;
     uint32_t fmOff_ = 0;     // samples of the block already rendered (renderPlayer calls)
     int lfoSpeedFor(int slot, int base) const;

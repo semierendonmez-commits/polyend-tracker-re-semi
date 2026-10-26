@@ -20,7 +20,7 @@ namespace perf {
 constexpr int kSlots = 12;
 constexpr int kRows = 4;          // stored rows 0..3 (0 = off)
 constexpr int kLiveRow = 4;       // MIDI-CC live value (spec 12 §B.2)
-constexpr int kFxCount = 36;      // 0 = empty, 1..21 stock, 22..29 OT fork generators, 30..31 WT FM, 32..35 Grids / Loop Lock
+constexpr int kFxCount = 37;      // 0 = empty, 1..21 stock, 22..29 OT fork generators, 30..31 WT FM, 32..35 Grids / Loop Lock
 
 // FX ids (spec 12 §E.2).
 enum Fx : uint8_t {
@@ -35,6 +35,7 @@ enum Fx : uint8_t {
     kFmDepth, kFmSource,   // OT fork wavetable FM between tracks (voice.h PerfOffsets)
     kGridsX, kGridsY, kGridsDensity,   // OT fork live Grids tracks (global)
     kLoopLock,             // OT fork M / TM / R play modes: lock offset (global)
+    kDeRez,                // OT fork sample-rate reduction (voice.h PerfOffsets::derez)
 };
 
 // Value descriptor (spec 12 §E.1): min, max, label table, exclusive-with

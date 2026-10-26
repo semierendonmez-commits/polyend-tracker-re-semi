@@ -227,6 +227,7 @@ void App::applyEngineSettings() {
     m.satTone = uint8_t(100 - (cfg.satToneInv > 100 ? 100 : cfg.satToneInv));
     m.limCeiling = cfg.limCeiling;
     m.limLink = cfg.limLink != 0;
+    m.satColor = cfg.satColor;   // OT fork master colour
     m.reverbModel = cfg.reverbModel;   // OT fork send-effect models
     m.delayModel = cfg.delayModel;
     m.sc[0] = fork.sc[0];   // OT fork sidechain (project)

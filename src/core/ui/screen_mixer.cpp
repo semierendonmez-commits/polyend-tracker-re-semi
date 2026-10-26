@@ -16,8 +16,11 @@ float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : 
 // Saturation mode labels 0..4 as listed by the stock Master page [S snap 022]
 // (mode 0 = plain hard saturation, spec 04 §5.4; supersedes the [I] labels).
 const char* kSatNames[5] = {"Hard Clip", "Soft Clip", "Saturate", "Overdrive", "Drive+"};
+// OT fork Dynamics: the stock modes, then the master colours (Config satColor).
+const char* kDynSatNames[9] = {"Hard Clip", "Soft Clip", "Saturate", "Overdrive", "Drive+",
+                               "ToTape",    "Console",   "Density",  "PurestDrv"};
 // OT fork send-effect models (Config::reverbModel / delayModel, fx_models.h).
-const char* const kRevModels[4] = {"Stock", "Hall", "Shimmer", "Gated"};
+const char* const kRevModels[7] = {"Stock", "Hall", "Shimmer", "Gated", "Texture", "Plate", "Room"};
 
 // Global mixer channels (spec 06 §4.5): Delay, Reverb, Dry Mix, Line In.
 const uint32_t kGlobalLevel[4] = {pf::kMixDelay, pf::kMixReverb, pf::kMixDry, pf::kLineInLevel};
@@ -435,7 +438,7 @@ void MixerScreen::refreshBar() {
         b.set(2, "Ceiling", v);
         std::snprintf(v, sizeof(v), "%.1f dB", double(gainReduction));
         b.set(3, "Gain Reduce", v);
-        b.set(4, "Saturation", kSatNames[clampi(p.u8(pf::kSaturation), 0, 4)]);
+        b.set(4, "Saturation", kDynSatNames[c.satColor ? 4 + c.satColor : clampi(p.u8(pf::kSaturation), 0, 4)]);
         std::snprintf(v, sizeof(v), "+%d dB", c.satDrive);
         b.set(5, "Drive", v);
         std::snprintf(v, sizeof(v), "%d%%", 100 - c.satMixInv);
@@ -470,7 +473,7 @@ void MixerScreen::refreshBar() {
             }
             levelText(p.u8(pf::kLineInReverb), v, sizeof(v));
             b.set(4, "Line in", v, !lineInOff(p));
-            b.set(5, "Model", kRevModels[a.cfg.reverbModel < 4 ? a.cfg.reverbModel : 0]);   // OT fork
+            b.set(5, "Model", kRevModels[a.cfg.reverbModel < 7 ? a.cfg.reverbModel : 0]);   // OT fork
             setBack(b);
         } else if (sub == 2) {
             const uint8_t fl = p.u8(pf::kDelayFlags);
@@ -633,7 +636,18 @@ void MixerScreen::dynChange(int d) {
         case 0: p.setU8(pf::kLimiterMode, uint8_t(clampi(p.u8(pf::kLimiterMode) + d, 0, 1))); a.markProjectDirty(); return;
         case 1: c.limLink = uint8_t(clampi(c.limLink + d, 0, 1)); break;
         case 2: c.limCeiling = uint8_t(clampi(c.limCeiling + d, 0, 12)); break;
-        case 4: p.setU8(pf::kSaturation, uint8_t(clampi(p.u8(pf::kSaturation) + d, 0, 4))); a.markProjectDirty(); return;
+        case 4: {   // stock modes 0..4 (project), then the colours 5..8 (config)
+            const int cur = c.satColor ? 4 + c.satColor : clampi(p.u8(pf::kSaturation), 0, 4);
+            const int nv = clampi(cur + d, 0, 8);
+            if (nv >= 5) {
+                c.satColor = uint8_t(nv - 4);
+                break;
+            }
+            c.satColor = 0;
+            p.setU8(pf::kSaturation, uint8_t(nv));
+            a.markProjectDirty();
+            break;
+        }
         case 5: c.satDrive = uint8_t(clampi(c.satDrive + d, 0, 24)); break;
         case 6: c.satMixInv = uint8_t(clampi(c.satMixInv - d * 2, 0, 100)); break;
         case 7: c.satToneInv = uint8_t(clampi(c.satToneInv - d * 2, 0, 100)); break;
@@ -1121,7 +1135,7 @@ void MixerScreen::draw(Gfx& g) {
             wg::blendFill(g, fx, top + h + 1, fw, 1, cc, wg::kEdgeA);
             g.fill(fx, top, fw, h + 1, cc);
         }
-        optionList(g, th, 4, kSatNames, 5, clampi(p.u8(pf::kSaturation), 0, 4));
+        optionList(g, th, 4, kDynSatNames, 9, c.satColor ? 4 + c.satColor : clampi(p.u8(pf::kSaturation), 0, 4));
         columnBar(g, th, 5, c.satDrive / 24.0f);
         columnBar(g, th, 6, (100 - c.satMixInv) / 100.0f);
         columnBar(g, th, 7, (100 - c.satToneInv) / 100.0f);
@@ -1146,7 +1160,7 @@ void MixerScreen::draw(Gfx& g) {
             // (Diffusion 0.80 = 80 % of the well; its range ends at 0.85).
             for (int i = 0; i < 4; ++i) columnBar(g, th, i, p.f32(pf::kReverbSize + 4 * uint32_t(i)));
             lineInBar(g, th, 4, p.u8(pf::kLineInReverb), lineInOff(p));
-            optionList(g, th, 5, kRevModels, 4, a.cfg.reverbModel < 4 ? a.cfg.reverbModel : 0);   // OT fork
+            optionList(g, th, 5, kRevModels, 7, a.cfg.reverbModel < 7 ? a.cfg.reverbModel : 0);   // OT fork
             column(g, th, 6, 2);
             columnFocus(g, th, param);
         } else if (sub == 2) {

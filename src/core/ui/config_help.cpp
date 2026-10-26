@@ -56,11 +56,15 @@ const char* const kGeneralHelp[] = {
     "After this long without a key, pad or encoder, the Data screen fills the display while the music plays "
     "on. Any key brings the page back.",
     "Shows a small master output level meter in the title bar (peak, with a red mark when the output clips).",
-    "The master reverb: Stock, Hall (a large modulated room), Shimmer (a hall with an octave rising in its tail) "
-    "or Gated (short and dense, cut off after the hit). Size, Damping, Predelay and Diffusion work on all of them. "
-    "Also on the Master Reverb page (F6).",
+    "The master reverb: Stock, Hall (a large modulated room), Shimmer (a hall with an octave rising in its tail), "
+    "Gated (short and dense, cut off after the hit), Texture (a granular cloud of the send, some grains an octave "
+    "up or down), Plate (Dattorro's plate) or Room (early reflections and a short tail). Size, Damping, Predelay "
+    "and Diffusion work on all of them. Also on the Master Reverb page (F6).",
     "The master delay: Stock, Tape (wow and flutter, repeats that saturate and darken) or Lo-fi (repeats that lose "
     "bits and bandwidth). Time, Sync, Feedback, Filter and Ping-pong work on all of them.",
+    "A colour stage after the master saturation, in the manner of Airwindows: ToTape (soft tape curve, head bump, "
+    "rounded top), Console (Spiral), Density, PurestDrive. Drive, Mix and Tone on Master 4/5 work on it; also "
+    "chosen in the Saturation list there.",
 };
 // spec 15 §2.3 MIDI: only CC in (8), CC in channel (9) and Clock sync correction (11).
 const char* const kMidiHelp[] = {
