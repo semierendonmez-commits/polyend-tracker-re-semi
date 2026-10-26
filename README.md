@@ -17,9 +17,15 @@ and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**
 
 ### Screenshots (2.2.1-semi, simulator)
 
-| **Generate: Acid, live preview on the right** | **Generate: Acid, page 2 (Shift)** |
+| **Perform: FX chooser (Shift + encoder) with help** | **Perform: scenes (Fx1 / Fx2 held)** |
 |---|---|
-| ![Generate: Acid, live preview on the right](screenshots/2.2.1-semi/gen-acid.png) | ![Generate: Acid, page 2 (Shift)](screenshots/2.2.1-semi/gen-acid-page2.png) |
+| ![Perform: FX chooser](screenshots/2.2.1-semi/perf-chooser.png) | ![Perform: scenes](screenshots/2.2.1-semi/perf-scenes.png) |
+| **Master 4/4: Dynamics** | **Master Reverb: models** |
+| ![Master 4/4: Dynamics](screenshots/2.2.1-semi/master-dynamics.png) | ![Master Reverb: models](screenshots/2.2.1-semi/master-reverb-model.png) |
+| **Shift lock tag and level meter** | **Generate: Acid, live preview on the right** |
+| ![Shift lock and level meter](screenshots/2.2.1-semi/shift-lock-meter.png) | ![Generate: Acid, live preview on the right](screenshots/2.2.1-semi/gen-acid.png) |
+| **Generate: Acid, page 2 (Shift)** | |
+| ![Generate: Acid, page 2 (Shift)](screenshots/2.2.1-semi/gen-acid-page2.png) | |
 | **Generate: Call+Resp (Form, C / R tags)** | **Generate: BBCut (Jungle, Mutate)** |
 | ![Generate: Call+Resp (Form, C / R tags)](screenshots/2.2.1-semi/gen-callresp.png) | ![Generate: BBCut (Jungle, Mutate)](screenshots/2.2.1-semi/gen-bbcut.png) |
 | **Generate: BBCut page 2 (Rolls, Pitch, Timing, Dynamics)** | **Generate: Turnaround (FX Soft / Medium / Hard)** |
@@ -70,11 +76,20 @@ explains the selected parameter. One undo step per Generate; Seed 0 is random.
 - **Station:** a numbers-station line read from the radio (RDS name, PI, frequency); the
   preview shows what it read and the digits.
 
-### Live
-- **Play modes B1..B10** (BBCut) and **T1..T4** (TILT: Bounce, Flipper, Gravity, Multiball) in
-  Performance "Pattern Play Mode". **Config > BB play modes** sets when the B modes get new cuts
-  (every stop, every 1 / 2 / 4 / 8 loops, or locked).
-- **Acid Density** (Perform FX) and **Acid / BBCut Mutate** (above).
+### Live (Performance)
+- **Play modes B1..B10** (BBCut), **T1..T4** (TILT: Bounce, Flipper, Gravity, Multiball) and
+  **G1..G3** (Genotype: the track's own steps in a new order every loop) in "Pattern Play Mode".
+- **Generator controls as Perform FX:** Acid Density / Accent / Slide / Mutate on the live Acid
+  tracks, BBCut A / B / Rolls / Recut on the B modes, and **WT FM Depth / Source**: wavetable
+  tracks frequency-modulated by another track, sample by sample.
+- **FX chooser:** Shift + encoder in edit mode opens every Perform FX as a grid, with help.
+- **Scenes:** Fx2 + F1..F8 stores, Fx1 + F1..F8 recalls, with a morph of 1/4 to 4 bars.
+- **Perform recording:** Insert writes the playing Perform FX into FX 2 of the pattern.
+
+### Master
+- **Master 4/4 Dynamics:** limiter mode, stereo link and ceiling, saturation drive, mix and tone.
+- **Reverb models** Hall, Shimmer, Gated and **delay models** Tape, Lo-fi (own designs, in the
+  stock effects' memory, a few percent of the audio block more than stock).
 
 ### Sample Editor effects
 - **Transcode:** G.711 / G.726 codec generation loss with bit errors and packet loss.
@@ -83,6 +98,8 @@ explains the selected parameter. One undo step per Generate; Seed 0 is random.
 - **Clipper** (NEXUSCLIP): seven clip curves with drive, knee, ceiling and level match.
 
 ### Config, Mixer, Song, Pattern
+- **Shift lock** (double tap Shift), **Scale lock** (notes step through the project scale),
+  **screen saver** (the Data screen), **title level meter**.
 - **23 display themes** (20 new), two of them animated (Cyber Pulse, Spectrum), and a third
   display font, **Pixel** (Departure Mono, OFL).
 - **Auto slice: Breaks** (finds every hit of a fast break) and **Beat Slice thru** (a Beat
@@ -99,7 +116,7 @@ explains the selected parameter. One undo step per Generate; Seed 0 is random.
 ### Build
 - The fork builds without Games by default. Its flash budget is 800 KB (upstream 720 KB); the
   hard limit, the stock 1.9.2 image extent (877,664 B), is checked on every build. Image size
-  about 726 KB; all host tests and simulator checks pass.
+  about 746 KB; all host tests and simulator checks pass.
 
 ## Screenshots (2.2.1, on an original Tracker)
 
