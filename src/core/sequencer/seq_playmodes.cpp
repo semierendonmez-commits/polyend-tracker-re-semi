@@ -215,6 +215,7 @@ volatile uint32_t gTiltSeed = 0x1F123BB5u;
 volatile uint8_t gBBRollMode = 0;
 uint8_t gGenoTables[16][kPlayModeTableLen];
 volatile bool gGenoReady[16] = {};
+int8_t gModeXpose[16][kPlayModeTableLen];
 
 namespace {
 uint32_t hash32(uint32_t x) {
@@ -320,11 +321,12 @@ void applyRollSelector(StepFx& inject, uint8_t rollSel, ParkMiller& rng, bool fi
 }
 
 const char* playModeLabel(uint8_t mode) {
-    static const char kLabels[kPlayModeCount][5] = {
+    static const char kLabels[kPlayModeCount][5] = {   // OT fork: B, T, G, M, TM, R
         "Fwd", "Back", "Rnd", "C1",  "C2",  "C3",  "C4",  "C5",  "C6",  "C7",  "C8", "C9",
         "C10", "C11",  "C12", "C13", "C14", "C15", "C16", "C17", "C18", "C19", "C20",
         "B1",  "B2",   "B3",  "B4",  "B5",  "B6",  "B7",  "B8",  "B9",  "B10",
-        "T1",  "T2",   "T3",  "T4",  "G1",  "G2",  "G3"};
+        "T1",  "T2",   "T3",  "T4",  "G1",  "G2",  "G3",
+        "M1",  "M2",   "M3",  "TM8", "TM16", "R1", "R2"};
     return mode < kPlayModeCount ? kLabels[mode] : "";
 }
 

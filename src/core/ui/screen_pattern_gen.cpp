@@ -265,6 +265,9 @@ void PatternScreen::genPreview() {
     genPrevT1_ = t.t0;
     if (genKind == gen::kCallResponse && genVals[genKind][3] == 2)
         genPrevT1_ = t.t1 > t.t0 ? t.t1 : (t.t0 + 1 < kTrackCount ? t.t0 + 1 : t.t0);
+    // Grids kit / Marbles on two tracks: the second track too.
+    if ((genKind == gen::kGrids && genVals[genKind][9] == 0) || (genKind == gen::kMarbles && genVals[genKind][8] == 3))
+        genPrevT1_ = t.t0 + 1 < kTrackCount ? t.t0 + 1 : t.t0;
     genPrevS0_ = t.s0;
     genPrevN_ = t.s1 - t.s0 + 1;
 }
@@ -292,6 +295,7 @@ void PatternScreen::genApply() {
     for (int tr = t.t0; tr <= t.t1; ++tr) live::release(tr);   // another generator owns the steps now
     if (genKind == gen::kAcid) live::acid(a, genVals[genKind], t, res.rngSeed);   // live density / Mutate
     if (genKind == gen::kBBCut) live::bbcut(a, genVals[genKind], t, res.rngSeed);   // live Mutate
+    if (genKind == gen::kGrids) live::grids(a, genVals[genKind], t, res.rngSeed);   // live X / Y / Density
     a.patternEdited();
     genOpen = false;
     ui_.notify(res.msg);
@@ -499,7 +503,8 @@ void PatternScreen::drawGen(Gfx& g) {
         }
     }
     drawGenPreview(g, wg::columnX(7), kTop, wg::columnW(), kListH);
-    if ((genKind == gen::kAcid && live::acidActive(track)) || (genKind == gen::kBBCut && live::bbcutActive(track)))
+    if ((genKind == gen::kAcid && live::acidActive(track)) || (genKind == gen::kBBCut && live::bbcutActive(track)) ||
+        (genKind == gen::kGrids && live::gridsActive(track)))
         g.text(wg::columnX(7) + 48, kTop + kListH - 12, kFont2, th.accent, "LIVE", IDisplay::kOptCenter);
     wg::focusFrame(g, th, wg::columnX(genField), kTop, wg::columnX(genField) + wg::columnW(), kTop + kListH);
 }

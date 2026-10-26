@@ -190,8 +190,70 @@ int successor(const Step* seq, int n, int order, const Step& prev1, const Step& 
 
 }  // namespace
 
+namespace {
+// Drummer (after Noise86's MarkovDrummer): the selected tracks' hits form one
+// state per step (bit k = track t0 + k has a note), learnt as a Markov chain
+// on the previous state(s) and the beat phase. A new chain of states is
+// walked and every step copies the whole column (all selected tracks) of a
+// source step that had that state, so the kit stays together.
+void genDrummer(Target& t, Rng& rng, Result& r, float identity, int order, float variety) {
+    const int n = t.s1 - t.s0 + 1;
+    const int nt = t.t1 - t.t0 + 1;
+    uint16_t state[kStepCount] = {};
+    for (int i = 0; i < n; ++i)
+        for (int k = 0; k < nt && k < 16; ++k)
+            if (hasNote(t.pat->tracks[t.t0 + k].steps[t.s0 + i])) state[i] = uint16_t(state[i] | (1u << k));
+    bool any = false;
+    for (int i = 0; i < n; ++i) any = any || state[i];
+    if (!any) {
+        std::snprintf(r.msg, sizeof(r.msg), "Drummer: no hits to learn");
+        return;
+    }
+    uint8_t src[kStepCount];
+    uint16_t out[kStepCount];
+    uint8_t cand[kStepCount];
+    for (int i = 0; i < n; ++i) {
+        int pick = i;
+        if (i > 0 && !rng.coin(identity)) {
+            int nc = 0;
+            // Strict: same previous state(s) and the same 16th phase; then
+            // without the phase; then the phase alone.
+            for (int pass = 0; pass < 3 && nc == 0; ++pass)
+                for (int j = 1; j < n; ++j) {
+                    const bool prev = state[j - 1] == out[i - 1] &&
+                                      (order < 2 || i < 2 || j < 2 || state[j - 2] == out[i - 2]);
+                    const bool phase = (j & 3) == (i & 3);
+                    if ((pass == 0 && prev && phase) || (pass == 1 && prev) || (pass == 2 && phase)) cand[nc++] = uint8_t(j);
+                }
+            if (nc) pick = cand[rng.below(nc)];
+            if (rng.coin(variety * 0.3f)) pick = rng.below(n);
+        }
+        src[i] = uint8_t(pick);
+        out[i] = state[pick];
+    }
+    int changed = 0;
+    for (int i = 0; i < n; ++i) changed += src[i] != i;
+    Step col[kStepCount];   // one track at a time (stack)
+    for (int k = 0; k < nt && k < 16; ++k) {
+        Step* steps = t.pat->tracks[t.t0 + k].steps + t.s0;
+        for (int i = 0; i < n; ++i) col[i] = steps[i];
+        for (int i = 0; i < n; ++i) steps[i] = col[src[i]];
+    }
+    std::snprintf(r.msg, sizeof(r.msg), "Drummer: %d steps changed", changed);
+    r.ok = true;
+}
+}  // namespace
+
 void genGenotype(const int16_t* v, Target& t, Rng& rng, Result& r) {
     const int mode = v[0];
+    if (mode == 3) {
+        if (t.s1 - t.s0 < 1) {
+            std::snprintf(r.msg, sizeof(r.msg), "Select 2 steps or more");
+            return;
+        }
+        genDrummer(t, rng, r, v[1] / 100.0f, v[2], v[3] / 100.0f);
+        return;
+    }
     const float identity = v[1] / 100.0f;
     const int order = v[2];
     const float variety = v[3] / 100.0f;

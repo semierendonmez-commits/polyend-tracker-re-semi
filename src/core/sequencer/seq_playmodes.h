@@ -30,7 +30,18 @@ constexpr int kTiltModeCount = 4;
 // new walk every loop: per-track tables built by the app (live_gen).
 constexpr uint8_t kPlayFirstGeno = 37;
 constexpr int kGenoModeCount = 3;
-constexpr uint8_t kPlayModeCount = 40;   // 0..39
+// OT fork: more per-track tables built by the app each loop (live_gen):
+//   40..42 "M1".."M3"  Marbles deja vu over the track's own steps (each
+//                      position keeps its source step or draws a new one)
+//   43..44 "TM8" "TM16" Turing Machine: a 8 / 16-bit shift register picks the
+//                      step; bits flip unless locked
+//   45..46 "R1" "R2"   randLoops: forward, the notes drift slowly by scale
+//                      degrees (gModeXpose), R2 faster
+// Perform "Loop Lock" moves the lock of all of them.
+constexpr uint8_t kPlayFirstMarbles = 40;
+constexpr uint8_t kPlayFirstTuring = 43;
+constexpr uint8_t kPlayFirstRandLoop = 45;
+constexpr uint8_t kPlayModeCount = 47;   // 0..46
 
 constexpr int kPlayModeTableCount = 20;
 constexpr int kPlayModeTableLen = 128;
@@ -47,6 +58,8 @@ extern volatile uint8_t gBBRollMode;
 // table per track; gGenoReady[t] false plays forward.
 extern uint8_t gGenoTables[16][kPlayModeTableLen];
 extern volatile bool gGenoReady[16];
+// randLoops transposition per step position (semitones), per track.
+extern int8_t gModeXpose[16][kPlayModeTableLen];
 
 // Stock behaviour: a roll-selector-2 miss leaves the previous injected roll
 // in place (spec 12 §D quirk). OpenTracker fixes it; set false for stock.
@@ -62,7 +75,9 @@ extern const uint8_t kRollInjectValue[5];
 inline bool isTableMode(uint8_t mode) { return mode >= kPlayFirstTable && mode < kPlayModeCount; }
 inline bool isBBMode(uint8_t mode) { return mode >= kPlayFirstBB && mode < kPlayFirstTilt; }
 inline bool isTiltMode(uint8_t mode) { return mode >= kPlayFirstTilt && mode < kPlayFirstGeno; }
+// App-built per-track tables: G, M, TM and R modes.
 inline bool isGenoMode(uint8_t mode) { return mode >= kPlayFirstGeno && mode < kPlayModeCount; }
+inline bool isRandLoopMode(uint8_t mode) { return mode >= kPlayFirstRandLoop && mode < kPlayModeCount; }
 // TILT ball position after k moves (k mod 128) on a track of `len` steps.
 int tiltStep(int tiltMode, int k, int len, uint32_t seed);
 
@@ -72,7 +87,7 @@ inline int tableStep(uint8_t mode, int k, int lastIndex, uint8_t& rollSel, int t
     if (isGenoMode(mode)) {
         rollSel = 0;
         const int t = track & 15;
-        if (!gGenoReady[t]) return k % (lastIndex + 1);
+        if (!gGenoReady[t] || isRandLoopMode(mode)) return k % (lastIndex + 1);
         return gGenoTables[t][k & (kPlayModeTableLen - 1)] % (lastIndex + 1);
     }
     if (isTiltMode(mode)) {

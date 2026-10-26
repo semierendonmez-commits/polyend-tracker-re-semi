@@ -713,8 +713,12 @@ void Sequencer::handleNote(int t, Pending& p) {
     }
 }
 
-void Sequencer::triggerNote(int t, const NoteRec& rec, bool chord, uint8_t chordValue) {
+void Sequencer::triggerNote(int t, const NoteRec& rec0, bool chord, uint8_t chordValue) {
     TrackState& tr = tracks_[t];
+    NoteRec rec = rec0;
+    // OT fork randLoops play modes: the step's drifted transposition.
+    if (rec.note >= 0 && t < 16 && perfTrack(t) && isRandLoopMode(tr.playMode) && gGenoReady[t])
+        rec.note = int8_t(clampi(rec.note + gModeXpose[t][tr.step & (kPlayModeTableLen - 1)], 0, 127));
     tr.gate = 0;
     if (rec.note < 0) return;
     if (rec.instr < 48) {

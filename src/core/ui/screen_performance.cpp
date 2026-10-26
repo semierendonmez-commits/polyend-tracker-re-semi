@@ -67,7 +67,8 @@ const char* fxPickDesc(void*, int i) {
         "Speed of the granular / wavetable position LFO.",
         "Repeats the current step at the chosen rate (stutter).",
         "Order the tracks play their steps: C1..C20 stock tables, B1..B10 BBCut cuts, T1..T4 TILT pinball, "
-        "G1..G3 Genotype variations (a new walk every loop, low / medium / high variety).",
+        "G1..G3 Genotype variations, M1..M3 Marbles deja vu, TM8 / TM16 Turing Machine, R1 / R2 notes that "
+        "drift by scale degrees (randLoops).",
         "Shortens the pattern for every track (loop a part).",
         "Bit depth reduction on the samples.",
         "Overdrive on the samples.",
@@ -84,6 +85,10 @@ const char* fxPickDesc(void*, int i) {
         "left), sample by sample; larger values give brighter, harsher spectra, negative inverts the modulator.",
         "Where WT FM Depth takes its modulator from: the track to the left, or track 1..8 (with WT FM Depth on "
         "several tracks they can modulate each other).",
+        "Live Grids tracks: moves the map position X (the drum pattern changes at once).",
+        "Live Grids tracks: moves the map position Y.",
+        "Live Grids tracks: more or fewer hits on all three parts.",
+        "M1..M3, TM8 / TM16, R1 / R2 play modes: + locks the loop (repeats), - lets it change more every loop.",
     };
     return i >= 0 && i < perf::kFxCount ? kHelp[i] : "";
 }
@@ -237,6 +242,7 @@ void PerformanceScreen::applyAll(bool revertEverything) {
     Sequencer& q = a.seq;
     int globalLen = -1;
     int bbA = 0, bbB = 0, bbRolls = 0, bbRecut = 0;   // OT fork BBCut play-mode controls (global)
+    int grX = 0, grY = 0, grD = 0, loopLock = 0;      // OT fork Grids / Loop Lock (global)
     for (int t = 0; t < kTrackCount; ++t) {
         audio::PerfOffsets p;
         int8_t repeat = -1, velOff = 0, transpose = 0;
@@ -257,6 +263,10 @@ void PerformanceScreen::applyAll(bool revertEverything) {
                 case perf::kBBCutB: bbB = v; continue;
                 case perf::kBBRolls: bbRolls = v; continue;
                 case perf::kBBRecut: bbRecut = v; continue;
+                case perf::kGridsX: grX = v; continue;
+                case perf::kGridsY: grY = v; continue;
+                case perf::kGridsDensity: grD = v; continue;
+                case perf::kLoopLock: loopLock = v; continue;
                 default: break;
             }
             if (!on) continue;
@@ -307,6 +317,8 @@ void PerformanceScreen::applyAll(bool revertEverything) {
     }
     q.setPerfGlobalLength(globalLen);
     live::setBBPerf(bbA, bbB, bbRolls, bbRecut);
+    live::setGridsPerf(grX, grY, grD);
+    live::setLoopLock(loopLock);
 }
 
 // Other slots with the same FX type, or an excluded filter type, go to row 0

@@ -29,7 +29,13 @@ const char* const kTaPhrase[4] = {"1 bar", "2 bars", "4 bars", "8 bars"};
 const char* const kTaStyle[6] = {"Rolls", "Stutter", "Drop", "Reverse", "Build", "Mix"};
 const char* const kTaFx[3] = {"Soft", "Medium", "Hard"};
 const char* const kTaTiming[2] = {"Tidy", "Keep"};
-const char* const kGtMode[3] = {"Markov", "Ball", "Ball+Markov"};
+const char* const kGtMode[4] = {"Markov", "Ball", "Ball+Markov", "Drummer"};
+const char* const kGrAccent[2] = {"On", "Off"};
+const char* const kGrRes[2] = {"1/16", "1/32"};
+const char* const kGrParts[4] = {"Kit 3 trk", "Kick", "Snare", "Hats"};
+const char* const kMbSteps[5] = {"Chromatic", "Scale", "Triad", "Root+5th", "Root"};
+const char* const kMbModel[4] = {"Coin", "Clusters", "Drums", "2 tracks"};
+const char* const kMbRate[2] = {"1/16", "1/8"};
 const char* const kStSource[4] = {"RDS name", "PI code", "Frequency", "All"};
 const char* const kStMode[2] = {"Notes", "Slices"};
 const char* const kStRate[3] = {"1/16", "1/8", "1/4"};
@@ -85,7 +91,8 @@ KindDesc gKinds[kKindCount] = {
       {"Timing", 0, 1, 0, kTaTiming, "Tidy: no Micro-move inside the edited steps. Keep: leave it as it was"},
       NONE, NONE, NONE, NONE, NONE}},
     {"Genotype", "Learn the track, play a variation of it",
-     {{"Mode", 0, 2, 2, kGtMode, "Markov walk over the learnt steps, a bouncing TILT ball, or both"},
+     {{"Mode", 0, 3, 2, kGtMode,
+       "Markov walk, a bouncing TILT ball, both, or Drummer: all selected tracks learnt together as a kit"},
       {"Identity", 0, 100, 60, nullptr, "Chance a step stays as it was"},
       {"Order", 1, 2, 1, nullptr, "Markov memory: 1 or 2 steps"},
       {"Variety", 0, 100, 40, nullptr, "How far the walk may jump"},
@@ -100,6 +107,31 @@ KindDesc gKinds[kKindCount] = {
       {"Repeat", 1, 4, 2, nullptr, "Times the message is read"},
       SEED,
       NONE, NONE, NONE, NONE, NONE, NONE}},
+    {"Grids", "Mutable Grids drum map: X / Y between 25 patterns",
+     {{"X", 0, 100, 50, nullptr, "Map position X. Live: Perform FX Grids X"},
+      {"Y", 0, 100, 50, nullptr, "Map position Y. Live: Perform FX Grids Y"},
+      {"Kick", 0, 100, 60, nullptr, "Kick density (first track). Live: Perform FX Grids Density moves all three"},
+      {"Snare", 0, 100, 50, nullptr, "Snare density (second track)"},
+      {"Hats", 0, 100, 60, nullptr, "Hi-hat density (third track)"},
+      SEED,
+      {"Chaos", 0, 100, 0, nullptr, "Random lift of the levels, new every bar (live: every loop)"},
+      {"Accent", 0, 1, 0, kGrAccent, "On: hits below the accent level get Volume 70"},
+      {"Res", 0, 1, 0, kGrRes, "1/16: one Grids bar per 16 steps. 1/32: per 32 steps (half time, the 32nd hits too)"},
+      {"Parts", 0, 3, 0, kGrParts, "Kit on three tracks from the cursor, or one part on the cursor track"},
+      NONE, NONE}},
+    {"Marbles", "Random notes with deja vu (Mutable Marbles)",
+     {{"Density", 0, 100, 60, nullptr, "T: chance a step plays"},
+      {"Deja vu", 0, 100, 50, nullptr, "0: always new draws. 100: the last Length draws loop"},
+      {"Length", 1, 16, 8, nullptr, "Deja vu loop length in draws"},
+      {"Spread", 0, 100, 50, nullptr, "X: width of the pitch distribution (0 one note, top: the extremes)"},
+      {"Bias", 0, 100, 50, nullptr, "X: centre of the distribution, low to high"},
+      SEED,
+      {"Steps", 0, 4, 1, kMbSteps, "Quantizer: chromatic, the project scale, its triad, root and fifth, root only"},
+      {"Range", 0, 2, 1, kOctLabels, "Pitch range above the root"},
+      {"T model", 0, 3, 0, kMbModel, "Coin: independent. Clusters: hits bunch up. Drums: on the beat. 2 tracks: one or the other"},
+      {"Jitter", 0, 100, 0, nullptr, "Random Micro-move on the notes"},
+      {"Rate", 0, 1, 0, kMbRate, "A draw every step, or every second step"},
+      NONE}},
 };
 #undef NONE
 #undef SEED
@@ -228,6 +260,8 @@ Result generate(int k, const int16_t* params, Target& t) {
         case kTurnaround: genTurnaround(v, t, rng, r); break;
         case kGenotype: genGenotype(v, t, rng, r); break;
         case kStation: genStation(v, t, rng, r); break;
+        case kGrids: genGrids(v, t, rng, r); break;
+        case kMarbles: genMarbles(v, t, rng, r); break;
         default: std::snprintf(r.msg, sizeof(r.msg), "Unknown generator"); break;
     }
     return r;

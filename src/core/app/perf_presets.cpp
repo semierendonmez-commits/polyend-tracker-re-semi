@@ -47,7 +47,7 @@ const FxDesc kFx[kFxCount] = {
     {"Filter LFO Speed", -28, 28, nullptr, 0, 0, false},
     {"Grain/WT LFO Speed", -28, 28, nullptr, 0, 0, false},
     {"Step Repeater", 0, 15, kRepeater, 0, 0, false},
-    {"Pattern Play Mode", 0, 39, nullptr, 0, 0, false},   // labels: seq::playModeLabel; 23..32 OT BBCut, 33..36 TILT, 37..39 Genotype
+    {"Pattern Play Mode", 0, 46, nullptr, 0, 0, false},   // labels: seq::playModeLabel; 23..32 OT BBCut, 33..36 TILT, 37..39 Genotype, 40..46 M / TM / R
     {"Pattern Length", 0, 8, kLength, 0, 0, true},
     {"Bit Depth", -12, 12, nullptr, 0, 0, false},
     {"Overdrive", -100, 100, nullptr, 0, 0, false},
@@ -61,6 +61,10 @@ const FxDesc kFx[kFxCount] = {
     {"BBCut Recut", 0, 6, kBBRecutLabels, 0, 0, true},
     {"WT FM Depth", -100, 100, nullptr, 0, 0, false},
     {"WT FM Source", 0, 8, kFmSrcLabels, 0, 0, false},
+    {"Grids X", -100, 100, nullptr, 0, 0, true},
+    {"Grids Y", -100, 100, nullptr, 0, 0, true},
+    {"Grids Density", -100, 100, nullptr, 0, 0, true},
+    {"Loop Lock", -100, 100, nullptr, 0, 0, true},
 };
 }  // namespace
 

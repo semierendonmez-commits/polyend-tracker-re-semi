@@ -6,6 +6,7 @@
 #include "app/app.h"
 #include "sdram_bss.h"
 #include "sequencer/seq_playmodes.h"
+#include "ui/notes.h"
 
 namespace ot {
 namespace live {
@@ -47,9 +48,30 @@ struct BBSlot {
     uint32_t hash = 0;
 };
 
+struct GridsSlot {
+    bool used = false;
+    uint8_t t0 = 0, nt = 1, pattern = 0;
+    int16_t s0 = 0, n = 0, lastStep = -1;
+    int16_t v[gen::kParams] = {};
+    gen::GridsVoice voice[3];
+    uint32_t seed = 1;           // render seed (chaos draw)
+    uint32_t rng = 1;
+    int16_t ax = 0, ay = 0, ad = 0;   // offsets applied
+    uint32_t hash = 0;
+};
+
 struct State {
     AcidSlot acid[kAcidSlots];
     BBSlot bb[kBBSlots];
+    GridsSlot grids[kGridsSlots];
+    int16_t grX = 0, grY = 0, grD = 0;
+    int16_t loopLock = 0;
+    // M / TM / R play modes: per-track state kept across loops.
+    uint8_t mbSrc[kTrackCount][seq::kPlayModeTableLen] = {};
+    bool mbValid[kTrackCount] = {};
+    uint16_t tmReg[kTrackCount] = {};
+    int8_t rlDeg[kTrackCount][seq::kPlayModeTableLen] = {};
+    uint8_t modeOf[kTrackCount] = {};
     int lastPos = -1;          // pattern position (B mode re-cuts per loop)
     uint16_t loops = 0;
     uint8_t tableTmp[seq::kPlayModeTableLen][3];
@@ -97,6 +119,113 @@ uint32_t hashRange(const Pattern& p, int t0, int t1, int s0, int n) {
 }
 uint32_t hashSteps(const Pattern& p, const AcidSlot& s) { return hashRange(p, s.track, s.track, s.s0, s.n); }
 uint32_t hashSteps(const Pattern& p, const BBSlot& s) { return hashRange(p, s.t0, s.t1, s.s0, s.n); }
+uint32_t hashSteps(const Pattern& p, const GridsSlot& s) { return hashRange(p, s.t0, s.t0 + s.nt - 1, s.s0, s.n); }
+
+void renderGrids(App& a, State& st, GridsSlot& s) {
+    gen::GridsOffsets o;
+    o.x = st.grX;
+    o.y = st.grY;
+    o.density = st.grD;
+    gen::gridsRender(s.v, o, s.seed, a.pattern(), s.t0, s.s0, s.n, s.voice);
+    s.ax = st.grX;
+    s.ay = st.grY;
+    s.ad = st.grD;
+    s.hash = hashSteps(a.pattern(), s);
+}
+
+float lockFor(const State& st, float base) {
+    const float l = base + float(st.loopLock) / 100.0f;
+    return l < 0.0f ? 0.0f : (l > 1.0f ? 1.0f : l);
+}
+
+// Marbles deja vu (M1..M3): each position keeps its source step with the
+// lock probability, else draws a new one (a step with a note when there is one).
+void buildMarbles(App& a, State& st, int t, int level) {
+    static const float kBase[3] = {0.85f, 0.6f, 0.3f};
+    const Track& tr = a.pattern().tracks[t];
+    const int len = tr.length();
+    st.genoSeed = st.genoSeed * 1664525u + 1013904223u + a.micros();
+    gen::Rng rng(st.genoSeed | 1u);
+    const float lock = lockFor(st, kBase[level < 0 ? 0 : (level > 2 ? 2 : level)]);
+    uint8_t notes[kStepCount];
+    int nn = 0;
+    for (int j = 0; j < len; ++j)
+        if (tr.steps[j].note >= 0) notes[nn++] = uint8_t(j);
+    for (int k = 0; k < len && k < seq::kPlayModeTableLen; ++k) {
+        if (!st.mbValid[t]) st.mbSrc[t][k] = uint8_t(k);
+        else if (!rng.coin(lock)) st.mbSrc[t][k] = nn && rng.coin(0.75f) ? notes[rng.below(nn)] : uint8_t(rng.below(len));
+    }
+    st.mbValid[t] = true;
+    for (int k = 0; k < seq::kPlayModeTableLen; ++k) seq::gGenoTables[t][k] = st.mbSrc[t][k % len];
+    seq::gGenoReady[t] = true;
+}
+
+// Turing Machine (TM8 / TM16): the register's last bit comes back in, flipped
+// with (1 - lock) / 2; its low byte picks the step.
+void buildTuring(App& a, State& st, int t, int bits) {
+    const Track& tr = a.pattern().tracks[t];
+    const int len = tr.length();
+    st.genoSeed = st.genoSeed * 1664525u + 1013904223u + a.micros();
+    gen::Rng rng(st.genoSeed | 1u);
+    if (!st.tmReg[t]) st.tmReg[t] = uint16_t(rng.next() | 1u);
+    const float flip = 0.5f * (1.0f - lockFor(st, 0.9f));   // lock 0: fully random (the TM knob at noon)
+    const uint16_t mask = uint16_t((1u << bits) - 1u);
+    uint16_t r = st.tmReg[t];
+    for (int k = 0; k < len && k < seq::kPlayModeTableLen; ++k) {
+        uint16_t bit = uint16_t((r >> (bits - 1)) & 1u);
+        if (rng.coin(flip)) bit ^= 1u;
+        r = uint16_t(((r << 1) | bit) & mask);
+        const int v8 = bits >= 8 ? (r & 0xFF) : (r << (8 - bits));
+        seq::gGenoTables[t][k] = uint8_t(v8 * len / 256);
+    }
+    st.tmReg[t] = r ? r : 1;
+    for (int k = len; k < seq::kPlayModeTableLen; ++k) seq::gGenoTables[t][k] = seq::gGenoTables[t][k % len];
+    seq::gGenoReady[t] = true;
+}
+
+// randLoops (R1 / R2): forward, each noted position's scale-degree offset
+// takes a step up or down with 1 - lock every loop (pulled back past +-4).
+void buildRandLoop(App& a, State& st, int t, int level) {
+    static const float kBase[2] = {0.9f, 0.7f};
+    const Track& tr = a.pattern().tracks[t];
+    const int len = tr.length();
+    st.genoSeed = st.genoSeed * 1664525u + 1013904223u + a.micros();
+    gen::Rng rng(st.genoSeed | 1u);
+    const float move = 1.0f - lockFor(st, kBase[level ? 1 : 0]);
+    uint8_t deg[12];
+    const uint8_t sc = a.scale();
+    const int nd = sc == 0 ? 12 : gen::scaleDegrees(scaleMask(sc), deg);
+    if (sc == 0)
+        for (int i = 0; i < 12; ++i) deg[i] = uint8_t(i);
+    const int root = a.rootNote() % 12;
+    for (int k = 0; k < len && k < seq::kPlayModeTableLen; ++k) {
+        const int8_t note = tr.steps[k].note;
+        int8_t& d = st.rlDeg[t][k];
+        if (note < 0) {
+            seq::gModeXpose[t][k] = 0;
+            continue;
+        }
+        if (rng.coin(move)) {
+            int step = rng.coin(0.5f) ? 1 : -1;
+            if (d >= 4) step = -1;
+            if (d <= -4) step = 1;
+            d = int8_t(d + step);
+        }
+        // The note's nearest scale degree, moved by d degrees.
+        const int rel = note - root;
+        const int oct = rel >= 0 ? rel / 12 : -((-rel + 11) / 12);
+        const int pc = rel - 12 * oct;
+        int idx = 0;
+        for (int i = 0; i < nd; ++i)
+            if (deg[i] <= pc) idx = i;
+        const int target = gen::degreeNote(root, deg, nd, oct * nd + idx + d);
+        int x = target - (root + 12 * oct + deg[idx]);
+        x = x < -24 ? -24 : (x > 24 ? 24 : x);
+        seq::gModeXpose[t][k] = int8_t(x);
+    }
+    for (int k = 0; k < seq::kPlayModeTableLen; ++k) seq::gGenoTables[t][k] = uint8_t(k % len);
+    seq::gGenoReady[t] = true;
+}
 
 // New cut tables for the B play modes (time mixed into the seed: a new set
 // every power-on too). Built aside and copied in one go per mode.
@@ -211,11 +340,23 @@ void service(App& a) {
         const uint8_t m = a.seq.perfPlayMode(t);
         if (!seq::isGenoMode(m)) {
             seq::gGenoReady[t] = false;
+            st.mbValid[t] = false;
+            st.modeOf[t] = 0;
             continue;
+        }
+        if (m != st.modeOf[t]) {   // entering a mode: start fresh
+            st.modeOf[t] = m;
+            st.mbValid[t] = false;
+            st.tmReg[t] = 0;
+            std::memset(st.rlDeg[t], 0, sizeof(st.rlDeg[t]));
+            seq::gGenoReady[t] = false;
         }
         if (!seq::gGenoReady[t] || st.genoLoops[t] != st.loops) {
             st.genoLoops[t] = st.loops;
-            buildGeno(a, st, t, m - seq::kPlayFirstGeno);
+            if (m >= seq::kPlayFirstRandLoop) buildRandLoop(a, st, t, m - seq::kPlayFirstRandLoop);
+            else if (m >= seq::kPlayFirstTuring) buildTuring(a, st, t, m == seq::kPlayFirstTuring ? 8 : 16);
+            else if (m >= seq::kPlayFirstMarbles) buildMarbles(a, st, t, m - seq::kPlayFirstMarbles);
+            else buildGeno(a, st, t, m - seq::kPlayFirstGeno);
         }
     }
     if (!playing && st.wasPlaying) {
@@ -313,6 +454,29 @@ void service(App& a) {
         s.lastStep = int16_t(now);
     }
     st.recutNow = false;
+    for (GridsSlot& s : st.grids) {
+        if (!s.used || a.patternNumber() != s.pattern) continue;
+        if (hashSteps(a.pattern(), s) != s.hash) {   // edited by hand: hands off
+            s.used = false;
+            continue;
+        }
+        bool redraw = s.ax != st.grX || s.ay != st.grY || s.ad != st.grD;
+        if (playing) {
+            const int now = a.seq.step(s.t0);
+            if (s.lastStep >= 0 && now < s.lastStep && s.v[6] > 0) {   // Chaos: a new draw every loop
+                s.rng = s.rng * 1664525u + 1013904223u + a.micros();
+                s.seed = s.rng | 1u;
+                redraw = true;
+            }
+            s.lastStep = int16_t(now);
+        } else {
+            s.lastStep = -1;
+        }
+        if (redraw) {
+            renderGrids(a, st, s);
+            edited = true;
+        }
+    }
     if (edited) a.patternEdited();
 }
 
@@ -352,11 +516,62 @@ void acid(App& a, const int16_t* v, const gen::Target& t, uint32_t rngSeed) {
     // A density offset already on: the next service pass applies it.
 }
 
+void grids(App& a, const int16_t* v, const gen::Target& t, uint32_t rngSeed) {
+    State& st = gState.get();
+    GridsSlot* slot = nullptr;
+    for (GridsSlot& s : st.grids)
+        if (!s.used) {
+            slot = &s;
+            break;
+        }
+    if (!slot) {
+        st.grids[0] = st.grids[1];
+        slot = &st.grids[1];
+    }
+    *slot = GridsSlot{};
+    slot->used = true;
+    slot->t0 = uint8_t(t.t0);
+    const int parts = v[9];
+    slot->nt = uint8_t(parts == 0 ? (t.t0 + 3 <= kTrackCount ? 3 : kTrackCount - t.t0) : 1);
+    slot->pattern = uint8_t(a.patternNumber());
+    slot->s0 = int16_t(t.s0);
+    slot->n = int16_t(t.s1 - t.s0 + 1);
+    for (int i = 0; i < gen::kParams; ++i) slot->v[i] = v[i];
+    // The voices genGrids used: read back from the steps it wrote (the
+    // tracks may be empty now where nothing fired: keep the target's).
+    gen::Rng rng(rngSeed);
+    slot->seed = rng.next();
+    gen::Target tt = t;
+    gen::gridsVoices(tt, parts, slot->voice);
+    slot->rng = rngSeed ^ a.micros();
+    // The live redraw starts from the generated state (Perform offsets 0).
+    slot->ax = slot->ay = slot->ad = 0;
+    slot->hash = hashSteps(a.pattern(), *slot);
+}
+
+bool gridsActive(int track) {
+    for (const GridsSlot& s : gState.get().grids)
+        if (s.used && track >= s.t0 && track < s.t0 + s.nt) return true;
+    return false;
+}
+
+void setGridsPerf(int x, int y, int density) {
+    State& st = gState.get();
+    auto c = [](int v) { return int16_t(v < -100 ? -100 : (v > 100 ? 100 : v)); };
+    st.grX = c(x);
+    st.grY = c(y);
+    st.grD = c(density);
+}
+
+void setLoopLock(int v) { gState.get().loopLock = int16_t(v < -100 ? -100 : (v > 100 ? 100 : v)); }
+
 void release(int track) {
     for (AcidSlot& s : gState.get().acid)
         if (s.used && s.track == track) s.used = false;
     for (BBSlot& s : gState.get().bb)
         if (s.used && track >= s.t0 && track <= s.t1) s.used = false;
+    for (GridsSlot& s : gState.get().grids)
+        if (s.used && track >= s.t0 && track < s.t0 + s.nt) s.used = false;
 }
 
 bool acidActive(int track) {
@@ -439,6 +654,7 @@ bool bbcutActive(int track) {
 void stopAll() {
     for (AcidSlot& s : gState.get().acid) s.used = false;
     for (BBSlot& s : gState.get().bb) s.used = false;
+    for (GridsSlot& s : gState.get().grids) s.used = false;
 }
 
 }  // namespace live

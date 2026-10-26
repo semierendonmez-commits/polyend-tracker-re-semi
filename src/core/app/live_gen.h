@@ -14,6 +14,10 @@
 //        (TB-3PO's mutate).
 //    A slot ends when its track is edited by hand, when it is generated
 //    again by something else, or when the pattern is left.
+//  * Grids: tracks written by Grids stay live (kGridsSlots): Perform "Grids
+//    X / Y / Density" redraw them at once, Chaos > 0 draws new chaos every loop.
+//  * Play modes M1..M3 / TM8 / TM16 / R1 / R2: per-track tables every loop
+//    (Marbles deja vu, Turing register, randLoops drift); Perform "Loop Lock".
 #pragma once
 
 #include <cstdint>
@@ -28,6 +32,7 @@ namespace live {
 
 constexpr int kAcidSlots = 4;
 constexpr int kBBSlots = 2;
+constexpr int kGridsSlots = 2;
 
 // Main loop, every pass (App::loop).
 void service(App& a);
@@ -52,6 +57,12 @@ void setAcidPerf(int track, int accent, int slide, int mutate);
 // Config, 2..5 every 1 / 2 / 4 / 8 loops, 6 locked; 1 "Now" via recutNow).
 void setBBPerf(int aOff, int bOff, int rolls, int recut);
 void recutNow();   // new BBCut play-mode cuts (and a new BBCut Mutate draw) at once
+// Grids: takes over the tracks Grids just wrote; Perform offsets (global).
+void grids(App& a, const int16_t* v, const gen::Target& t, uint32_t rngSeed);
+bool gridsActive(int track);
+void setGridsPerf(int x, int y, int density);
+// Perform "Loop Lock" (-100..100) for the M / TM / R play modes.
+void setLoopLock(int v);
 void stopAll();
 
 }  // namespace live

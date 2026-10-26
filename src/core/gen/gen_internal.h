@@ -34,6 +34,8 @@ void genBBCut(const int16_t* v, Target& t, Rng& rng, Result& r);
 void genTurnaround(const int16_t* v, Target& t, Rng& rng, Result& r);
 void genGenotype(const int16_t* v, Target& t, Rng& rng, Result& r);
 void genStation(const int16_t* v, Target& t, Rng& rng, Result& r);
+void genGrids(const int16_t* v, Target& t, Rng& rng, Result& r);
+void genMarbles(const int16_t* v, Target& t, Rng& rng, Result& r);
 
 constexpr int kCrStyleCount = 46;
 constexpr int kCrStrategyCount = 38;

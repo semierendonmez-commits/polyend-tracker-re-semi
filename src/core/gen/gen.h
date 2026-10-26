@@ -16,6 +16,8 @@
 //   Station     numbers-station line from the radio: RDS name, PI code or
 //               frequency read as digits (notes, or the slices of a sliced
 //               counting voice), in groups of five
+//   Grids       Mutable Instruments Grids drum map (X / Y, densities, chaos)
+//   Marbles     Marbles-style T / X random sequence with deja vu
 #pragma once
 
 #include <cstdint>
@@ -51,6 +53,8 @@ enum Kind : uint8_t {
     kTurnaround,
     kGenotype,
     kStation,
+    kGrids,
+    kMarbles,
     kKindCount
 };
 
@@ -161,6 +165,25 @@ void acidApplyDensity(MonoStep* ph, int n, int density, int root);
 // OT fork Perform "Acid Accent" / "Acid Slide": accents and slide wishes for
 // amounts 0..1 from the steps' own thresholds (call acidApplyDensity after).
 void acidApplyAccentSlide(MonoStep* ph, int n, float accent, float slide);
+// Grids (gen_grids.cpp). Parameters: X, Y, Kick, Snare, Hats, Seed, Chaos,
+// Accent (On / Off), Res (1/16, 1/32), Parts (Kit on 3 tracks, Kick, Snare,
+// Hats). A voice per part (instrument, note); live offsets for Perform.
+struct GridsVoice {
+    uint8_t instrument = 0;
+    int8_t note = 60;
+};
+struct GridsOffsets {
+    int x = 0, y = 0, density = 0;   // added to the 0..100 parameters
+};
+uint8_t gridsLevel(int step32, int part, int x, int y);
+// Voices from the target tracks (most used instrument / note, else the target's).
+void gridsVoices(const Target& t, int parts, GridsVoice* out);
+// Writes the hits over steps s0..s0+n-1 of track t0 (Parts = Kit: t0..t0+2).
+// Returns the number of hits. `seed` draws the per-bar chaos.
+int gridsRender(const int16_t* v, const GridsOffsets& o, uint32_t seed, Pattern& p, int t0, int s0, int n,
+                const GridsVoice* voice);
+// Marbles X -> note: Steps mode 0 chromatic, 1 scale, 2 triad, 3 root + fifth, 4 root.
+int marblesNote(float x, int mode, const Target& t, int rangeOct);
 // Range of BBCut procedure `proc`'s A (which 0) / B (1) parameter.
 bool bbProcRange(int proc, int which, int16_t& min, int16_t& max, int16_t& def);
 
