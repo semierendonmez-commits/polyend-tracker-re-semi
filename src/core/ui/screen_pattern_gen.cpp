@@ -68,6 +68,9 @@ bool PatternScreen::genFieldBlank(int f) const {
 }
 
 void PatternScreen::genOpenPopup() {
+    // A new random draw at every open, with the time mixed in: the same
+    // settings right after power-on no longer give the same result.
+    genEntropy_ = (genEntropy_ * 1664525u + 1013904223u) ^ (app_.micros() * 2654435761u);
     genInitDefaults();
     genOpen = true;
     genField = 0;
@@ -145,7 +148,7 @@ void PatternScreen::genButton(uint8_t id) {
     } else if (id == btn::Shift) {
         if (genHasPage2(genKind)) genPage ^= 1;
     } else if (id == btn::EncPush) {
-        genEntropy_ = genEntropy_ * 1664525u + 1013904223u;   // another random draw
+        genEntropy_ = (genEntropy_ * 1664525u + 1013904223u) ^ (app_.micros() * 2654435761u);   // another random draw
         genChanged();
     } else if (id == btn::Right || id == btn::Left) {
         const int d = id == btn::Right ? 1 : -1;

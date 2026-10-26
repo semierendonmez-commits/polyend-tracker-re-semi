@@ -234,6 +234,23 @@ TEST(callresponse_layouts) {
     CHECK(!gen::generate(gen::kCallResponse, v, t).ok);
 }
 
+TEST(callresponse_parts_on_the_grid) {
+    // Form C C R over 32 steps: 8-step parts, the form repeats (C C R C).
+    int16_t v[gen::kParams];
+    defaults(gen::kCallResponse, v);
+    v[4] = 2;
+    v[5] = 11;
+    gen::Target t = target(0, 31);
+    const gen::Result r = gen::generate(gen::kCallResponse, v, t);
+    CHECK(r.ok);
+    CHECK_EQ(int(r.nSec), 4);
+    const char want[] = {'C', 'C', 'R', 'C'};
+    for (int i = 0; i < 4; ++i) {
+        CHECK_EQ(int(r.secStart[i]), 8 * i);
+        CHECK_EQ(r.secTag[i], want[i]);
+    }
+}
+
 TEST(bbcut_every_proc) {
     int16_t v[gen::kParams];
     for (int proc = 0; proc < gen::kBBProcCount; ++proc) {

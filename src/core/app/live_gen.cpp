@@ -63,6 +63,7 @@ struct State {
     uint32_t genoSeed = 0x9E3779B9u;
     uint16_t genoLoops[kTrackCount] = {};
     bool wasPlaying = true;   // builds the tables on the first stopped pass
+    bool firstStart = true;   // the boot-time set is rebuilt at the first play (user timing in the seed)
     uint32_t tableSeed = 0x2545F491u;
 };
 
@@ -121,7 +122,7 @@ void rebuildTables(App& a, State& st) {
 }
 
 // BBCut Mutate: the same settings, a new random draw over the slot's steps.
-void recut(App& a, BBSlot& s) {
+void recut(App& a, BBSlot& s, int aOff, int bOff) {
     gen::Target t;
     t.pat = &a.pattern();
     t.t0 = s.t0;
@@ -135,10 +136,17 @@ void recut(App& a, BBSlot& s) {
     t.slices.start = s.slices;
     t.slices.beatSlice = s.beatSlice;
     t.slices.sampleBeats = s.sampleBeats;
-    s.rng = s.rng * 1664525u + 1013904223u;
+    s.rng = s.rng * 1664525u + 1013904223u + a.micros();   // a new draw every time
     t.entropy = s.rng;
     int16_t v[gen::kParams];
     for (int i = 0; i < gen::kParams; ++i) v[i] = s.v[i];
+    // Perform "BBCut A" / "BBCut B" move the slot's A / B too.
+    for (int w = 0; w < 2; ++w) {
+        int16_t lo, hi, def;
+        if (!gen::bbProcRange(v[0], w, lo, hi, def)) continue;
+        const int x = v[1 + w] + (w ? bOff : aOff);
+        v[1 + w] = int16_t(x < lo ? lo : (x > hi ? hi : x));
+    }
     v[gen::kSeedParam] = 0;   // random: the entropy above
     gen::generate(gen::kBBCut, v, t);
     s.hash = hashSteps(a.pattern(), s);
@@ -217,6 +225,10 @@ void service(App& a) {
         st.lastPos = -1;
         st.loops = 0;
     }
+    if (playing && !st.wasPlaying && st.firstStart) {
+        st.firstStart = false;
+        if (reseed != Config::kBBLocked) rebuildTables(a, st);
+    }
     st.wasPlaying = playing;
     if (playing) {
         const int pos = a.seq.patternPosition();
@@ -285,7 +297,7 @@ void service(App& a) {
             continue;
         }
         if (st.recutNow) {
-            recut(a, s);
+            recut(a, s, st.bbAOff, st.bbBOff);
             edited = true;
         }
         if (!playing) continue;
@@ -294,7 +306,7 @@ void service(App& a) {
             ++s.loops;
             const int m = s.v[4] < 1 || s.v[4] > 4 ? 1 : s.v[4];
             if (s.loops % kBBEvery[m] == 0) {
-                recut(a, s);
+                recut(a, s, st.bbAOff, st.bbBOff);
                 edited = true;
             }
         }
@@ -369,7 +381,7 @@ void setAcidPerf(int track, int accent, int slide, int mutate) {
 
 void setBBPerf(int aOff, int bOff, int rolls, int recut) {
     State& st = gState.get();
-    if (aOff != st.bbAOff || bOff != st.bbBOff) st.tablesDirty = true;
+    if (aOff != st.bbAOff || bOff != st.bbBOff) st.recutNow = true;   // B modes and Mutate slots cut again
     st.bbAOff = int8_t(aOff);
     st.bbBOff = int8_t(bOff);
     seq::gBBRollMode = uint8_t(rolls < 0 || rolls > 3 ? 0 : rolls);

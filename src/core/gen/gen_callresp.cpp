@@ -665,10 +665,21 @@ void genCallResponse(const int16_t* v, Target& t, Rng& rng, Result& r) {
     const int nd = scaleDegrees(t.scaleMask, deg);
     const int total = t.s1 - t.s0 + 1;
     const bool twoTracks = layout == 2;
+    // Parts are whole musical lengths (4 / 8 / 16 / 32 steps, Auto: the
+    // longest that fits the whole form into the selection); the form repeats
+    // until the selection is full (a last part may be cut short), so
+    // phrases always start on the beat grid.
     static const int kSteps[5] = {0, 4, 8, 16, 32};
     int steps = kSteps[v[6] < 0 || v[6] > 4 ? 0 : v[6]];
-    if (steps == 0 || steps * parts > total) steps = total / parts;
-    if (steps > 64) steps = 64;
+    if (steps == 0 || steps * parts > total) {
+        steps = 0;
+        for (int s : {32, 16, 8, 4, 2})
+            if (s * parts <= total) {
+                steps = s;
+                break;
+            }
+        if (!steps) steps = total / parts;   // a short selection: even parts (2 steps at least)
+    }
     if (steps < 2) {
         std::snprintf(r.msg, sizeof(r.msg), "Select at least %d steps", 2 * parts);
         return;
@@ -723,22 +734,26 @@ void genCallResponse(const int16_t* v, Target& t, Rng& rng, Result& r) {
     MonoStep rest[64];
     for (int i = 0; i < steps; ++i) rest[i] = MonoStep{};
     r.nSec = 0;
-    for (int k = 0; k < parts; ++k) {
-        const int at = t.s0 + k * steps;
-        const char f = form[k];
+    int k = 0;
+    for (int at = t.s0; at <= t.s1; at += steps, ++k) {
+        const int n = t.s1 - at + 1 < steps ? t.s1 - at + 1 : steps;
+        const int cycle = k / parts;
+        const char f = form[k % parts];
         const bool isCall = f == 'C';
         if (isCall) {
             toMono(call, steps, t.rootNote, deg, nd, m);
             // "Answer mine" keeps the first call as the user wrote it.
-            if (!(layout == 1 && k == 0)) writeMono(p, tr, at, m, steps, t.instrument);
-            if (twoTracks) writeMono(p, tr2, at, rest, steps, t.instrument);
+            if (!(layout == 1 && k == 0)) writeMono(p, tr, at, m, n, t.instrument);
+            if (twoTracks) writeMono(p, tr2, at, rest, n, t.instrument);
         } else {
-            toMono(f == 'r' ? resp2 : resp, steps, t.rootNote, deg, nd, m, ansOct);
-            writeMono(p, tr2, at, m, steps, t.instrument);
-            if (twoTracks) writeMono(p, tr, at, rest, steps, t.instrument);
+            // Every other cycle swaps the two answer rolls: the repeat varies.
+            const bool second = (f == 'r') != (cycle & 1);
+            toMono(second ? resp2 : resp, steps, t.rootNote, deg, nd, m, ansOct);
+            writeMono(p, tr2, at, m, n, t.instrument);
+            if (twoTracks) writeMono(p, tr, at, rest, n, t.instrument);
         }
         if (r.nSec < 8) {
-            r.secStart[r.nSec] = uint8_t(k * steps);
+            r.secStart[r.nSec] = uint8_t(at - t.s0);
             r.secTag[r.nSec] = isCall ? 'C' : 'R';
             ++r.nSec;
         }
