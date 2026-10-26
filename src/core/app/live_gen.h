@@ -4,6 +4,8 @@
 //    while playing, or locked (Config > BB play modes); procedure A / B from
 //    the Generate popup.
 //  * BBCut Mutate (up to kBBSlots selections): new cuts every N loops.
+//  * Genotype play modes G1..G3: a new Markov walk over each such track's
+//    own steps every loop.
 //  * Acid: a track written by Acid stays "live" (up to kAcidSlots tracks):
 //      - Density follows the Perform FX "Acid Density" (-7..+7 on top of the
 //        generated density, on the tracks the FX is on), changing the notes
@@ -42,6 +44,14 @@ void bbcut(App& a, const int16_t* v, const gen::Target& t, uint32_t rngSeed);
 bool bbcutActive(int track);
 // Perform FX "Acid Density" offset per track (0 = none); applied by service().
 void setAcidDensityOffset(int track, int offset);
+// Perform FX "Acid Accent" / "Acid Slide" / "Acid Mutate": percent offsets
+// on top of the generated amounts, per track (0 = none).
+void setAcidPerf(int track, int accent, int slide, int mutate);
+// Perform FX for the BBCut play modes (global): A / B offsets in list steps,
+// rolls (0 as built, 1 none, 2 dense, 3 fade) and re-cut override (0 =
+// Config, 2..5 every 1 / 2 / 4 / 8 loops, 6 locked; 1 "Now" via recutNow).
+void setBBPerf(int aOff, int bOff, int rolls, int recut);
+void recutNow();   // new BBCut play-mode cuts (and a new BBCut Mutate draw) at once
 void stopAll();
 
 }  // namespace live

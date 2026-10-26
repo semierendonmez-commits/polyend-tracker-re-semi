@@ -44,6 +44,45 @@ void cell(Gfx& g, int cx, int cy, uint32_t c, const char* v) {
     g.rectsEnd();
     g.alpha(255);
 }
+// OT fork FX chooser (Shift + encoder in edit mode): names and help.
+void fxPickItem(void*, int i, char* out, int cap) { std::snprintf(out, size_t(cap), "%s", perf::fx(uint8_t(i)).name); }
+const char* fxPickDesc(void*, int i) {
+    static const char* const kHelp[perf::kFxCount] = {
+        "Empty column: no effect.",
+        "Raises or lowers the volume of the tracks (MIDI tracks: the velocity).",
+        "Moves the tracks left or right in the stereo field.",
+        "Transposes the tracks in semitones (MIDI tracks too).",
+        "Low-pass filter on the samples: negative closes, positive opens.",
+        "High-pass filter on the samples.",
+        "Band-pass filter on the samples.",
+        "More or less of the samples into the delay.",
+        "More or less of the samples into the reverb.",
+        "Moves the sample start point.",
+        "Moves the sample end point.",
+        "Plays the samples forward or backward.",
+        "Speed of the volume LFO.",
+        "Speed of the panning LFO.",
+        "Speed of the finetune LFO (vibrato).",
+        "Speed of the filter LFO.",
+        "Speed of the granular / wavetable position LFO.",
+        "Repeats the current step at the chosen rate (stutter).",
+        "Order the tracks play their steps: C1..C20 stock tables, B1..B10 BBCut cuts, T1..T4 TILT pinball, "
+        "G1..G3 Genotype variations (a new walk every loop, low / medium / high variety).",
+        "Shortens the pattern for every track (loop a part).",
+        "Bit depth reduction on the samples.",
+        "Overdrive on the samples.",
+        "Live Acid tracks: more or fewer notes (-7..+7) without changing the melody.",
+        "Live Acid tracks: more or fewer accents (percent on top of the generated amount).",
+        "Live Acid tracks: more or fewer slides.",
+        "Live Acid tracks: how much of the line re-rolls at each Mutate loop.",
+        "BBCut play modes B1..B10: moves the procedure's A setting (Generate popup) up or down, new cuts at once.",
+        "BBCut play modes B1..B10: moves the procedure's B setting.",
+        "BBCut play modes: None drops the rolls, Dense adds rolls at cut starts, Fade turns them into fade-out rolls.",
+        "BBCut play modes and BBCut Mutate: Now cuts again at every pad press; 1..8 loops re-cuts while playing; "
+        "Locked keeps the cuts (overrides Config > BB play modes).",
+    };
+    return i >= 0 && i < perf::kFxCount ? kHelp[i] : "";
+}
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -193,12 +232,13 @@ void PerformanceScreen::applyAll(bool revertEverything) {
     App& a = app_;
     Sequencer& q = a.seq;
     int globalLen = -1;
+    int bbA = 0, bbB = 0, bbRolls = 0, bbRecut = 0;   // OT fork BBCut play-mode controls (global)
     for (int t = 0; t < kTrackCount; ++t) {
         audio::PerfOffsets p;
         int8_t repeat = -1, velOff = 0, transpose = 0;
         bool transposeOn = false;
         uint8_t playMode = 0;
-        int acidDens = 0;
+        int acidDens = 0, acidAcc = 0, acidSlide = 0, acidMut = 0;
         const bool on = fxOn[t] && !revertEverything;
         for (int s = 0; s < perf::kSlots && !revertEverything; ++s) {
             const uint8_t ty = src.valid() ? src.type(s) : 0;
@@ -207,6 +247,13 @@ void PerformanceScreen::applyAll(bool revertEverything) {
             if (ty == perf::kPatternLength) {
                 globalLen = perf::lengthOverride(v);
                 continue;
+            }
+            switch (ty) {   // OT fork: global generator controls
+                case perf::kBBCutA: bbA = v; continue;
+                case perf::kBBCutB: bbB = v; continue;
+                case perf::kBBRolls: bbRolls = v; continue;
+                case perf::kBBRecut: bbRecut = v; continue;
+                default: break;
             }
             if (!on) continue;
             switch (ty) {
@@ -238,6 +285,9 @@ void PerformanceScreen::applyAll(bool revertEverything) {
                 case perf::kBitDepth: p.bits = int16_t(v); break;
                 case perf::kOverdrive: p.od = int16_t(v); break;
                 case perf::kAcidDensity: acidDens = v; break;
+                case perf::kAcidAccent: acidAcc = v; break;
+                case perf::kAcidSlide: acidSlide = v; break;
+                case perf::kAcidMutate: acidMut = v; break;
                 default: break;
             }
         }
@@ -247,8 +297,10 @@ void PerformanceScreen::applyAll(bool revertEverything) {
         q.setPerfVelocityOffset(t, velOff);
         q.setPerfTranspose(t, transposeOn && transpose != 0, transpose);
         live::setAcidDensityOffset(t, acidDens);
+        live::setAcidPerf(t, acidAcc, acidSlide, acidMut);
     }
     q.setPerfGlobalLength(globalLen);
+    live::setBBPerf(bbA, bbB, bbRolls, bbRecut);
 }
 
 // Other slots with the same FX type, or an excluded filter type, go to row 0
@@ -271,6 +323,10 @@ void PerformanceScreen::resetOthers(int c) {
 // Inputs (spec 06 §3.4)
 
 void PerformanceScreen::onPad(uint8_t pad, uint8_t state) {
+    if (fxPick_ && ui_.picker.isOpen()) {   // the pad picked an FX
+        ui_.dirty();
+        return;
+    }
     const int c = pad % 12, r = pad / 12;
     if (c >= perf::kSlots || r >= perf::kRows || !src.valid()) return;
     if (state == kPress) {
@@ -281,6 +337,7 @@ void PerformanceScreen::onPad(uint8_t pad, uint8_t state) {
         resetOthers(c);
         cur[c] = row ? src.value(c, row) : 0;
         applyAll(false);
+        if (src.type(c) == perf::kBBRecut && cur[c] == 1) live::recutNow();   // "Now": every press
     } else if (state == kRelease) {
         // Re-apply the stored value: an encoder tweak outside edit mode is
         // dropped (spec 12 §E.1). The row stays latched.
@@ -348,6 +405,19 @@ bool PerformanceScreen::anyTrackKey() const {
 }
 
 void PerformanceScreen::onEncoder(int d) {
+    // OT fork: Shift + encoder in edit mode opens the FX chooser for the
+    // column (the encoder or the pads pick, Shift release / push applies).
+    if (edit && ui_.shift() && !anyTrackKey() && src.valid()) {
+        bool held = false;
+        for (bool h : held_) held = held || h;
+        if (!held && !ui_.picker.isOpen()) {
+            ui_.picker.open(4, "Perform FX", perf::kFxCount, src.type(column), fxPickItem, nullptr);
+            ui_.picker.setDescription(fxPickDesc);
+            fxPick_ = true;
+            ui_.dirty();
+            return;
+        }
+    }
     if (anyTrackKey()) {
         for (int i = 0; i < 8; ++i)
             if (keyHeld_[i]) {
@@ -382,10 +452,11 @@ void PerformanceScreen::onEncoder(int d) {
     }
 }
 
-void PerformanceScreen::changeType(int d) {
-    const int c = column;
+void PerformanceScreen::changeType(int d) { setType(column, uint8_t((src.type(column) + perf::kFxCount + d) % perf::kFxCount)); }
+
+void PerformanceScreen::setType(int c, uint8_t ty) {
     // The old type is reverted first (spec 12 §A.5 [FW:0x445fc]).
-    src.setType(c, uint8_t((src.type(c) + perf::kFxCount + d) % perf::kFxCount));
+    src.setType(c, ty < perf::kFxCount ? ty : 0);
     for (int r = 0; r < perf::kRows; ++r) src.setValue(c, r, 0);
     src.setRow(c, 0);
     cur[c] = 0;
@@ -417,6 +488,27 @@ void PerformanceScreen::swapColumn(int nc) {
 
 void PerformanceScreen::onButton(uint8_t id, uint8_t state) {
     App& a = app_;
+    if (fxPick_) {
+        if (!ui_.picker.isOpen()) {
+            fxPick_ = false;
+        } else if ((id == btn::Shift && state == kRelease) || (id == btn::EncPush && state == kPress)) {
+            setType(column, uint8_t(ui_.picker.cursor()));
+            ui_.picker.close();
+            fxPick_ = false;
+            refreshBar();
+            ui_.dirty();
+            return;
+        } else if (state == kPress && (id == btn::F7 || id == btn::F8)) {
+            ui_.picker.toggleDescription();
+            ui_.dirty();
+            return;
+        } else if (state == kPress) {   // any other key: closed, no change
+            ui_.picker.close();
+            fxPick_ = false;
+            ui_.dirty();
+            return;
+        }
+    }
     if (id == btn::Performance) {
         // 2.x: the Performance key toggles the track bank (2x-01 §5); held
         // track keys are dropped (their queued patterns with them).

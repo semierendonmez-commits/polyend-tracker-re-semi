@@ -135,6 +135,7 @@ struct MonoStep {
     float gate = 0.5f;             // fraction of a step; >= 1 sustains
     float thr = 0;                 // Acid: plays while thr < the density probability
     bool slideWant = false;        // Acid: slides when the next step plays too
+    float accThr = 1, slideThr = 1;  // Acid: accent / slide while below the amount (live Perform FX)
 };
 // Writes steps s0.. of track t: note, instrument and the FX (Glide on the
 // note slid into, Volume 100 on accents, Gate when shorter than a step).
@@ -157,6 +158,11 @@ void acidMutate(const int16_t* v, const Target& t, Rng& rng, MonoStep* ph, int n
 // phrase's active flags for it (pitches, accents and slides stay).
 float acidDensityProb(int d);
 void acidApplyDensity(MonoStep* ph, int n, int density, int root);
+// OT fork Perform "Acid Accent" / "Acid Slide": accents and slide wishes for
+// amounts 0..1 from the steps' own thresholds (call acidApplyDensity after).
+void acidApplyAccentSlide(MonoStep* ph, int n, float accent, float slide);
+// Range of BBCut procedure `proc`'s A (which 0) / B (1) parameter.
+bool bbProcRange(int proc, int which, int16_t& min, int16_t& max, int16_t& def);
 
 }  // namespace gen
 }  // namespace ot

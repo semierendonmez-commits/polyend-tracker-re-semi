@@ -491,6 +491,29 @@ TEST(acid_mutate_changes_some_steps) {
     CHECK(same);
 }
 
+TEST(acid_accent_slide_live) {
+    // Perform "Acid Accent" / "Acid Slide": the generated accents are the
+    // steps under the amount; 0 clears them, 1 sets them all, the generated
+    // amount gives the generated line back.
+    int16_t v[gen::kParams];
+    defaults(gen::kAcid, v);
+    v[5] = 23;
+    gen::Target t = target(0, 31);
+    gen::Rng rng(7);
+    gen::MonoStep a[32], b[32];
+    gen::acidPhrase(v, t, rng, a, 32);
+    for (int i = 0; i < 32; ++i) b[i] = a[i];
+    gen::acidApplyAccentSlide(b, 32, 0.0f, 0.0f);
+    for (int i = 0; i < 32; ++i) CHECK(!b[i].accent && !b[i].slideWant);
+    gen::acidApplyAccentSlide(b, 32, 1.0f, 1.0f);
+    for (int i = 0; i < 32; ++i) CHECK(b[i].accent && b[i].slideWant);
+    gen::acidApplyAccentSlide(b, 32, v[1] / 100.0f, v[2] / 100.0f);
+    for (int i = 0; i < 32; ++i) CHECK(b[i].accent == a[i].accent && b[i].slideWant == a[i].slideWant);
+    int16_t lo, hi, def;
+    CHECK(gen::bbProcRange(0, 0, lo, hi, def));
+    CHECK(lo <= def && def <= hi);
+}
+
 TEST(bb_play_tables) {
     uint8_t tab[128][3];
     for (int proc = 0; proc < gen::kBBProcCount; ++proc) {

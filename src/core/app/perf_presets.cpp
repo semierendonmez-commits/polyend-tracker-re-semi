@@ -20,6 +20,9 @@ const char* const kDirection[] = {">>>", "<<<"};
 const char* const kRepeater[] = {"Off", "16", "12", "8", "6", "4", "3", "2", "1",
                                  "1/2", "1/3", "1/4", "1/6", "1/8", "1/12", "1/16"};
 const char* const kLength[] = {"---", "1", "2", "4", "8", "16", "32", "64", "128"};
+// OT fork: BBCut play-mode rolls and re-cut (0 = no change).
+const char* const kBBRollLabels[] = {"---", "None", "Dense", "Fade"};
+const char* const kBBRecutLabels[] = {"---", "Now", "1 loop", "2 loops", "4 loops", "8 loops", "Locked"};
 
 // spec 06 §3.2 / spec 12 §E.2 ranges; LP/HP/BP exclude each other (§E.1).
 // Names: stock 1.9.2 screen (owner photo 2026-10-23) for the first 12; the rest
@@ -43,11 +46,18 @@ const FxDesc kFx[kFxCount] = {
     {"Filter LFO Speed", -28, 28, nullptr, 0, 0, false},
     {"Grain/WT LFO Speed", -28, 28, nullptr, 0, 0, false},
     {"Step Repeater", 0, 15, kRepeater, 0, 0, false},
-    {"Pattern Play Mode", 0, 36, nullptr, 0, 0, false},   // labels: seq::playModeLabel; 23..32 OT BBCut, 33..36 TILT
+    {"Pattern Play Mode", 0, 39, nullptr, 0, 0, false},   // labels: seq::playModeLabel; 23..32 OT BBCut, 33..36 TILT, 37..39 Genotype
     {"Pattern Length", 0, 8, kLength, 0, 0, true},
     {"Bit Depth", -12, 12, nullptr, 0, 0, false},
     {"Overdrive", -100, 100, nullptr, 0, 0, false},
     {"Acid Density", -7, 7, nullptr, 0, 0, false},   // OT fork
+    {"Acid Accent", -100, 100, nullptr, 0, 0, false},
+    {"Acid Slide", -100, 100, nullptr, 0, 0, false},
+    {"Acid Mutate", -100, 100, nullptr, 0, 0, false},
+    {"BBCut A", -6, 6, nullptr, 0, 0, true},
+    {"BBCut B", -6, 6, nullptr, 0, 0, true},
+    {"BBCut Rolls", 0, 3, kBBRollLabels, 0, 0, true},
+    {"BBCut Recut", 0, 6, kBBRecutLabels, 0, 0, true},
 };
 }  // namespace
 

@@ -41,8 +41,10 @@ void rollPitch(const AcidCfg& c, const Target& t, Rng& rng, MonoStep& m, bool on
 
 void rollState(const AcidCfg& c, Rng& rng, MonoStep& m) {
     m.thr = rng.uni();
-    m.accent = rng.coin(c.accent);
-    m.slideWant = rng.coin(c.slide);
+    m.accThr = rng.uni();   // the same draws as coin(): results unchanged
+    m.accent = m.accThr < c.accent;
+    m.slideThr = rng.uni();
+    m.slideWant = m.slideThr < c.slide;
     m.gate = c.gate;
 }
 
@@ -65,6 +67,13 @@ void acidApplyDensity(MonoStep* ph, int n, int density, int root) {
     }
     if (!any && n > 0) ph[lowest].active = true;   // at least one note
     for (int i = 0; i < n; ++i) ph[i].slide = ph[i].active && ph[i].slideWant && ph[(i + 1) % n].active;
+}
+
+void acidApplyAccentSlide(MonoStep* ph, int n, float accent, float slide) {
+    for (int i = 0; i < n; ++i) {
+        ph[i].accent = ph[i].accThr < accent;
+        ph[i].slideWant = ph[i].slideThr < slide;
+    }
 }
 
 void acidPhrase(const int16_t* v, const Target& t, Rng& rng, MonoStep* ph, int n) {

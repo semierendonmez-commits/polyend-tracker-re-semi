@@ -20,7 +20,7 @@ namespace perf {
 constexpr int kSlots = 12;
 constexpr int kRows = 4;          // stored rows 0..3 (0 = off)
 constexpr int kLiveRow = 4;       // MIDI-CC live value (spec 12 §B.2)
-constexpr int kFxCount = 23;      // 0 = empty, 1..21 stock, 22 OT fork (Acid Density)
+constexpr int kFxCount = 30;      // 0 = empty, 1..21 stock, 22..29 OT fork generators
 
 // FX ids (spec 12 §E.2).
 enum Fx : uint8_t {
@@ -28,6 +28,10 @@ enum Fx : uint8_t {
     kStart, kEnd, kDirection, kVolLfo, kPanLfo, kFineLfo, kFilterLfo, kPosLfo, kRepeater, kPlayMode,
     kPatternLength, kBitDepth, kOverdrive,
     kAcidDensity,   // OT fork: density offset of the live Acid tracks (live_gen.h)
+    // OT fork generator controls (live_gen.h): live Acid tracks per track,
+    // BBCut play modes / Mutate globally.
+    kAcidAccent, kAcidSlide, kAcidMutate,
+    kBBCutA, kBBCutB, kBBRolls, kBBRecut,
 };
 
 // Value descriptor (spec 12 §E.1): min, max, label table, exclusive-with

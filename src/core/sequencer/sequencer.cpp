@@ -907,7 +907,7 @@ void Sequencer::advanceStep(int t) {
         tr.step = int16_t(rng_.rangeIncl(0, li));
     } else if (isTableMode(mode)) {
         uint8_t rollSel = 0;
-        tr.step = int16_t(tableStep(mode, tr.stepsPlayed, li, rollSel));
+        tr.step = int16_t(tableStep(mode, tr.stepsPlayed, li, rollSel, t));
         applyRollSelector(tr.inject, rollSel, rng_);
     } else {
         tr.step = int16_t(wrapped ? ls : tr.step + 1);
@@ -1014,7 +1014,7 @@ void Sequencer::resetPositions(int startStep) {
             tr.step = int16_t(lastIndex(t));
         } else if (isTableMode(mode)) {
             uint8_t rollSel = 0;
-            tr.step = int16_t(tableStep(mode, 0, lastIndex(t), rollSel));
+            tr.step = int16_t(tableStep(mode, 0, lastIndex(t), rollSel, t));
         } else {
             tr.step = int16_t(startStep);
         }
@@ -1084,7 +1084,7 @@ void Sequencer::startPlayback(int startStep, bool keepSongMode, bool afterCountI
         TrackState& tr = tracks_[t];
         if (!perfTrack(t) || !isTableMode(tr.playMode)) continue;
         uint8_t rollSel = 0;
-        tr.step = int16_t(tableStep(tr.playMode, 0, lastIndex(t), rollSel));
+        tr.step = int16_t(tableStep(tr.playMode, 0, lastIndex(t), rollSel, t));
         applyRollSelector(tr.inject, rollSel, rng_);
     }
     for (auto& tr : tracks_) {

@@ -709,6 +709,8 @@ private:
     void resetOthers(int slot);
     void edited();
     void changeType(int d);
+    void setType(int c, uint8_t ty);
+    bool fxPick_ = false;   // OT fork: Shift + encoder FX chooser open (edit mode)
     void swapColumn(int nc);
     void play();
     bool anyTrackKey() const;

@@ -99,3 +99,36 @@ TEST(tilt_play_modes) {
             if (len >= 16 && m != 3) CHECK(diff > 0);
         }
 }
+
+// Genotype play modes G1..G3 read the per-track tables; BBCut Rolls modes.
+TEST(genotype_modes_and_bb_rolls) {
+    CHECK(std::string(seq::playModeLabel(seq::kPlayFirstGeno)) == "G1");
+    CHECK(std::string(seq::playModeLabel(seq::kPlayFirstGeno + 2)) == "G3");
+    CHECK(seq::isGenoMode(seq::kPlayFirstGeno) && !seq::isTiltMode(seq::kPlayFirstGeno));
+    uint8_t roll = 9;
+    seq::gGenoReady[5] = false;
+    CHECK_EQ(seq::tableStep(seq::kPlayFirstGeno, 7, 15, roll, 5), 7);   // not built: forward
+    CHECK_EQ(int(roll), 0);
+    for (int k = 0; k < seq::kPlayModeTableLen; ++k) seq::gGenoTables[5][k] = uint8_t((k * 3) % 16);
+    seq::gGenoReady[5] = true;
+    CHECK_EQ(seq::tableStep(seq::kPlayFirstGeno + 1, 7, 15, roll, 5), 5);    // 21 % 16
+    CHECK_EQ(seq::tableStep(seq::kPlayFirstGeno + 1, 7, 7, roll, 5), 5);     // mod the length
+    seq::gGenoReady[5] = false;
+    // BBCut Rolls: None clears every roll selector, Fade maps them to 6.
+    for (int k = 0; k < seq::kPlayModeTableLen; ++k) {
+        seq::gBBPlayTables[0][k][0] = 0;
+        seq::gBBPlayTables[0][k][1] = uint8_t(k & 1);
+        seq::gBBPlayTables[0][k][2] = uint8_t(k % 4 == 1 ? 3 : 0);
+    }
+    seq::gBBPlayTablesReady = true;
+    seq::gBBRollMode = 1;
+    seq::tableStep(seq::kPlayFirstBB, 1, 15, roll);
+    CHECK_EQ(int(roll), 0);
+    seq::gBBRollMode = 3;
+    seq::tableStep(seq::kPlayFirstBB, 1, 15, roll);
+    CHECK_EQ(int(roll), 6);
+    seq::gBBRollMode = 0;
+    seq::tableStep(seq::kPlayFirstBB, 1, 15, roll);
+    CHECK_EQ(int(roll), 3);
+    seq::gBBPlayTablesReady = false;
+}

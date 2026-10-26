@@ -942,6 +942,15 @@ void genBBCut(const int16_t* v, Target& t, Rng& rng, Result& r) {
     r.ok = true;
 }
 
+bool bbProcRange(int proc, int which, int16_t& min, int16_t& max, int16_t& def) {
+    const ParamDesc* p = bbProcParam(proc < 0 ? 0 : (proc >= kBBProcCount ? kBBProcCount - 1 : proc), which);
+    if (!p) return false;
+    min = p->min;
+    max = p->max;
+    def = p->def;
+    return true;
+}
+
 void bbPlayTable(int proc, int a, int b, uint32_t seed, uint8_t out[128][3]) {
     Rng rng(seed);
     State& s = *new (gScratch) State();

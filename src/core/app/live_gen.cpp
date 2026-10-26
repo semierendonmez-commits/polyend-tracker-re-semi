@@ -24,6 +24,7 @@ struct AcidSlot {
     uint16_t scaleMask = 0;
     uint32_t rng = 1;
     int8_t applied = 0;       // density the steps were written with
+    int16_t appliedAcc = -1, appliedSlide = -1;   // accent / slide amounts (%) applied
     uint16_t loops = 0;
     uint32_t hash = 0;        // of the steps as written (a hand edit ends the slot)
     gen::MonoStep ph[kStepCount];
@@ -55,6 +56,12 @@ struct State {
     int16_t bbA[10] = {}, bbB[10] = {};
     bool bbSet[10] = {};
     int8_t densOff[kTrackCount] = {};
+    int8_t accOff[kTrackCount] = {}, slideOff[kTrackCount] = {}, mutOff[kTrackCount] = {};
+    int8_t bbAOff = 0, bbBOff = 0;
+    uint8_t bbRecut = 0;
+    bool recutNow = false, tablesDirty = false;
+    uint32_t genoSeed = 0x9E3779B9u;
+    uint16_t genoLoops[kTrackCount] = {};
     bool wasPlaying = true;   // builds the tables on the first stopped pass
     uint32_t tableSeed = 0x2545F491u;
 };
@@ -95,8 +102,18 @@ uint32_t hashSteps(const Pattern& p, const BBSlot& s) { return hashRange(p, s.t0
 void rebuildTables(App& a, State& st) {
     for (int m = 0; m < seq::kBBModeCount; ++m) {
         st.tableSeed = st.tableSeed * 1103515245u + 12345u + a.micros();
-        gen::bbPlayTable(m, st.bbSet[m] ? st.bbA[m] : -1, st.bbSet[m] ? st.bbB[m] : -1, st.tableSeed | 1u,
-                         st.tableTmp);
+        // A / B: the Generate popup's (else the default), plus the Perform
+        // offsets, kept inside the procedure's range.
+        int ab[2] = {-1, -1};
+        for (int w = 0; w < 2; ++w) {
+            int16_t lo, hi, def;
+            if (!gen::bbProcRange(m, w, lo, hi, def)) continue;
+            const int base = st.bbSet[m] ? (w ? st.bbB[m] : st.bbA[m]) : def;
+            const int off = w ? st.bbBOff : st.bbAOff;
+            int v = base + off;
+            ab[w] = v < lo ? lo : (v > hi ? hi : v);
+        }
+        gen::bbPlayTable(m, ab[0], ab[1], st.tableSeed | 1u, st.tableTmp);
         std::memcpy(seq::gBBPlayTables[m], st.tableTmp, sizeof(st.tableTmp));
     }
     seq::gBBPlayTablesReady = true;
@@ -127,6 +144,36 @@ void recut(App& a, BBSlot& s) {
     s.hash = hashSteps(a.pattern(), s);
 }
 
+// Genotype walk over track t's own steps (play modes G1..G3): step to step
+// in order, but at a step with a note it may jump to another step holding
+// the same note on the same beat phase (else any phase), and go on from
+// there: the track's material, a new order every loop.
+void buildGeno(App& a, State& st, int t, int level) {
+    static const float kVar[3] = {0.2f, 0.45f, 0.75f};
+    const Track& tr = a.pattern().tracks[t];
+    const int len = tr.length();
+    st.genoSeed = st.genoSeed * 1664525u + 1013904223u + a.micros();
+    gen::Rng rng(st.genoSeed | 1u);
+    const float var = kVar[level < 0 ? 0 : (level > 2 ? 2 : level)];
+    int pos = 0;
+    uint8_t cand[kStepCount];
+    for (int k = 0; k < seq::kPlayModeTableLen; ++k) {
+        seq::gGenoTables[t][k] = uint8_t(pos);
+        int next = (pos + 1) % len;
+        const int8_t want = tr.steps[next].note;
+        if (want >= 0 && rng.coin(var)) {
+            int n = 0;
+            for (int pass = 0; pass < 2 && n == 0; ++pass)
+                for (int j = 0; j < len; ++j)
+                    if (j != next && tr.steps[j].note == want && (pass == 1 || (j & 3) == (next & 3)))
+                        cand[n++] = uint8_t(j);
+            if (n) next = cand[rng.below(n)];
+        }
+        pos = next;
+    }
+    seq::gGenoReady[t] = true;
+}
+
 int effectiveDensity(const State& st, const AcidSlot& s) {
     const int d = s.v[0] + st.densOff[s.track];
     return d < -7 ? -7 : (d > 7 ? 7 : d);
@@ -144,7 +191,25 @@ void service(App& a) {
     const bool playing = a.seq.isPlaying();
     // B play modes (Config > BB play modes): new cuts at every stop, every N
     // loops while playing, or locked (built once).
-    const uint8_t reseed = a.cfg.bbReseed;
+    uint8_t reseed = a.cfg.bbReseed;
+    if (st.bbRecut >= 2 && st.bbRecut <= 6) reseed = uint8_t(st.bbRecut - 1);   // Perform "BBCut Recut"
+    if (st.tablesDirty || st.recutNow) {
+        st.tablesDirty = false;
+        rebuildTables(a, st);
+    }
+    // Genotype play modes: a walk for a track entering G1..G3, a new one at
+    // each of its loop ends (pattern position wrap).
+    for (int t = 0; t < kTrackCount; ++t) {
+        const uint8_t m = a.seq.perfPlayMode(t);
+        if (!seq::isGenoMode(m)) {
+            seq::gGenoReady[t] = false;
+            continue;
+        }
+        if (!seq::gGenoReady[t] || st.genoLoops[t] != st.loops) {
+            st.genoLoops[t] = st.loops;
+            buildGeno(a, st, t, m - seq::kPlayFirstGeno);
+        }
+    }
     if (!playing && st.wasPlaying) {
         if (reseed != Config::kBBLocked || !seq::gBBPlayTablesReady) rebuildTables(a, st);
         for (AcidSlot& s : st.acid) s.lastStep = -1;
@@ -178,15 +243,28 @@ void service(App& a) {
             if (s.lastStep >= 0 && now < s.lastStep) {
                 ++s.loops;
                 const int every = kEvery[s.v[6] < 0 || s.v[6] > 3 ? 0 : s.v[6]];
-                if (s.v[4] > 0 && s.loops % every == 0) {
+                int mut = s.v[4] + st.mutOff[s.track];   // Perform "Acid Mutate"
+                mut = mut < 0 ? 0 : (mut > 100 ? 100 : mut);
+                if (mut > 0 && s.loops % every == 0) {
                     gen::Rng rng(s.rng);
                     gen::Target t = targetOf(a, s);
-                    gen::acidMutate(s.v, t, rng, s.ph, s.n, s.v[4] / 200.0f);
+                    gen::acidMutate(s.v, t, rng, s.ph, s.n, mut / 200.0f);
+                    s.appliedAcc = s.appliedSlide = -1;   // re-applies the Perform amounts
                     s.rng = rng.s;
                     s.applied = int8_t(100);   // force the rewrite below
                 }
             }
             s.lastStep = int16_t(now);
+        }
+        // Perform "Acid Accent" / "Acid Slide".
+        const int acc = s.v[1] + st.accOff[s.track], sl = s.v[2] + st.slideOff[s.track];
+        const int16_t accC = int16_t(acc < 0 ? 0 : (acc > 100 ? 100 : acc));
+        const int16_t slC = int16_t(sl < 0 ? 0 : (sl > 100 ? 100 : sl));
+        if (accC != s.appliedAcc || slC != s.appliedSlide) {
+            gen::acidApplyAccentSlide(s.ph, s.n, accC / 100.0f, slC / 100.0f);
+            s.appliedAcc = accC;
+            s.appliedSlide = slC;
+            s.applied = int8_t(100);   // re-applies density (slides) and rewrites
         }
         const int d = effectiveDensity(st, s);
         if (d != s.applied) {
@@ -206,6 +284,10 @@ void service(App& a) {
             s.used = false;
             continue;
         }
+        if (st.recutNow) {
+            recut(a, s);
+            edited = true;
+        }
         if (!playing) continue;
         const int now = a.seq.step(s.t0);
         if (s.lastStep >= 0 && now < s.lastStep) {
@@ -218,6 +300,7 @@ void service(App& a) {
         }
         s.lastStep = int16_t(now);
     }
+    st.recutNow = false;
     if (edited) a.patternEdited();
 }
 
@@ -274,6 +357,26 @@ void setAcidDensityOffset(int track, int offset) {
     if (track < 0 || track >= kTrackCount) return;
     gState.get().densOff[track] = int8_t(offset < -14 ? -14 : (offset > 14 ? 14 : offset));
 }
+
+void setAcidPerf(int track, int accent, int slide, int mutate) {
+    if (track < 0 || track >= kTrackCount) return;
+    State& st = gState.get();
+    auto c = [](int v) { return int8_t(v < -100 ? -100 : (v > 100 ? 100 : v)); };
+    st.accOff[track] = c(accent);
+    st.slideOff[track] = c(slide);
+    st.mutOff[track] = c(mutate);
+}
+
+void setBBPerf(int aOff, int bOff, int rolls, int recut) {
+    State& st = gState.get();
+    if (aOff != st.bbAOff || bOff != st.bbBOff) st.tablesDirty = true;
+    st.bbAOff = int8_t(aOff);
+    st.bbBOff = int8_t(bOff);
+    seq::gBBRollMode = uint8_t(rolls < 0 || rolls > 3 ? 0 : rolls);
+    st.bbRecut = uint8_t(recut < 0 || recut > 6 ? 0 : recut);
+}
+
+void recutNow() { gState.get().recutNow = true; }
 
 void setBBParams(int proc, int a, int b) {
     if (proc < 0 || proc >= 10) return;

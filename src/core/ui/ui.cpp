@@ -828,7 +828,7 @@ void Ui::handle(const InputEvent& ev, uint32_t now) {
                 break;
             }
             if (picker.isOpen()) {
-                picker.move(shift() ? fastDelta(d) : d);
+                picker.move(shift() && picker.kind() != 4 ? fastDelta(d) : d);   // 4: Perform FX chooser, one at a time
             } else {
                 // Jog while Master is held acts on its hold state (main page,
                 // volume). Song gets its tempo focus only at the hold tick
