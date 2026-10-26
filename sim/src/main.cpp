@@ -632,7 +632,7 @@ struct Headless {
                 // Display theme 0..2 / font set 0..1 (config "Display theme" /
                 // "Display font") without the Config key flow; visual scenes.
                 if (m.app) {
-                    if (cmd == "theme") {   // 0..2 stock, 3..22 the OT fork palettes
+                    if (cmd == "theme") {   // 0..2 stock, 3..28 the OT fork palettes
                         m.app->cfg.uiTheme = uint8_t(n1);
                         m.app->cfg.theme = ot::themeBase(uint8_t(n1));
                     } else {                 // 0..2 (2 = the OT fork Pixel set)

@@ -195,6 +195,13 @@ const Palette kPalettes[kThemeTotal - kThemeCount] = {
     {"Hi Contrast", 0, 0x000000, 0xFFFFFF, 0xFFFF00, 0x00FF00, 0xFFFFFF, 0xFFFF00, 0x00FFFF, 0xFF00FF, 0xFF8800, 0x00FFFF},
     {"Cyber Pulse", 0, 0x04060E, 0xD8E6FF, 0xFF2E88, 0x39FF14, 0x00E5FF, 0xFFD500, 0xB388FF, 0x64FFDA, 0xFF8A00, 0x00E5FF, 1},
     {"Spectrum", 0, 0x050505, 0xF0F0F0, 0xFF3040, 0x40FF80, 0x40C0FF, 0xFFE040, 0xC060FF, 0x60FFD0, 0xFF9020, 0x40C0FF, 2},
+    // More animated ones (OT fork 2.2.1-semi.4).
+    {"Acid House", 0, 0x050800, 0xF4FFD0, 0xFFE600, 0x9DFF00, 0xFFE600, 0x9DFF00, 0xFF3D9A, 0x00F0FF, 0xFF8A00, 0x00F0FF, 3},
+    {"Plasma", 0, 0x12051E, 0xF2E6FF, 0xFF4FD8, 0x4DFFB8, 0x7A7CFF, 0xFFD24D, 0xFF4FD8, 0x4DE3FF, 0xFF8A4D, 0x4DE3FF, 4},
+    {"Colour Wheel", 0, 0x060606, 0xF5F5F5, 0xFF4040, 0x40FF90, 0x40D0FF, 0xFFE040, 0xC070FF, 0x60FFD8, 0xFF9030, 0x40D0FF, 5},
+    {"Ember", 0, 0x0E0402, 0xFFE2CC, 0xFF5A1F, 0xFFB000, 0xFF8A3D, 0xFFD27F, 0xFF4D2E, 0xFFC27A, 0xFF7A1F, 0xFFB000, 6},
+    {"Night Drive", 0, 0x0A0418, 0xE8E0FF, 0xFF2A6D, 0x05D9E8, 0xFF2A6D, 0xF9F871, 0xD1F7FF, 0x05D9E8, 0xFF9E00, 0x05D9E8, 7},
+    {"Glitch", 0, 0x000000, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xBBBBBB, 0x888888, 0xDDDDDD, 0xFFFFFF, 0xFFFFFF, 8},
 };
 
 // Animation phase of the active animated theme (themeTick), 0..255.
@@ -256,6 +263,37 @@ const Theme& theme(uint8_t index) {
             static const uint32_t kKeys[7] = {0xFF3040, 0xFFE040, 0x40FF80, 0x40E0FF, 0x5060FF, 0xFF40E0, 0xFF3040};
             p.accent = mix(kKeys[seg > 5 ? 5 : seg], kKeys[seg > 5 ? 6 : seg + 1], f);
             p.good = mix(kKeys[(seg + 2) % 6], kKeys[(seg + 3) % 6], f);
+        } else if (p.anim == 3) {   // Acid House: the accent pumps yellow -> pink on the beat
+            const uint32_t t = gAnimPhase < 64 ? 255u - gAnimPhase * 4u : 0u;   // a sharp attack, a decay
+            p.accent = mix(0xFF3D9A, 0xFFE600, t);
+            p.good = mix(0x00F0FF, 0x9DFF00, t);
+        } else if (p.anim == 4) {   // Plasma: the background drifts purple -> blue -> teal
+            static const uint32_t kBg[4] = {0x12051E, 0x05102A, 0x041C1C, 0x12051E};
+            const uint32_t h = gAnimPhase * 3u, seg = h / 256u, f = h % 256u;
+            p.bg = mix(kBg[seg > 2 ? 2 : seg], kBg[seg > 2 ? 3 : seg + 1], f);
+            p.accent = mix(0xFF4FD8, 0x4DE3FF, gAnimPhase < 128 ? gAnimPhase * 2u : (255u - gAnimPhase) * 2u);
+        } else if (p.anim == 5) {   // Colour Wheel: the four column colours rotate
+            static const uint32_t kCols[4] = {0x40FF90, 0xFFE040, 0xC070FF, 0x60FFD8};
+            const uint32_t h = gAnimPhase * 4u, seg = h / 256u, f = h % 256u;
+            p.note = mix(kCols[seg % 4], kCols[(seg + 1) % 4], f);
+            p.instr = mix(kCols[(seg + 1) % 4], kCols[(seg + 2) % 4], f);
+            p.fx1 = mix(kCols[(seg + 2) % 4], kCols[(seg + 3) % 4], f);
+            p.fx2 = mix(kCols[(seg + 3) % 4], kCols[seg % 4], f);
+        } else if (p.anim == 6) {   // Ember: the accent and the cursor flicker like a fire
+            const uint32_t n = (gAnimPhase * 2654435761u) >> 24;   // a cheap hash of the phase
+            p.accent = mix(0xFF2A00, 0xFFB000, (n * 3u) & 255u);
+            p.good = mix(0xFF8A3D, 0xFFE0A0, (n * 7u) & 255u);
+        } else if (p.anim == 7) {   // Night Drive: the background pulses with the "sun" colour
+            const uint32_t t = gAnimPhase < 128 ? gAnimPhase * 2u : (255u - gAnimPhase) * 2u;
+            p.bg = mix(0x0A0418, 0x22062E, t);
+            p.accent = mix(0xFF2A6D, 0xFF9E00, t);
+        } else if (p.anim == 8) {   // Glitch: rare short flashes of colour on a datamatic page
+            const uint32_t n = (gAnimPhase * 2246822519u) >> 26;   // 0..63
+            if (n < 3) {
+                p.accent = n == 0 ? 0xFF0040 : (n == 1 ? 0x00FFE0 : 0xFFFF00);
+                p.note = 0x00FFE0;
+                p.fx1 = 0xFF0040;
+            }
         }
         builtPhase = gAnimPhase;
         const uint32_t* base = themes()[p.base].slots;
@@ -275,9 +313,19 @@ bool themeAnimated(uint8_t index) {
 
 void themeTick(uint8_t index, uint32_t ms) {
     if (!themeAnimated(index)) return;
-    // Cyber Pulse: one breath in about 4 s; Spectrum: a turn in about 12 s.
-    const uint32_t period = kPalettes[index - kThemeCount].anim == 1 ? 4000u : 12000u;
+    // Cyber Pulse: one breath in about 4 s; Spectrum: a turn in about 12 s;
+    // Acid House a 120 BPM beat; Plasma 20 s; Colour Wheel 16 s; Ember fast;
+    // Night Drive 6 s; Glitch 2 s.
+    static const uint32_t kPeriod[9] = {12000u, 4000u, 12000u, 500u, 20000u, 16000u, 1500u, 6000u, 2000u};
+    const uint8_t an = kPalettes[index - kThemeCount].anim;
+    const uint32_t period = kPeriod[an < 9 ? an : 0];
     gAnimPhase = uint8_t((ms % period) * 256u / period);
+}
+
+uint32_t themeTickMs(uint8_t index) {
+    if (!themeAnimated(index)) return 125;
+    const uint8_t an = kPalettes[index - kThemeCount].anim;
+    return an == 3 || an == 8 || an == 6 ? 60u : 125u;
 }
 
 const char* themeName(uint8_t index) {

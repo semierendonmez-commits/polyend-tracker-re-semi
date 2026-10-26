@@ -1056,7 +1056,7 @@ void Ui::update(uint32_t now) {
     }
 #endif
     // OT fork: animated themes move their colours ~8 times a second.
-    if (themeAnimated(app.cfg.uiTheme) && now - animAt_ >= 125) {
+    if (themeAnimated(app.cfg.uiTheme) && now - animAt_ >= themeTickMs(app.cfg.uiTheme)) {
         animAt_ = now;
         themeTick(app.cfg.uiTheme, now);
         dirty();

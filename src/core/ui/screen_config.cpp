@@ -41,7 +41,8 @@ const char* const kLowMedHigh[] = {"Low", "Medium", "High"};
 const char* const kThemes[] = {"Original",   "Monochrome", "Anniversary",    "Early Cyber", "Corporate", "Amber CRT",
                                "Green Phosphor", "Thermal", "Workstation", "Datamatic", "Dubplate",  "Rave Flyer",
                                "Jungle", "Ice", "Sunset", "Teletext", "Vaporwave", "Blueprint", "Game Boy",
-                               "Sepia", "Hi Contrast", "Cyber Pulse", "Spectrum"};
+                               "Sepia", "Hi Contrast", "Cyber Pulse", "Spectrum", "Acid House", "Plasma",
+                               "Colour Wheel", "Ember", "Night Drive", "Glitch"};
 static_assert(sizeof(kThemes) / sizeof(kThemes[0]) == kThemeTotal, "one label per theme");
 const char* const kSliceModes[] = {"Stock", "Breaks"};
 const char* const kBBReseed[] = {"New at stop", "Every loop", "Every 2 loops", "Every 4 loops", "Every 8 loops", "Locked"};
