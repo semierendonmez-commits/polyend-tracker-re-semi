@@ -51,8 +51,15 @@ struct Envelope {
     uint8_t enabled = 0;
 };
 
+// OT fork LFO shapes after the stock five (chaos / random walks), kept in the
+// LFO record's padding byte (stock reads the shape as Random).
+enum ForkLfoShape : uint8_t { kForkLfoNone = 0, kForkRungler, kForkGingerbread, kForkRossler, kForkDrift, kForkBridge };
+constexpr int kForkLfoShapes = 5;
+constexpr int kLfoShapeCount = 5 + kForkLfoShapes;   // UI list: stock 0..4, fork 5..9
+
 struct Lfo {
     uint8_t shape = uint8_t(LfoShape::Triangle);
+    uint8_t forkShape = kForkLfoNone;   // 1..5: overrides shape (which is then Random)
     uint8_t speed = 0;     // 0..28 (128 bars .. 1/64)
     float amount = 0.5f;
 };

@@ -185,6 +185,10 @@ private:
         float rnd = 0.0f;   // sample & hold level v in [0, A]
         int16_t stepOn = 0; // S_on latch (spec 07 Q5)
         uint32_t cyc = 0;   // free-running period counter
+        // OT fork chaos LFO state.
+        float cx = 0.0f, cy = 0.0f, cz = 0.0f, a0 = 0.5f, a1 = 0.5f, lastPos = -1.0f;
+        uint8_t reg = 0x5A;
+        int8_t pts[9] = {};
     };
     struct Overrides {
         int16_t volume = -1, pan = -1, dsend = -1, rsend = -1, od = -1, bits = -1;
@@ -207,6 +211,7 @@ private:
     void updateLfo(int slot, const VoiceControl& c, int speed);
     int16_t curStep0_ = 0;
     uint32_t rnd(uint32_t n);
+    float chaosLfo(Mod& m, uint8_t shape, uint32_t cycle, float ph);   // OT fork: 0..1
     void renderPlayer(float* out, uint32_t n);
     // Stereo player / block render (2x-04 §3). Kept apart from the mono
     // functions so the mono path compiles exactly as before.

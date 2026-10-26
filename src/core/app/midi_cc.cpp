@@ -133,7 +133,10 @@ bool applyInstrumentCc(Instrument& in, uint8_t cc, uint8_t value) {
     switch (r->param) {
         case InstrParam::AutoType: return iedit::set(in, InstrParam::AutoType, d, 2 * v / 127);
         case InstrParam::AutoAttackShape:
-            if (lfo) return applyU8(l.shape, 4 * v / 127, 0, 4);
+            if (lfo) {
+                l.forkShape = 0;
+                return applyU8(l.shape, 4 * v / 127, 0, 4);
+            }
             return e.enabled ? applyTime(e.attackMs, uint8_t(v)) : false;
         case InstrParam::AutoDecaySpeed:
             if (lfo) {

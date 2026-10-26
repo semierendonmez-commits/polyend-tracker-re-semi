@@ -44,7 +44,7 @@ Range range(const Instrument& in, InstrParam p, int dest) {
         case InstrParam::DelaySend: return {0, 100};
         case InstrParam::AutoType: return {0, 2};
         case InstrParam::AutoAttackShape:
-            return autoType(in, dest) == 2 ? Range{0, 4} : Range{0, 190};
+            return autoType(in, dest) == 2 ? Range{0, kLfoShapeCount - 1} : Range{0, 190};   // OT fork: + 5 shapes
         case InstrParam::AutoDecaySpeed:
             // Volume LFO speed is stored 0..23 (shown as list index +5), §6.
             if (autoType(in, dest) == 2) return dclamp(dest) == 0 ? Range{0, 23} : Range{0, 28};
@@ -74,7 +74,7 @@ int get(const Instrument& in, InstrParam p, int dest) {
         case InstrParam::ReverbSend: return in.reverbSend;
         case InstrParam::DelaySend: return in.delaySend;
         case InstrParam::AutoType: return autoType(in, dest);
-        case InstrParam::AutoAttackShape: return lfo ? l.shape : msToKnob(e.attackMs);
+        case InstrParam::AutoAttackShape: return lfo ? (l.forkShape ? 4 + l.forkShape : l.shape) : msToKnob(e.attackMs);
         case InstrParam::AutoDecaySpeed: return lfo ? l.speed : msToKnob(e.decayMs);
         case InstrParam::AutoSustain: return toUnits(e.sustain, 0.01f);
         case InstrParam::AutoRelease: return msToKnob(e.releaseMs);
@@ -125,8 +125,12 @@ bool set(Instrument& in, InstrParam p, int dest, int units) {
                 l.speed = uint8_t(range(in, InstrParam::AutoDecaySpeed, dest).hi);
             break;
         case InstrParam::AutoAttackShape:
-            if (lfo) l.shape = uint8_t(v);
-            else e.attackMs = uint16_t(knobToMs(v));
+            if (lfo) {
+                l.shape = uint8_t(v > 4 ? 4 : v);   // fork shapes: Random for stock
+                l.forkShape = uint8_t(v > 4 ? v - 4 : 0);
+            } else {
+                e.attackMs = uint16_t(knobToMs(v));
+            }
             break;
         case InstrParam::AutoDecaySpeed:
             if (lfo) l.speed = uint8_t(v);

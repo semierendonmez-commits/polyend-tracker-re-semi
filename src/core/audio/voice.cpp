@@ -590,6 +590,10 @@ void Voice::updateLfo(int s, const VoiceControl& c, int speed) {
         m.t += c.blockUs;
     }
     float v;
+    if (const uint8_t fs = ins_->lfo[s].forkShape) {   // OT fork chaos shapes
+        m.out = 2.0f * clampf(A * chaosLfo(m, fs, cycle, ph), -1.0f, 1.0f) - A;
+        return;
+    }
     switch (ins_->lfo[s].shape) {
         case 0: v = A * (1.0f - ph); break;                                  // decay
         case 1: v = A * ph; break;                                           // attack
@@ -605,6 +609,80 @@ void Voice::updateLfo(int s, const VoiceControl& c, int speed) {
             break;
     }
     m.out = 2.0f * clampf(v, -1.0f, 1.0f) - A;
+}
+
+// OT fork chaos LFO shapes, 0..1 (HetrickCV / Nonlinear Circuits, CC0, and
+// ZetaCarinae ideas): one LFO period is one step of the map or one orbit.
+float Voice::chaosLfo(Mod& m, uint8_t shape, uint32_t cycle, float ph) {
+    auto uni = [this]() { return float(rnd(65536u)) * (1.0f / 65536.0f); };
+    const float pos = float(cycle & 0xFFFFu) + ph;
+    float dph = m.lastPos < 0.0f ? 0.0f : pos - m.lastPos;
+    if (dph < 0.0f || dph > 4.0f) dph = 0.0f;   // wrapped / jumped: no step
+    m.lastPos = pos;
+    const bool newCycle = cycle != m.lastCycle;
+    m.lastCycle = cycle;
+    switch (shape) {
+        case kForkRungler: {   // Rob Hordijk's Rungler: an 8-bit register, 3-bit DAC, stepped
+            if (newCycle) {
+                const uint32_t h = (cycle * 0x9E3779B9u) >> 31;   // the second oscillator's square
+                const uint8_t in = uint8_t(((m.reg >> 7) & 1u) ^ h);
+                m.reg = uint8_t((m.reg << 1) | in);
+                if (!m.reg) m.reg = 0x5A;
+            }
+            return float((m.reg >> 5) & 7u) / 7.0f;
+        }
+        case kForkGingerbread: {   // x' = 1 - y + |x|, y' = x; smooth between steps
+            if (newCycle) {
+                if (m.cx == 0.0f && m.cy == 0.0f) m.cx = -0.1f;
+                const float x = 1.0f - m.cy + (m.cx < 0.0f ? -m.cx : m.cx);
+                m.cy = m.cx;
+                m.cx = x > 20.0f ? 20.0f : (x < -20.0f ? -20.0f : x);
+                m.a0 = m.a1;
+                m.a1 = clampf((m.cx + 3.0f) / 11.0f, 0.0f, 1.0f);
+            }
+            return m.a0 + (m.a1 - m.a0) * ph;
+        }
+        case kForkRossler: {   // Rossler attractor, about one orbit per period
+            if (m.cx == 0.0f && m.cy == 0.0f && m.cz == 0.0f) m.cx = 1.0f;
+            float dt = dph * 6.0f;
+            int n = int(dt / 0.02f) + 1;
+            n = n > 64 ? 64 : n;
+            dt /= float(n);
+            for (int i = 0; i < n; ++i) {
+                const float dx = -m.cy - m.cz, dy = m.cx + 0.2f * m.cy, dz = 0.2f + m.cz * (m.cx - 5.7f);
+                m.cx += dx * dt;
+                m.cy += dy * dt;
+                m.cz += dz * dt;
+            }
+            if (!(m.cx > -50.0f && m.cx < 50.0f)) m.cx = m.cy = m.cz = 0.0f;   // safety
+            return clampf((m.cx + 10.0f) / 22.0f, 0.0f, 1.0f);
+        }
+        case kForkDrift: {   // Ornstein-Uhlenbeck: a random walk pulled back to the middle
+            if (dph > 0.0f) {
+                const float z = (uni() + uni() + uni() + uni() - 2.0f) * 1.7320508f;
+                m.cx += -1.5f * m.cx * dph + 0.9f * z * std::sqrt(dph);
+                m.cx = clampf(m.cx, -1.5f, 1.5f);
+            }
+            return clampf(0.5f + 0.5f * m.cx, 0.0f, 1.0f);
+        }
+        default: {   // Brownian bridge: a random path that starts and ends in the middle each period
+            if (newCycle) {
+                float w[9];
+                w[0] = 0.0f;
+                for (int k = 1; k < 9; ++k) w[k] = w[k - 1] + (uni() + uni() - 1.0f) * 0.9f;
+                for (int k = 0; k < 9; ++k) {
+                    const float b = w[k] - float(k) / 8.0f * w[8];
+                    m.pts[k] = int8_t(clampf(b, -1.0f, 1.0f) * 127.0f);
+                }
+            }
+            const float x = ph * 8.0f;
+            int k = int(x);
+            k = k > 7 ? 7 : k;
+            const float f = x - float(k);
+            const float b = (float(m.pts[k]) + (float(m.pts[k + 1]) - float(m.pts[k])) * f) / 127.0f;
+            return clampf(0.5f + 0.5f * b, 0.0f, 1.0f);
+        }
+    }
 }
 
 void Voice::updateMod(int s, const VoiceControl& c) {

@@ -23,7 +23,9 @@ int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 const char* kFilterNames[4] = {"Disabled", "Low-pass", "High-pass", "Band-pass"};
 const char* kDestNames[6] = {"Volume", "Panning", "Cutoff", "Wavetable Position", "Granular Position", "Finetune"};
 const char* kTypeNames[3] = {"Off", "Envelope", "LFO"};
-const char* kShapeNames[5] = {"Rev saw", "Saw", "Triangle", "Square", "Random"};
+const char* kShapeNames[kLfoShapeCount] = {"Rev saw", "Saw",     "Triangle", "Square", "Random",
+                                           "Rungler", "Gingerbrd", "Rossler", "Drift", "Bridge"};   // OT fork 5..9
+int shapeIndex(const Lfo& l) { return l.forkShape ? 4 + l.forkShape : l.shape % 5; }
 // "128 steps" ... "1/64 step" (stock table 0xa69cc); plural above one step
 // is assumed for the entries between the two listed ends (README).
 const char* kSpeedNames[29] = {"128 steps", "96 steps", "64 steps", "48 steps", "32 steps", "24 steps",
@@ -187,7 +189,7 @@ void InstrumentScreen::valueText(int c, char* out, int cap, float* frac, bool* b
             default: break;
         }
         if (type == 2) {
-            if (c == 2) { std::snprintf(out, size_t(cap), "%s", kShapeNames[l.shape % 5]); *frac = float(l.shape) / 4.0f; }
+            if (c == 2) { std::snprintf(out, size_t(cap), "%s", kShapeNames[shapeIndex(l)]); *frac = float(shapeIndex(l)) / float(kLfoShapeCount - 1); }
             else if (c == 3) {
                 const int idx = dest == 0 ? l.speed + 5 : l.speed;
                 std::snprintf(out, size_t(cap), "%s", kSpeedNames[clampi(idx, 0, 28)]);
@@ -709,7 +711,7 @@ void InstrumentScreen::draw(Gfx& g) {
             if (type == 0 || (type == 2 && c > 4)) break;
             drawn[col] = true;
             if (type == 2 && c == 2) {
-                listColumn(g, th, col, 1, kShapeNames, 5, in.lfo[dest].shape % 5);
+                listColumn(g, th, col, 1, kShapeNames, kLfoShapeCount, shapeIndex(in.lfo[dest]));
             } else if (type == 2 && c == 3) {
                 // Volume's LFO speeds run 24 steps .. 1/64 step: the list
                 // starts at "24 steps", nothing above it is listed (stock).

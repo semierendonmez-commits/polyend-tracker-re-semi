@@ -95,6 +95,11 @@ void encodeBody(const Instrument& ins, uint8_t* b) {
         uint8_t* l = b + kLfo + i * kLfoSize;
         l[0] = ins.lfo[i].shape;
         l[1] = ins.lfo[i].speed;
+        // OT fork chaos shape: tagged in the padding byte, shape Random for stock.
+        if (ins.lfo[i].forkShape >= 1 && ins.lfo[i].forkShape <= kForkLfoShapes) {
+            l[0] = uint8_t(LfoShape::Random);
+            l[2] = uint8_t(0xA0 | ins.lfo[i].forkShape);
+        }
         wrF32(l + 4, ins.lfo[i].amount);
     }
     wrF32(b + kCutoff, ins.cutoff);
@@ -158,6 +163,9 @@ void decodeBody(const uint8_t* b, Instrument& ins) {
         const uint8_t* l = b + kLfo + i * kLfoSize;
         ins.lfo[i].shape = l[0];
         ins.lfo[i].speed = l[1];
+        ins.lfo[i].forkShape = (l[2] & 0xF0) == 0xA0 && (l[2] & 0x0F) >= 1 && (l[2] & 0x0F) <= kForkLfoShapes
+                                   ? uint8_t(l[2] & 0x0F)
+                                   : uint8_t(kForkLfoNone);
         ins.lfo[i].amount = rdF32Range(l + 4, Lfo().amount, 0.0f, 1.0f);
     }
     ins.cutoff = rdF32Range(b + kCutoff, Instrument().cutoff, 0.0f, 1.0f);
