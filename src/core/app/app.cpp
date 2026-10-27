@@ -233,6 +233,13 @@ void App::applyEngineSettings() {
     m.sc[0] = fork.sc[0];   // OT fork sidechain (project)
     m.sc[1] = fork.sc[1];
     seq.setLinks(fork.link);   // OT fork track links (project)
+    {   // OT fork Master Reverb page 2 (project): the current model's values.
+        const int rm = m.reverbModel < ReverbExtra::kModels ? m.reverbModel : 0;
+        m.revLowCut = fork.rev.lowCut;
+        m.revWidth = fork.rev.width;
+        m.revCharA = fork.rev.a[rm];
+        m.revCharB = fork.rev.b[rm];
+    }
     m.metronomeVolume = cfg.metronomeVolume;
     m.previewVolume = cfg.previewVolume > 100 ? 100 : cfg.previewVolume;
     // Config "Line in channel" (spec 15 §2.2 #11): clamp > 2 -> 2 and push it

@@ -51,7 +51,7 @@ const FxDesc kFx[kFxCount] = {
     {"Pattern Length", 0, 8, kLength, 0, 0, true},
     {"Bit Depth", -12, 12, nullptr, 0, 0, false},
     {"Overdrive", -100, 100, nullptr, 0, 0, false},
-    {"Acid Density", -7, 7, nullptr, 0, 0, false},   // OT fork
+    {"Acid Density", -14, 14, nullptr, 0, 0, false},   // OT fork: an offset, any density reachable
     {"Acid Accent", -100, 100, nullptr, 0, 0, false},
     {"Acid Slide", -100, 100, nullptr, 0, 0, false},
     {"Acid Mutate", -100, 100, nullptr, 0, 0, false},
@@ -64,7 +64,7 @@ const FxDesc kFx[kFxCount] = {
     {"Grids X", -100, 100, nullptr, 0, 0, true},
     {"Grids Y", -100, 100, nullptr, 0, 0, true},
     {"Grids Density", -100, 100, nullptr, 0, 0, true},
-    {"Loop Lock", -100, 100, nullptr, 0, 0, true},
+    {"Loop Lock", -100, 100, nullptr, 0, 0, false},   // per track (the tracks it is on)
     {"DeRez", 0, 100, nullptr, 0, 0, false},
 };
 }  // namespace

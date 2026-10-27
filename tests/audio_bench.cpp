@@ -1281,6 +1281,12 @@ int main(int argc, char** argv) {
         report("wPlate", timeBlocks(r, 2000, lineNoise));
         m.reverbModel = 6;
         report("wRoom", timeBlocks(r, 2000, lineNoise));
+        // Master Reverb page 2 on the most expensive model: low cut and width.
+        m.revLowCut = 50;
+        m.revWidth = 130;
+        report("wRoomX", timeBlocks(r, 2000, lineNoise));
+        m.revLowCut = 0;
+        m.revWidth = 100;
         m.reverbModel = 0;
         m.satColor = 1;
         report("wColor", timeBlocks(r, 2000, lineNoise));

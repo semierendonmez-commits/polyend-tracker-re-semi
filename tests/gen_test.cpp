@@ -117,7 +117,7 @@ TEST(acid_deterministic_and_valid) {
 TEST(acid_density_extremes) {
     int16_t v[gen::kParams];
     defaults(gen::kAcid, v);
-    v[0] = -7;   // density -7: a few notes (1/16 of the steps), at least one
+    v[0] = 0;   // TB-3PO density 0: the sparsest (10 %), at least one note
     v[5] = 7;
     gen::Target t = target(0, 31);
     gen::generate(gen::kAcid, v, t);
@@ -136,17 +136,19 @@ TEST(acid_density_extremes) {
     CHECK(patternValid());
 }
 
-// Live density: the same phrase at a higher density keeps every note of the
-// lower one (same pitch), only adds notes.
-TEST(acid_density_is_nested) {
+// TB-3PO density: |d| sets how many steps play (0 sparse, +-7 every step);
+// the negative side narrows the pitches (-7 root only). The same draws at a
+// higher |d| keep every note of the lower one; on the positive side the
+// pitches stay.
+TEST(acid_density_is_tb3po) {
     int16_t v[gen::kParams];
     defaults(gen::kAcid, v);
     gen::Target t = target(0, 63);
-    gen::MonoStep a[64], b[64];
-    gen::Rng r1(99), r2(99);
-    v[0] = -2;
+    gen::MonoStep a[64], b[64], c[64];
+    gen::Rng r1(99), r2(99), r3(99);
+    v[0] = 2;
     gen::acidPhrase(v, t, r1, a, 64);
-    v[0] = 5;
+    v[0] = 6;
     gen::acidPhrase(v, t, r2, b, 64);
     int na = 0, nb = 0;
     for (int i = 0; i < 64; ++i) {
@@ -158,8 +160,38 @@ TEST(acid_density_is_nested) {
         }
     }
     CHECK(nb > na);
-    gen::acidApplyDensity(b, 64, -2, 48);
+    gen::acidApplyDensity(b, 64, 2, t.rootNote, t.scaleMask, v[3]);
     for (int i = 0; i < 64; ++i) CHECK_EQ(a[i].active, b[i].active);
+    // -7: every step plays, all on the root (octaves aside); +7 every step too.
+    v[0] = -7;
+    gen::acidPhrase(v, t, r3, c, 64);
+    int full = 0, roots = 0;
+    for (int i = 0; i < 64; ++i) {
+        full += c[i].active;
+        roots += ((c[i].note - t.rootNote) % 12 + 12) % 12 == 0;
+    }
+    CHECK_EQ(full, 64);
+    CHECK_EQ(roots, 64);
+    gen::acidApplyDensity(c, 64, 7, t.rootNote, t.scaleMask, v[3]);
+    int full7 = 0, pcs = 0, seen = 0;
+    for (int i = 0; i < 64; ++i) {
+        full7 += c[i].active;
+        const int pc = ((c[i].note - t.rootNote) % 12 + 12) % 12;
+        if (!(seen & (1 << pc))) ++pcs;
+        seen |= 1 << pc;
+    }
+    CHECK_EQ(full7, 64);
+    CHECK(pcs >= 4);
+    // 0: sparse (about 10 %); -6: root and one more degree.
+    gen::acidApplyDensity(c, 64, 0, t.rootNote, t.scaleMask, v[3]);
+    int n0 = 0;
+    for (int i = 0; i < 64; ++i) n0 += c[i].active;
+    std::printf("  density 0: %d of 64\n", n0);
+    CHECK(n0 >= 1 && n0 <= 16);
+    gen::acidApplyDensity(c, 64, -6, t.rootNote, t.scaleMask, v[3]);
+    seen = 0;
+    for (int i = 0; i < 64; ++i) seen |= 1 << (((c[i].note - t.rootNote) % 12 + 12) % 12);
+    CHECK(__builtin_popcount(unsigned(seen)) <= 2);
 }
 
 // Two tracks: the call plays on the first track only in call parts, the

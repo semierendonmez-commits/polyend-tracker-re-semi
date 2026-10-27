@@ -20,11 +20,25 @@ and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**
 | **Track Link: a track plays live with another track's notes** | **Linked track: "<1" on its header** |
 |---|---|
 | ![Track Link popup](screenshots/2.2.1-semi/link-popup.png) | ![Linked track in the grid](screenshots/2.2.1-semi/link-grid.png) |
+| **Master Reverb 2/2 (Shift): Low cut, Width, character** | **Acid: TB-3PO density, Octaves** |
+| ![Master Reverb 2/2](screenshots/2.2.1-semi/reverb-page2.png) | ![Generate Acid](screenshots/2.2.1-semi/gen-acid-tb3po.png) |
+| **Master 1/5: the colours in the Saturation list** | |
+| ![Master 1/5 colours](screenshots/2.2.1-semi/master1-colour.png) | |
 
 - **Track Link** (Pattern page 3, F4): a track follows another track live. Whenever the source
   plays a note (steps, rolls, play modes, Mutate, live Grids, pads), the linked track plays
   its own instrument at the same moment: Follow or fixed note, transpose, level, chance, FX
   copy. Mute the source and only the layer is heard. Saved with the project.
+- **Acid density as in TB-3PO:** 0 is the sparsest, -7 and +7 play every step; below 0 the
+  line narrows to the root (-7 root only) and repeats, above 0 it uses the whole scale.
+  Octaves Off / TB-3PO / Wide. The Perform FX Acid Density reaches every density.
+- **Turing Machine:** Loop Lock is now per track and works as the TM knob: +100 locks the
+  loop, -50 random, -100 a locked double-length loop.
+- **Master Reverb 2/2** (Shift): Low cut and Width for every model, two character values per
+  model (Hall mod, Shimmer amount, Gated hold / release, Texture grain / octaves, Plate mod /
+  bandwidth, Room early reflections).
+- **Master colour fix:** ToTape / Console / Density / PurestDrive now replace the stock
+  saturation instead of running after Drive+; they are in the Master 1/5 list too.
 
 ### Previous update (2.2.1-semi.5)
 

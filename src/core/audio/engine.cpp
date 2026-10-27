@@ -502,18 +502,39 @@ void AudioEngine::updateParams() {
     }
     revModel_ = rm;
     dlyModel_ = m.delayModel <= 2 ? m.delayModel : 0;
+    // OT fork Master Reverb page 2.
+    const float chA = float(m.revCharA > 100 ? 100 : m.revCharA) / 100.0f;
+    const float chB = float(m.revCharB > 100 ? 100 : m.revCharB) / 100.0f;
+    if (m.revLowCut != cRevLowCut_) {
+        cRevLowCut_ = m.revLowCut > 100 ? 100 : m.revLowCut;
+        if (cRevLowCut_) {
+            // RBJ high-pass, Q 0.707 (b2 = b0, b1 = -2 b0).
+            const float hz = 20.0f * std::pow(50.0f, float(cRevLowCut_ - 1) / 99.0f);
+            const float w0 = 6.2831853f * hz / 44100.0f, cw = std::cos(w0), al = std::sin(w0) * 0.70710678f;
+            const float a0 = 1.0f + al;
+            revHpB0_ = 0.5f * (1.0f + cw) / a0;
+            revHpB1_ = -(1.0f + cw) / a0;
+            revHpA1_ = -2.0f * cw / a0;
+            revHpA2_ = (1.0f - al) / a0;
+        }
+        revHpZ_[0] = revHpZ_[1] = 0.0f;
+    }
+    revWidth_ = float(m.revWidth > 150 ? 150 : m.revWidth) / 100.0f;
     if (revModel_ == 4) {
+        tex_.setChar(chA, chB);
         tex_.setSize(m.reverbSize);
         tex_.setDamping(m.reverbDamping);
         tex_.setDiffusion(m.reverbDiffusion);
         tex_.setPredelay(m.reverbPredelay);
     } else if (revModel_ == 5) {
+        plate_.setChar(chA, chB);
         plate_.setSize(m.reverbSize);
         plate_.setDamping(m.reverbDamping);
         plate_.setDiffusion(m.reverbDiffusion);
         plate_.setPredelay(m.reverbPredelay);
     } else if (revModel_) {
         fdn_.setModel(revModel_ == 6 ? 4 : revModel_);
+        fdn_.setChar(chA, chB);
         fdn_.setSize(m.reverbSize);
         fdn_.setDamping(m.reverbDamping);
         fdn_.setDiffusion(m.reverbDiffusion);
@@ -855,10 +876,39 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
     const uint32_t pc5 = stamp();
     const bool dly = dlyModel_ ? tape_.process(dsend_, dL_, dR_) : delay_.process(dsend_, dL_, dR_);
     const uint32_t pc6 = stamp();
+    if (cRevLowCut_) {
+        // OT fork reverb low cut: a 12 dB/oct high-pass on the send (TDF II).
+        const float b0 = revHpB0_, b1 = revHpB1_, a1 = revHpA1_, a2 = revHpA2_;
+        float z1 = revHpZ_[0], z2 = revHpZ_[1];
+        for (uint32_t i = 0; i < kBlock; ++i) {
+            const float x = rsend_[i];
+            const float y = b0 * x + z1;
+            z1 = b1 * x - a1 * y + z2;
+            z2 = b0 * x - a2 * y;
+            rsend_[i] = y;
+        }
+        // A silent send settles to exact zeros (the models' idle check).
+        if (z1 < 1e-9f && z1 > -1e-9f && z2 < 1e-9f && z2 > -1e-9f) {
+            z1 = z2 = 0.0f;
+            bool any = false;
+            for (uint32_t i = 0; i < kBlock; ++i) any |= rsend_[i] > 1e-9f || rsend_[i] < -1e-9f;
+            if (!any) zeroWords(rsend_, sizeof(rsend_));
+        }
+        revHpZ_[0] = z1;
+        revHpZ_[1] = z2;
+    }
     const bool rev = revModel_ == 4   ? tex_.process(rsend_, rL_, rR_)
                      : revModel_ == 5 ? plate_.process(rsend_, rL_, rR_)
                      : revModel_      ? fdn_.process(rsend_, rL_, rR_)
                                       : reverb_.process(rsend_, rL_, rR_);
+    if (rev && revWidth_ != 1.0f) {   // OT fork reverb width (mid / side)
+        const float wd = revWidth_;
+        for (uint32_t i = 0; i < kBlock; ++i) {
+            const float mid = 0.5f * (rL_[i] + rR_[i]), side = 0.5f * wd * (rL_[i] - rR_[i]);
+            rL_[i] = mid + side;
+            rR_[i] = mid - side;
+        }
+    }
     // OT fork sidechain on the returns and the line input.
     auto duckBus = [](float* a, float* b, const float* g) {
         for (uint32_t i = 0; i < kBlock; ++i) {
@@ -893,7 +943,8 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
                     const float p = peak(bus[ch][sd], ch == 3 ? (l0 < 0.0f ? -l0 : l0) : 1.0f);
                     if (p > busPeak_[ch][sd]) busPeak_[ch][sd] = p;
                 }
-            switch (m.saturationMode) {
+            // OT fork: a master colour replaces the stock saturation mode.
+            switch (m.satColor ? 0 : m.saturationMode) {
                 case 1: masterSum<1>(l0, li); break;
                 case 2: masterSum<2>(l0, li); break;
                 case 3: masterSum<3>(l0, li); break;

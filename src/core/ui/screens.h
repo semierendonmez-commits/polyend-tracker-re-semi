@@ -429,6 +429,7 @@ public:
     // reverb, line in (pads 13-15).
     static int scTargetOfPad(int pad);
     int sub = 0;            // master sub-page: 0 main, 1 reverb, 2 delay, 3 limiter, 4 EQ
+    int revPage = 0;        // OT fork Master Reverb: 1 = page 2 (Shift): low cut, width, character
     int param = 0;          // selected parameter on the (sub-)page
     bool rename = false;
     // 2.x Track Mixer bank (docs/specs/2x-01 §4): 0 = tracks 1-8, 1 = tracks

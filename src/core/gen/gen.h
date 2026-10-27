@@ -140,6 +140,7 @@ struct MonoStep {
     float thr = 0;                 // Acid: plays while thr < the density probability
     bool slideWant = false;        // Acid: slides when the next step plays too
     float accThr = 1, slideThr = 1;  // Acid: accent / slide while below the amount (live Perform FX)
+    uint8_t rep = 255, pitch = 0, oct = 255;   // Acid: the step's repeat / pitch / octave draws (TB-3PO)
 };
 // Writes steps s0.. of track t: note, instrument and the FX (Glide on the
 // note slid into, Volume 100 on accents, Gate when shorter than a step).
@@ -161,7 +162,7 @@ void acidMutate(const int16_t* v, const Target& t, Rng& rng, MonoStep* ph, int n
 // Acid density -7..+7 -> the share of steps that play ((d + 8) / 16), and the
 // phrase's active flags for it (pitches, accents and slides stay).
 float acidDensityProb(int d);
-void acidApplyDensity(MonoStep* ph, int n, int density, int root);
+void acidApplyDensity(MonoStep* ph, int n, int density, int root, uint16_t scaleMask, int octaves);
 // OT fork Perform "Acid Accent" / "Acid Slide": accents and slide wishes for
 // amounts 0..1 from the steps' own thresholds (call acidApplyDensity after).
 void acidApplyAccentSlide(MonoStep* ph, int n, float accent, float slide);

@@ -65,7 +65,7 @@ struct State {
     BBSlot bb[kBBSlots];
     GridsSlot grids[kGridsSlots];
     int16_t grX = 0, grY = 0, grD = 0;
-    int16_t loopLock = 0;
+    int16_t loopLock[kTrackCount] = {};
     // M / TM / R play modes: per-track state kept across loops.
     uint8_t mbSrc[kTrackCount][seq::kPlayModeTableLen] = {};
     bool mbValid[kTrackCount] = {};
@@ -133,8 +133,8 @@ void renderGrids(App& a, State& st, GridsSlot& s) {
     s.hash = hashSteps(a.pattern(), s);
 }
 
-float lockFor(const State& st, float base) {
-    const float l = base + float(st.loopLock) / 100.0f;
+float lockFor(const State& st, int t, float base) {
+    const float l = base + float(st.loopLock[t]) / 100.0f;
     return l < 0.0f ? 0.0f : (l > 1.0f ? 1.0f : l);
 }
 
@@ -146,7 +146,7 @@ void buildMarbles(App& a, State& st, int t, int level) {
     const int len = tr.length();
     st.genoSeed = st.genoSeed * 1664525u + 1013904223u + a.micros();
     gen::Rng rng(st.genoSeed | 1u);
-    const float lock = lockFor(st, kBase[level < 0 ? 0 : (level > 2 ? 2 : level)]);
+    const float lock = lockFor(st, t, kBase[level < 0 ? 0 : (level > 2 ? 2 : level)]);
     uint8_t notes[kStepCount];
     int nn = 0;
     for (int j = 0; j < len; ++j)
@@ -161,14 +161,18 @@ void buildMarbles(App& a, State& st, int t, int level) {
 }
 
 // Turing Machine (TM8 / TM16): the register's last bit comes back in, flipped
-// with (1 - lock) / 2; its low byte picks the step.
+// with the knob's probability; its low byte picks the step. Loop Lock is the
+// Turing Machine knob: 0 a slow change (5 % per step), +100 locked (the
+// register just rotates: an 8 / 16 step loop), -50 random, -100 always
+// flipped (a locked loop of twice the length, the second half inverted).
 void buildTuring(App& a, State& st, int t, int bits) {
     const Track& tr = a.pattern().tracks[t];
     const int len = tr.length();
     st.genoSeed = st.genoSeed * 1664525u + 1013904223u + a.micros();
     gen::Rng rng(st.genoSeed | 1u);
     if (!st.tmReg[t]) st.tmReg[t] = uint16_t(rng.next() | 1u);
-    const float flip = 0.5f * (1.0f - lockFor(st, 0.9f));   // lock 0: fully random (the TM knob at noon)
+    const float L = float(st.loopLock[t]) / 100.0f;
+    const float flip = L >= 0.0f ? 0.05f * (1.0f - L) : 0.05f - L * 0.95f;
     const uint16_t mask = uint16_t((1u << bits) - 1u);
     uint16_t r = st.tmReg[t];
     for (int k = 0; k < len && k < seq::kPlayModeTableLen; ++k) {
@@ -191,7 +195,7 @@ void buildRandLoop(App& a, State& st, int t, int level) {
     const int len = tr.length();
     st.genoSeed = st.genoSeed * 1664525u + 1013904223u + a.micros();
     gen::Rng rng(st.genoSeed | 1u);
-    const float move = 1.0f - lockFor(st, kBase[level ? 1 : 0]);
+    const float move = 1.0f - lockFor(st, t, kBase[level ? 1 : 0]);
     uint8_t deg[12];
     const uint8_t sc = a.scale();
     const int nd = sc == 0 ? 12 : gen::scaleDegrees(scaleMask(sc), deg);
@@ -421,7 +425,7 @@ void service(App& a) {
         }
         const int d = effectiveDensity(st, s);
         if (d != s.applied) {
-            gen::acidApplyDensity(s.ph, s.n, d, s.rootNote);
+            gen::acidApplyDensity(s.ph, s.n, d, s.rootNote, s.scaleMask, s.v[3]);
             s.applied = int8_t(d);
             dirty = true;
         }
@@ -563,7 +567,10 @@ void setGridsPerf(int x, int y, int density) {
     st.grD = c(density);
 }
 
-void setLoopLock(int v) { gState.get().loopLock = int16_t(v < -100 ? -100 : (v > 100 ? 100 : v)); }
+void setLoopLock(int track, int v) {
+    if (track < 0 || track >= kTrackCount) return;
+    gState.get().loopLock[track] = int16_t(v < -100 ? -100 : (v > 100 ? 100 : v));
+}
 
 void release(int track) {
     for (AcidSlot& s : gState.get().acid)

@@ -14,11 +14,35 @@ namespace {
 int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 // Saturation mode labels 0..4 as listed by the stock Master page [S snap 022]
-// (mode 0 = plain hard saturation, spec 04 §5.4; supersedes the [I] labels).
-const char* kSatNames[5] = {"Hard Clip", "Soft Clip", "Saturate", "Overdrive", "Drive+"};
-// OT fork Dynamics: the stock modes, then the master colours (Config satColor).
+// (mode 0 = plain hard saturation, spec 04 §5.4; supersedes the [I] labels),
+// then the OT fork master colours (Config satColor), on Master 1/5 and 4/5.
 const char* kDynSatNames[9] = {"Hard Clip", "Soft Clip", "Saturate", "Overdrive", "Drive+",
                                "ToTape",    "Console",   "Density",  "PurestDrv"};
+// The saturation list index 0..8: a master colour (config) replaces the stock
+// mode (project) while it is set.
+int satIndex(const App& a) {
+    return a.cfg.satColor ? 4 + a.cfg.satColor : (a.project.u8(pf::kSaturation) > 4 ? 4 : a.project.u8(pf::kSaturation));
+}
+void satSet(App& a, int nv) {
+    nv = nv < 0 ? 0 : (nv > 8 ? 8 : nv);
+    if (nv >= 5) {
+        a.cfg.satColor = uint8_t(nv - 4);
+    } else {
+        a.cfg.satColor = 0;
+        a.project.setU8(pf::kSaturation, uint8_t(nv));
+        a.markProjectDirty();
+    }
+    a.markConfigDirty();
+}
+// OT fork Master Reverb page 2: the character values' names per model
+// (Stock has none).
+const char* const kRevCharA[7] = {nullptr, "Mod depth", "Shimmer", "Hold", "Grain", "Mod depth", "Early"};
+const char* const kRevCharB[7] = {nullptr, "Mod rate", "Mod depth", "Release", "Octaves", "Bandwidth", "Mod depth"};
+int revModelOf(const App& a) { return a.cfg.reverbModel < 7 ? a.cfg.reverbModel : 0; }
+void revLowCutText(int v, char* out, int cap) {
+    if (v <= 0) std::snprintf(out, size_t(cap), "Off");
+    else std::snprintf(out, size_t(cap), "%d Hz", int(20.0f * std::pow(50.0f, float(v - 1) / 99.0f) + 0.5f));
+}
 // OT fork send-effect models (Config::reverbModel / delayModel, fx_models.h).
 const char* const kRevModels[7] = {"Stock", "Hall", "Shimmer", "Gated", "Texture", "Plate", "Room"};
 
@@ -438,7 +462,7 @@ void MixerScreen::refreshBar() {
         b.set(2, "Ceiling", v);
         std::snprintf(v, sizeof(v), "%.1f dB", double(gainReduction));
         b.set(3, "Gain Reduce", v);
-        b.set(4, "Saturation", kDynSatNames[c.satColor ? 4 + c.satColor : clampi(p.u8(pf::kSaturation), 0, 4)]);
+        b.set(4, "Saturation", kDynSatNames[satIndex(a)]);
         std::snprintf(v, sizeof(v), "+%d dB", c.satDrive);
         b.set(5, "Drive", v);
         std::snprintf(v, sizeof(v), "%d%%", 100 - c.satMixInv);
@@ -456,7 +480,7 @@ void MixerScreen::refreshBar() {
             b.set(2, "Delay");
             b.set(3, "Limiter");
             b.set(4, "EQ");
-            b.set(5, "Saturation", kSatNames[clampi(p.u8(pf::kSaturation), 0, 4)]);
+            b.set(5, "Saturation", kDynSatNames[satIndex(a)]);
             std::snprintf(v, sizeof(v), "%d", p.u8(pf::kBassBoost));
             b.set(6, "Bass Boost", v);
             std::snprintf(v, sizeof(v), "%d", p.u8(pf::kSpace));
@@ -464,6 +488,24 @@ void MixerScreen::refreshBar() {
             // The selected parameter is shown by the column focus frame; the
             // label is not highlighted [S snap 022]; the sub-pages follow
             // the same rule [I].
+        } else if (sub == 1 && revPage) {
+            // OT fork Master Reverb 2/2.
+            const ReverbExtra& r = a.fork.rev;
+            const int rm = revModelOf(a);
+            revLowCutText(r.lowCut, v, sizeof(v));
+            b.set(0, "Low cut", v);
+            std::snprintf(v, sizeof(v), "%d%%", r.width);
+            b.set(1, "Width", v);
+            if (kRevCharA[rm]) {
+                std::snprintf(v, sizeof(v), "%d", r.a[rm]);
+                b.set(2, kRevCharA[rm], v);
+                std::snprintf(v, sizeof(v), "%d", r.b[rm]);
+                b.set(3, kRevCharB[rm], v);
+            } else {
+                b.set(2, "", nullptr, false);
+                b.set(3, "", nullptr, false);
+            }
+            setBack(b);
         } else if (sub == 1) {
             // Values as whole percent: Size 0.60 -> "60" [S round 3, snap 006].
             static const char* n[4] = {"Size", "Damping", "Predelay", "Diffusion"};
@@ -575,10 +617,22 @@ void MixerScreen::masterChange(int d) {
                 a.cfg.masterVolume = uint8_t(clampi(a.cfg.masterVolume + d, 0, 100));
                 a.markConfigDirty();
                 return;
-            case 1: p.setU8(pf::kSaturation, uint8_t(clampi(p.u8(pf::kSaturation) + d, 0, 4))); break;
+            case 1: satSet(a, satIndex(a) + d); return;   // OT fork: the colours too
             case 2: p.setU8(pf::kBassBoost, uint8_t(clampi(p.u8(pf::kBassBoost) + d, 0, 100))); break;
             case 3: p.setU8(pf::kSpace, uint8_t(clampi(p.u8(pf::kSpace) + d, 0, 8))); break;
         }
+    } else if (sub == 1 && revPage) {   // OT fork Master Reverb 2/2
+        ReverbExtra& r = a.fork.rev;
+        const int rm = revModelOf(a);
+        switch (param) {
+            case 0: r.lowCut = uint8_t(clampi(r.lowCut + d, 0, 100)); break;
+            case 1: r.width = uint8_t(clampi(r.width + d, 0, 150)); break;
+            case 2: if (kRevCharA[rm]) r.a[rm] = uint8_t(clampi(r.a[rm] + d, 0, 100)); break;
+            case 3: if (kRevCharB[rm]) r.b[rm] = uint8_t(clampi(r.b[rm] + d, 0, 100)); break;
+            default: return;
+        }
+        a.markForkDirty();
+        return;
     } else if (sub == 1) {
         if (param == 5) {   // OT fork reverb model
             a.cfg.reverbModel = uint8_t(clampi(a.cfg.reverbModel + d, 0, Config::kReverbModels - 1));
@@ -636,18 +690,7 @@ void MixerScreen::dynChange(int d) {
         case 0: p.setU8(pf::kLimiterMode, uint8_t(clampi(p.u8(pf::kLimiterMode) + d, 0, 1))); a.markProjectDirty(); return;
         case 1: c.limLink = uint8_t(clampi(c.limLink + d, 0, 1)); break;
         case 2: c.limCeiling = uint8_t(clampi(c.limCeiling + d, 0, 12)); break;
-        case 4: {   // stock modes 0..4 (project), then the colours 5..8 (config)
-            const int cur = c.satColor ? 4 + c.satColor : clampi(p.u8(pf::kSaturation), 0, 4);
-            const int nv = clampi(cur + d, 0, 8);
-            if (nv >= 5) {
-                c.satColor = uint8_t(nv - 4);
-                break;
-            }
-            c.satColor = 0;
-            p.setU8(pf::kSaturation, uint8_t(nv));
-            a.markProjectDirty();
-            break;
-        }
+        case 4: satSet(a, satIndex(a) + d); return;   // stock modes 0..4 (project), colours 5..8 (config)
         case 5: c.satDrive = uint8_t(clampi(c.satDrive + d, 0, 24)); break;
         case 6: c.satMixInv = uint8_t(clampi(c.satMixInv - d * 2, 0, 100)); break;
         case 7: c.satToneInv = uint8_t(clampi(c.satToneInv - d * 2, 0, 100)); break;
@@ -819,10 +862,11 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                 if (f >= 1 && f <= 4) {
                     sub = f;
                     param = 0;
+                    revPage = 0;
                 } else if (f == 0) {
                     param = 0;
                 } else if (f == 5) {
-                    if (param == 1) masterChange(1 - (app_.project.u8(pf::kSaturation) >= 4 ? 5 : 0));
+                    if (param == 1) masterChange(1 - (satIndex(app_) >= 8 ? 9 : 0));
                     param = 1;
                 } else if (f == 6) {
                     param = 2;
@@ -832,8 +876,10 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
             } else if (f == 7) {
                 sub = 0;
                 param = 0;
+                revPage = 0;
             } else {
-                const int maxF = sub == 2 ? 6 : (sub == 1 ? 5 : 4);   // OT fork: Reverb F6 = model
+                int maxF = sub == 2 ? 6 : (sub == 1 ? 5 : 4);   // OT fork: Reverb F6 = model
+                if (sub == 1 && revPage) maxF = kRevCharA[revModelOf(app_)] ? 3 : 1;   // OT fork Reverb 2/2
                 if (f <= maxF && !(sub == 3 && f == 3)) param = (sub == 3 && f == 4) ? 3 : f;
             }
         } else {
@@ -844,6 +890,13 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
     }
     if (state != kPress) {
         if (id == btn::Shift) refreshBar();
+        return;
+    }
+    if (id == btn::Shift && page == 0 && sub == 1) {   // OT fork: Master Reverb 1/2 <-> 2/2
+        revPage ^= 1;
+        param = 0;
+        refreshBar();
+        ui_.dirty();
         return;
     }
     switch (id) {
@@ -874,7 +927,8 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                 }
             } else if (page == 0 && sub == 0) param = clampi(param + (id == btn::Right ? 1 : -1), 0, 3);
             else if (page == 0) {
-                const int mx = sub == 1 ? 5 : sub == 2 ? 6 : sub == 3 ? 3 : 4;
+                int mx = sub == 1 ? 5 : sub == 2 ? 6 : sub == 3 ? 3 : 4;
+                if (sub == 1 && revPage) mx = kRevCharA[revModelOf(app_)] ? 3 : 1;
                 param = clampi(param + (id == btn::Right ? 1 : -1), 0, mx);
                 if (sub == 2) {
                     const bool sync = app_.project.u8(pf::kDelayFlags) & 0x40;
@@ -884,7 +938,7 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                 // A disabled Line in send (Line In muted) is skipped like
                 // Rate / Time [I]; it is the last parameter of the page.
                 if (sub == 2 && param == 6 && lineInOff(app_.project)) --param;
-                if (sub == 1 && param == 4 && lineInOff(app_.project)) param += id == btn::Right ? 1 : -1;   // OT fork: model at 5
+                if (sub == 1 && !revPage && param == 4 && lineInOff(app_.project)) param += id == btn::Right ? 1 : -1;   // OT fork: model at 5
             }
             break;
         case btn::Delete:
@@ -1135,7 +1189,7 @@ void MixerScreen::draw(Gfx& g) {
             wg::blendFill(g, fx, top + h + 1, fw, 1, cc, wg::kEdgeA);
             g.fill(fx, top, fw, h + 1, cc);
         }
-        optionList(g, th, 4, kDynSatNames, 9, c.satColor ? 4 + c.satColor : clampi(p.u8(pf::kSaturation), 0, 4));
+        optionList(g, th, 4, kDynSatNames, 9, satIndex(a));
         columnBar(g, th, 5, c.satDrive / 24.0f);
         columnBar(g, th, 6, (100 - c.satMixInv) / 100.0f);
         columnBar(g, th, 7, (100 - c.satToneInv) / 100.0f);
@@ -1143,17 +1197,37 @@ void MixerScreen::draw(Gfx& g) {
         return;
     }
     if (page == 0) {
-        ui_.drawTitle(g, kSub[sub]);
+        if (sub == 1 && revPage) {
+            char t[40];
+            std::snprintf(t, sizeof(t), "Master Reverb 2/2  %s", kRevModels[revModelOf(a)]);
+            ui_.drawTitle(g, t);
+        } else {
+            ui_.drawTitle(g, kSub[sub]);
+        }
         if (sub == 0) {
             // spec 06 §4.2 / VISUAL_DIFF §8.11: Volume bar, one wide panel
             // over F2..F5, the Saturation list, Bass Boost and Space bars;
             // the selected parameter has the column focus frame [S snap 022].
             columnBar(g, th, 0, a.cfg.masterVolume / 100.0f);
             wg::panel(g, th, 102, 30, 397, wg::kPanelH - 1);
-            optionList(g, th, 5, kSatNames, 5, clampi(p.u8(pf::kSaturation), 0, 4));
+            optionList(g, th, 5, kDynSatNames, 9, satIndex(a));
             columnBar(g, th, 6, p.u8(pf::kBassBoost) / 100.0f);
             columnBar(g, th, 7, p.u8(pf::kSpace) / 8.0f);
             columnFocus(g, th, kMainParams[clampi(param, 0, 3)]);
+        } else if (sub == 1 && revPage) {
+            // OT fork Master Reverb 2/2: Low cut, Width, the model's A / B.
+            const ReverbExtra& r = a.fork.rev;
+            const int rm = revModelOf(a);
+            columnBar(g, th, 0, r.lowCut / 100.0f);
+            columnBar(g, th, 1, r.width / 150.0f);
+            if (kRevCharA[rm]) {
+                columnBar(g, th, 2, r.a[rm] / 100.0f);
+                columnBar(g, th, 3, r.b[rm] / 100.0f);
+            } else {
+                column(g, th, 2, 2);
+            }
+            column(g, th, 4, 4);
+            columnFocus(g, th, param);
         } else if (sub == 1) {
             // One value bar per parameter (F1..F5), an empty panel over
             // F6..F8 [S round 3, snap 006]. Bars show the stored 0..1 value

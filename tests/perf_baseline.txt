@@ -61,6 +61,8 @@
 # worst re-recorded at semi.5 (244349 -> 256561): the drift was already there at semi.4
 # (256258 measured at 2d681d1: sidechain hooks, master dynamics stage); semi.5 adds ~300 insn
 # (DeRez and colour checks).
+# wRoomX (semi.6): wRoom with the Master Reverb page 2 low cut (biquad on the send) and width
+# (mid / side on the return) on: within the noise of wRoom.
 # stream8 (SD streaming P1, docs/PLAN_SD_STREAMING.md): the stereo8 set with 3 s stereo
 # instruments streamed (resident head, the rest through the track rings; the refill is the
 # main loop's work and not timed). Gated absolutely by the stream.lim line: <= stereo8 + 5 %
@@ -78,6 +80,7 @@ wSidechain 282012
 wTexture 281226
 wPlate   279020
 wRoom    280418
+wRoomX   280080
 wColor   268071
 pltfm    9866
 pltharm  21723

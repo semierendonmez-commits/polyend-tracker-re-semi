@@ -72,7 +72,7 @@ const char* fxPickDesc(void*, int i) {
         "Shortens the pattern for every track (loop a part).",
         "Bit depth reduction on the samples.",
         "Overdrive on the samples.",
-        "Live Acid tracks: more or fewer notes (-7..+7) without changing the melody.",
+        "Live Acid tracks: moves the TB-3PO density (0 sparse, +-7 full, below 0 root-heavy).",
         "Live Acid tracks: more or fewer accents (percent on top of the generated amount).",
         "Live Acid tracks: more or fewer slides.",
         "Live Acid tracks: how much of the line re-rolls at each Mutate loop.",
@@ -88,7 +88,8 @@ const char* fxPickDesc(void*, int i) {
         "Live Grids tracks: moves the map position X (the drum pattern changes at once).",
         "Live Grids tracks: moves the map position Y.",
         "Live Grids tracks: more or fewer hits on all three parts.",
-        "M1..M3, TM8 / TM16, R1 / R2 play modes: + locks the loop (repeats), - lets it change more every loop.",
+        "M1..M3, TM8 / TM16, R1 / R2 on the tracks it is on: +100 locks the loop. TM: -50 random, -100 a locked "
+        "loop of twice the length, inverted (the Turing Machine knob).",
         "Sample-rate reduction on the tracks' samples (sample and hold): 0 off, 100 a few hundred Hz.",
     };
     return i >= 0 && i < perf::kFxCount ? kHelp[i] : "";
@@ -243,13 +244,13 @@ void PerformanceScreen::applyAll(bool revertEverything) {
     Sequencer& q = a.seq;
     int globalLen = -1;
     int bbA = 0, bbB = 0, bbRolls = 0, bbRecut = 0;   // OT fork BBCut play-mode controls (global)
-    int grX = 0, grY = 0, grD = 0, loopLock = 0;      // OT fork Grids / Loop Lock (global)
+    int grX = 0, grY = 0, grD = 0;                    // OT fork Grids (global)
     for (int t = 0; t < kTrackCount; ++t) {
         audio::PerfOffsets p;
         int8_t repeat = -1, velOff = 0, transpose = 0;
         bool transposeOn = false;
         uint8_t playMode = 0;
-        int acidDens = 0, acidAcc = 0, acidSlide = 0, acidMut = 0;
+        int acidDens = 0, acidAcc = 0, acidSlide = 0, acidMut = 0, loopLock = 0;
         const bool on = fxOn[t] && !revertEverything;
         for (int s = 0; s < perf::kSlots && !revertEverything; ++s) {
             const uint8_t ty = src.valid() ? src.type(s) : 0;
@@ -267,7 +268,6 @@ void PerformanceScreen::applyAll(bool revertEverything) {
                 case perf::kGridsX: grX = v; continue;
                 case perf::kGridsY: grY = v; continue;
                 case perf::kGridsDensity: grD = v; continue;
-                case perf::kLoopLock: loopLock = v; continue;
                 default: break;
             }
             if (!on) continue;
@@ -306,6 +306,7 @@ void PerformanceScreen::applyAll(bool revertEverything) {
                 case perf::kFmDepth: p.fmDepth = int16_t(v); break;
                 case perf::kFmSource: p.fmSrc = int8_t(v); break;
                 case perf::kDeRez: p.derez = int16_t(v); break;
+                case perf::kLoopLock: loopLock = v; break;
                 default: break;
             }
         }
@@ -316,11 +317,11 @@ void PerformanceScreen::applyAll(bool revertEverything) {
         q.setPerfTranspose(t, transposeOn && transpose != 0, transpose);
         live::setAcidDensityOffset(t, acidDens);
         live::setAcidPerf(t, acidAcc, acidSlide, acidMut);
+        live::setLoopLock(t, loopLock);
     }
     q.setPerfGlobalLength(globalLen);
     live::setBBPerf(bbA, bbB, bbRolls, bbRecut);
     live::setGridsPerf(grX, grY, grD);
-    live::setLoopLock(loopLock);
 }
 
 // Other slots with the same FX type, or an excluded filter type, go to row 0

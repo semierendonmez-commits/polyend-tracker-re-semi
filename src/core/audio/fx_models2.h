@@ -34,9 +34,15 @@ public:
     void setDamping(float v) { damp_ = v; }
     void setDiffusion(float v) { diff_ = v; }
     void setPredelay(float v) { pre_ = uint32_t((v < 0 ? 0 : (v > 1 ? 1 : v)) * 3900.0f); }
+    // Page 2 character: A modulation depth, B input bandwidth (0.5 = Dattorro's).
+    void setChar(float a, float b) {
+        modScale_ = 2.0f * a;
+        bwC_ = b <= 0.5f ? 0.15f + 1.4f * b : 0.85f + 0.3f * (b - 0.5f);
+    }
     bool process(const float* in, float* outL, float* outR);
 
 private:
+    float modScale_ = 1.0f, bwC_ = 0.85f;
     enum { kPre, kMod0, kDel0, kAp0, kDel1, kMod1, kDel2, kAp1, kDel3, kRings };
     int16_t* ring_[kRings] = {};
     uint32_t mask_[kRings] = {};
@@ -59,9 +65,12 @@ public:
     void setDamping(float v) { damp_ = v; }
     void setDiffusion(float v) { diff_ = v; }
     void setPredelay(float v) { pre_ = uint32_t((v < 0 ? 0 : (v > 1 ? 1 : v)) * 4000.0f); }
+    // Page 2 character: A grain length (x0.25..x4), B octave grains (0..48 %).
+    void setChar(float a, float b);
     bool process(const float* in, float* outL, float* outR);
 
 private:
+    float grainScale_ = 1.0f, octProb_ = 0.24f;
     struct Grain {
         uint32_t len = 0, at = 0;   // length, samples played
         uint32_t src = 0;           // ring position of the grain's first sample

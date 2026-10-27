@@ -139,6 +139,9 @@ struct MixerSettings {
     // 3 Gated, delay 1 Tape 2 Lo-fi (fx_models.h).
     uint8_t reverbModel = 0, delayModel = 0;
     uint8_t satColor = 0;   // OT fork master colour (master_color.h)
+    // OT fork Master Reverb page 2 (project): low cut 0 off / 1..100 = 20 Hz..1 kHz,
+    // width %, the current model's character values A / B (0..100, 50 = as designed).
+    uint8_t revLowCut = 0, revWidth = 100, revCharA = 50, revCharB = 50;
     // OT fork sidechain (project, Master 5/5).
     SidechainSettings sc[2];
     // line input (§1.3, §5.4, §5.5)
@@ -435,6 +438,11 @@ private:
     // OT fork Dynamics stage state (colour after the saturation sum).
     float dynDrive_ = 1.0f, dynMakeup_ = 1.0f, dynMix_ = 1.0f, dynToneA_ = 1.0f, dynCeil_ = 1.0f;
     float dynZ_[2] = {};
+    // OT fork reverb low cut (biquad high-pass on the send) and width.
+    uint8_t cRevLowCut_ = 0;
+    float revHpB0_ = 1.0f, revHpB1_ = 0.0f, revHpA1_ = 0.0f, revHpA2_ = 0.0f;
+    float revHpZ_[2] = {};
+    float revWidth_ = 1.0f;
     bool dynOn_ = false, dynLink_ = false;
     uint32_t cDynKey_ = 0xFFFFFFFFu;
     volatile int32_t head_[kVoices] = {};   // voicePlayhead() snapshot (init() sets -1)

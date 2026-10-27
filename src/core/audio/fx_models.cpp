@@ -125,6 +125,25 @@ void FdnReverb::configure() {
     shimAmt_ = m == 2 ? 0.45f * (1.0f - gmax) * (0.5f + 0.5f * df) : 0.0f;
     holdLen_ = uint32_t((0.12f + 0.45f * s) * kFs);
     outGain_ = m == 4 ? 0.38f : (m == 3 ? 0.55f : (m == 2 ? 0.4f : 0.42f));
+    // Page 2 character (0.5 = the values above).
+    const float ca = chA_ < 0 ? 0 : (chA_ > 1 ? 1 : chA_), cb = chB_ < 0 ? 0 : (chB_ > 1 ? 1 : chB_);
+    modScale_ = 1.0f;
+    rateHz_ = 0.45f;
+    erScale_ = 1.0f;
+    relC_ = 0.004f;
+    if (m == 1) {
+        modScale_ = 2.0f * ca;
+        rateHz_ = 0.1f * std::pow(20.0f, cb);   // 0.1 .. 2 Hz, 0.45 in the middle
+    } else if (m == 2) {
+        shimAmt_ *= 2.0f * ca;   // at most 0.9 x the headroom: still under unity
+        modScale_ = 2.0f * cb;
+    } else if (m == 3) {
+        holdLen_ = uint32_t(float(holdLen_) * (0.1f + 1.8f * ca));
+        relC_ = 0.004f * std::pow(8.0f, (0.5f - cb) * 2.0f);   // B up: a longer close
+    } else if (m == 4) {
+        erScale_ = 2.0f * ca;
+        modScale_ = 2.0f * cb;
+    }
 }
 
 OT_FASTRUN_FN bool FdnReverb::process(const float* in, float* outL, float* outR) {
@@ -161,12 +180,14 @@ OT_FASTRUN_FN bool FdnReverb::process(const float* in, float* outL, float* outR)
         static const uint16_t kTap[4] = {331, 619, 941, 1373};
         static const float kG[4] = {0.62f, -0.55f, 0.45f, -0.36f};
         const float sc = 0.5f + 0.5f * (size_ < 0 ? 0 : (size_ > 1 ? 1 : size_));
+        const float es = erScale_;
         for (uint32_t i = 0; i < kBlock; ++i) erL[i] = erR[i] = 0.0f;
         float t[kBlock];
         for (int k = 0; k < 4; ++k) {
             readSpan(pre_mem_, kPreMask, w - pre_ - uint32_t(float(kTap[k]) * sc), kBlock, t);
             float* dst = (k & 1) ? erR : erL;
-            for (uint32_t i = 0; i < kBlock; ++i) dst[i] += kG[k] * t[i];
+            const float gk = kG[k] * es;
+            for (uint32_t i = 0; i < kBlock; ++i) dst[i] += gk * t[i];
         }
     }
     const int nDiff = m == 3 ? kDiff : 2;   // the FDN diffuses the rest
@@ -188,11 +209,12 @@ OT_FASTRUN_FN bool FdnReverb::process(const float* in, float* outL, float* outR)
     static const float kDepth[5] = {0, 6.0f, 3.5f, 0.0f, 1.5f};
     static const float kPhase[kLines] = {0.0f, 1.7f, 3.1f, 4.6f};
     lfo_ += 1;
-    const float ph = float(lfo_) * (6.2831853f * 0.45f * float(kBlock) / kFs);
+    const float ph = float(lfo_) * (6.2831853f * rateHz_ * float(kBlock) / kFs);
     float rd[kLines][kBlock + 1];
     float frac[kLines];
+    const float depth = kDepth[m] * modScale_;
     for (int k = 0; k < kLines; ++k) {
-        const float D = float(len_[k]) + kDepth[m] * (1.0f + fastSin(ph + kPhase[k]));
+        const float D = float(len_[k]) + depth * (1.0f + fastSin(ph + kPhase[k]));
         const uint32_t Di = uint32_t(D);
         frac[k] = 1.0f - (D - float(Di));
         readSpan(line_[k], kLineMask, w - Di - 1, kBlock + 1, rd[k]);
@@ -270,7 +292,7 @@ OT_FASTRUN_FN bool FdnReverb::process(const float* in, float* outL, float* outR)
             } else {
                 target = 0.0f;
             }
-            gGain += (target - gGain) * (target > gGain ? 0.05f : 0.004f);
+            gGain += (target - gGain) * (target > gGain ? 0.05f : relC_);
             l *= gGain;
             r *= gGain;
         }
@@ -504,7 +526,7 @@ OT_FASTRUN_FN bool PlateReverb::process(const float* in, float* outL, float* out
         readSpan(ring_[kPre], mask_[kPre], h - pre_ / 2, kHalf, x);
         float b = bw_;
         for (uint32_t j = 0; j < kHalf; ++j) {
-            b += 0.85f * (x[j] - b);
+            b += bwC_ * (x[j] - b);
             x[j] = b;
         }
         bw_ = b;
@@ -533,7 +555,8 @@ OT_FASTRUN_FN bool PlateReverb::process(const float* in, float* outL, float* out
     readSpan(ring_[kDel3], mask_[kDel3], h - 2344, kHalf, rOut);
     ++lfo_;
     const float ph = float(lfo_) * (6.2831853f * 0.9f * float(kBlock) / kFs);
-    const float exc0 = 6.0f * (1.0f + fastSin(ph)), exc1 = 6.0f * (1.0f + fastSin(ph + 1.7f));
+    const float ex = 6.0f * modScale_;
+    const float exc0 = ex * (1.0f + fastSin(ph)), exc1 = ex * (1.0f + fastSin(ph + 1.7f));
     float a[kHalf], b[kHalf], t[kHalf];
     for (uint32_t i = 0; i < kHalf; ++i) {
         a[i] = x[i] + decay * rOut[i];
@@ -622,6 +645,13 @@ void TextureReverb::init(int16_t* mem) {
     clearPending_ = true;
 }
 
+void TextureReverb::setChar(float a, float b) {
+    a = a < 0 ? 0 : (a > 1 ? 1 : a);
+    b = b < 0 ? 0 : (b > 1 ? 1 : b);
+    grainScale_ = std::pow(4.0f, 2.0f * a - 1.0f);   // x0.25 .. x4, x1 in the middle
+    octProb_ = 0.48f * b;                              // 24 % in the middle
+}
+
 void TextureReverb::startGrain(Grain& g, int k) {
     auto rnd = [this]() {
         rng_ ^= rng_ << 13;
@@ -631,10 +661,10 @@ void TextureReverb::startGrain(Grain& g, int k) {
     };
     const float sz = size_ < 0 ? 0 : (size_ > 1 ? 1 : size_);
     const float df = diff_ < 0 ? 0 : (diff_ > 1 ? 1 : diff_);
-    uint32_t len = uint32_t((1500.0f + 5500.0f * sz) * (0.8f + 0.4f * rnd()));
-    len = len < 512 ? 512 : (len > 7000 ? 7000 : len);
-    const float r = rnd();
-    g.pitch = r < 0.12f ? int8_t(2) : (r < 0.24f ? int8_t(-1) : int8_t(1));
+    uint32_t len = uint32_t((1500.0f + 5500.0f * sz) * grainScale_ * (0.8f + 0.4f * rnd()));
+    len = len < 256 ? 256 : (len > 7000 ? 7000 : len);
+    const float r = rnd(), half = 0.5f * octProb_;
+    g.pitch = r < half ? int8_t(2) : (r < octProb_ ? int8_t(-1) : int8_t(1));
     // How far back it starts: past what an octave-up head would overtake.
     const uint32_t minLag = (g.pitch == 2 ? len : 0) + 2 * kBlock + 16 + pre_;
     const uint32_t maxLag = kRingLen - len - 2 * kBlock - 16;

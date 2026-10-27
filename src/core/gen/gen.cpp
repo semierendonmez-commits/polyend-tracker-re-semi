@@ -12,6 +12,7 @@ namespace gen {
 namespace {
 
 const char* const kOctLabels[3] = {"1 oct", "2 oct", "3 oct"};
+const char* const kAcidOct[3] = {"Off", "TB-3PO", "Wide"};
 const char* const kAcidEvery[4] = {"1 loop", "2 loops", "4 loops", "8 loops"};
 const char* const kAcidGate[3] = {"Normal", "Short", "Long"};
 const char* const kCrLayout[3] = {"Call+Answer", "Answer mine", "Two tracks"};
@@ -46,17 +47,16 @@ constexpr const char* kSeedHelp = "0: a new result every time. 1-999: the same r
 #define SEED {"Seed", 0, 999, 0, nullptr, kSeedHelp}
 
 KindDesc gKinds[kKindCount] = {
-    {"Acid", "303 line: density, accent, slide (TB-3PO style)",
-     {{"Density", -7, 7, 3, nullptr, "Steps that play: -7 almost none, 0 half, +7 nearly all. Live: Perform FX Acid Density"},
+    {"Acid", "303 line: density, accent, slide (after TB-3PO)",
+     {{"Density", -7, 7, 5, nullptr, "TB-3PO: 0 sparse, +-7 every step; below 0 fewer pitches (-7 root only). Live: Perform Acid Density"},
       {"Accent", 0, 100, 40, nullptr, "Chance of an accent (Volume 100)"},
       {"Slide", 0, 100, 25, nullptr, "Chance a note glides into the next one (Glide FX, no gate)"},
-      {"Range", 0, 2, 1, kOctLabels, "Pitch range of the line"},
+      {"Octaves", 0, 2, 1, kAcidOct, "Octave jumps of new pitches: TB-3PO 20 % up / 20 % down, Wide up to +2"},
       {"Mutate", 0, 100, 0, nullptr, "Live: share of the steps re-rolled while it plays. 0 = locked"},
       SEED,
       {"Mut. every", 0, 3, 0, kAcidEvery, "How often Mutate changes the line"},
       {"Gate", 0, 2, 0, kAcidGate, "Length of the notes that do not slide"},
-      {"Root", 0, 100, 35, nullptr, "Chance a note on the beat is the root note"},
-      NONE, NONE, NONE}},
+      NONE, NONE, NONE, NONE}},
     {"Call+Resp", "Call phrase, then the answer (Nordl3 C/R Generator)",
      {{"Style", 0, kCrStyleCount - 1, 0, nullptr, "Genre profile: density, leaps, accents, slides, rests"},
       {"Answer", 0, kCrStrategyCount - 1, 35, nullptr, "How the answer is made from the call (default Q+closure)"},

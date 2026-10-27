@@ -13,6 +13,28 @@ constexpr uint8_t kVersion = 1;
 constexpr uint8_t kRecSidechain = 1;
 constexpr int kScBytes = 10;
 constexpr uint8_t kRecLinks = 2;
+constexpr uint8_t kRecReverb = 3;
+constexpr int kRevBytes = 2 + 2 * ReverbExtra::kModels;
+
+void putRev(uint8_t* p, const ReverbExtra& r) {
+    p[0] = r.lowCut;
+    p[1] = r.width;
+    for (int k = 0; k < ReverbExtra::kModels; ++k) {
+        p[2 + k] = r.a[k];
+        p[2 + ReverbExtra::kModels + k] = r.b[k];
+    }
+}
+void getRev(const uint8_t* p, int len, ReverbExtra& r) {
+    uint8_t b[kRevBytes];
+    putRev(b, r);
+    for (int i = 0; i < len && i < kRevBytes; ++i) b[i] = p[i];
+    r.lowCut = b[0];
+    r.width = b[1];
+    for (int k = 0; k < ReverbExtra::kModels; ++k) {
+        r.a[k] = b[2 + k];
+        r.b[k] = b[2 + ReverbExtra::kModels + k];
+    }
+}
 constexpr int kLinkBytes = 8;
 
 void putLink(uint8_t* p, const TrackLink& l) {
@@ -60,8 +82,17 @@ void getSc(const uint8_t* p, int len, audio::SidechainSettings& s) {
 }
 }  // namespace
 
+bool ReverbExtra::isDefault() const {
+    ReverbExtra d;
+    uint8_t x[kRevBytes], y[kRevBytes];
+    putRev(x, *this);
+    putRev(y, d);
+    return std::memcmp(x, y, kRevBytes) == 0;
+}
+
 void ForkProject::setDefault() {
     for (auto& s : sc) s = audio::SidechainSettings{};
+    rev = ReverbExtra{};
     for (auto& l : link) l = TrackLink{};
 }
 
@@ -79,7 +110,7 @@ bool ForkProject::isDefault() const {
         putSc(b, d.sc[k]);
         if (std::memcmp(a, b, kScBytes) != 0) return false;
     }
-    return !anyLink();
+    return !anyLink() && rev.isDefault();
 }
 
 void ForkProject::sanitize() {
@@ -106,6 +137,12 @@ void ForkProject::sanitize() {
         if (l.chance > 100) l.chance = 100;
         if (l.fx > 1) l.fx = 0;
     }
+    if (rev.lowCut > 100) rev.lowCut = 100;
+    if (rev.width > 150) rev.width = 150;
+    for (int k = 0; k < ReverbExtra::kModels; ++k) {
+        if (rev.a[k] > 100) rev.a[k] = 100;
+        if (rev.b[k] > 100) rev.b[k] = 100;
+    }
 }
 
 bool ForkProject::load(IStorage& fs, const char* dir) {
@@ -129,6 +166,7 @@ bool ForkProject::load(IStorage& fs, const char* dir) {
                 const int off = k * kScBytes, l = len - off;
                 if (l > 0) getSc(buf + at + off, l > kScBytes ? kScBytes : l, sc[k]);
             }
+        if (id == kRecReverb) getRev(buf + at, len, rev);
         if (id == kRecLinks)
             for (int k = 0; k < 16; ++k) {
                 const int off = k * kLinkBytes, l = len - off;
@@ -145,7 +183,7 @@ bool ForkProject::save(IStorage& fs, const char* dir) const {
     path(p, sizeof(p), dir);
     if (fs.exists(p)) fs.remove(p);
     if (isDefault()) return true;
-    uint8_t buf[6 + 2 + 2 * kScBytes + 2 + 16 * kLinkBytes];
+    uint8_t buf[6 + 2 + 2 * kScBytes + 2 + 16 * kLinkBytes + 2 + kRevBytes];
     std::memcpy(buf, "OTF1", 4);
     buf[4] = kVersion;
     buf[5] = 1;
@@ -160,6 +198,13 @@ bool ForkProject::save(IStorage& fs, const char* dir) const {
         buf[n + 1] = 16 * kLinkBytes;
         for (int k = 0; k < 16; ++k) putLink(buf + n + 2 + k * kLinkBytes, link[k]);
         n += 2 + 16 * kLinkBytes;
+    }
+    if (!rev.isDefault()) {
+        ++buf[5];
+        buf[n] = kRecReverb;
+        buf[n + 1] = kRevBytes;
+        putRev(buf + n + 2, rev);
+        n += 2 + kRevBytes;
     }
     IStorage::Handle h = fs.open(p, IStorage::kWrite);
     if (h < 0) return false;

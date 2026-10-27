@@ -51,7 +51,7 @@ item or spread over the range), **F8** Generate, **Pattern** or **Rec** closes.
 
 | Generator | What it writes | Page 1 | Page 2 |
 |---|---|---|---|
-| **Acid** | a 303 line in the project scale (TB-3PO idea): Glide on slid notes, Volume 100 on accents, Gate on short notes | Density (-7..+7), Accent, Slide, Range (1-3 oct), Mutate, Seed | Mut. every (1/2/4/8 loops), Gate, Root |
+| **Acid** | a 303 line in the project scale (after TB-3PO): Glide on slid notes, Volume 100 on accents, Gate on short notes | Density (-7..+7), Accent, Slide, Octaves (Off / TB-3PO / Wide), Mutate, Seed | Mut. every (1/2/4/8 loops), Gate |
 | **Call+Resp** | call phrases and answers (port of Nordl3's Call / Response Generator: 46 styles, 38 answer strategies) | Style, Answer, Density, Layout (one track / Answer mine / Two tracks), Form, Seed | Steps per part, Ending, answer octave, Motif |
 | **BBCut** | Nick Collins' BBCut procedures (via BBenCut) as hits of a **sliced** instrument | Proc, A / B (per procedure), Source, Mutate, Seed | Rolls, Pitch, Timing, Dynamics |
 | **Turnaround** | phrase-end edits on a budget: the end of every phrase, half and quarter phrase gets a tail of edits | Phrase, Budget, Style (Rolls, Stutter, Drop, Reverse, Build, Mix), Intensity, FX (Soft / Medium / Hard), Seed | Timing (Tidy / Keep) |
@@ -80,13 +80,25 @@ hits as one state per step (which tracks play), learnt as a Markov chain on
 the previous state(s) and the beat phase; the new order copies whole columns,
 so a kick, snare and hats stay together.
 
-**Acid.** Every step gets a pitch, an accent, a slide wish and a threshold: a
-step plays while its threshold is under the density ((d + 8) / 16 of the
-steps). Changing the density adds or removes notes in a fixed order, the
-melody stays. A generated acid track stays live (up to four): the Perform FX
-**Acid Density** (-7..+7) moves its density on the tracks the FX is on, and
-**Mutate** re-rolls part of the line every N loops. Editing the track by hand
-ends it.
+**Acid.** Density works like Logarhythm's TB-3PO (O_C Hemisphere), in both
+directions from 0:
+
+- **Gates:** a step plays with 10 + 14 x |density| %: 0 is the sparsest,
+  -7 and +7 play every step.
+- **Pitches:** on the negative side the line narrows to the lowest scale
+  degrees and repeats more (a new pitch repeats the last one 50 - 6 (d + 7) %
+  of the time): -7 is the root only, -6 the root and the next degree (303 half
+  steps), from +1 the whole scale. So -7 is a full, root-heavy line and +7 a
+  full melodic one.
+- **Octaves:** a new pitch jumps an octave up or down 20 % each (TB-3PO),
+  never (Off) or up to two octaves (Wide).
+
+Every step keeps its own random draws, so the density can move live and the
+same density gives the same line back: rising |density| only adds notes. A
+generated acid track stays live (up to four): the Perform FX **Acid Density**
+(an offset of -14..+14, so any density can be reached) moves it on the tracks
+the FX is on, and **Mutate** re-rolls part of the line every N loops. Editing
+the track by hand ends it.
 
 **Call+Resp.** Form: C R, C R C R, C C R, C R R2 C, C C C R, C R C R2 (C = the
 call, R = the answer, R2 = a second answer). Steps: 4 / 8 / 16 / 32 per part,
@@ -140,7 +152,7 @@ the FX does); releasing Shift (or pushing the encoder) puts it in the column.
 
 | FX | Range | What it does |
 |---|---|---|
-| Acid Density | -7..+7 | live Acid tracks: more / fewer notes, the melody stays |
+| Acid Density | -14..+14 | live Acid tracks: moves the TB-3PO density (0 sparse, +-7 full, below 0 root-heavy) |
 | Acid Accent / Acid Slide | -100..+100 | live Acid tracks: more / fewer accents and slides (the line's own random order) |
 | Acid Mutate | -100..+100 | live Acid tracks: how much re-rolls at each Mutate loop |
 | BBCut A / BBCut B | -6..+6 | B1..B10: the procedure's A / B setting up or down (new cuts at once) |
@@ -150,7 +162,7 @@ the FX does); releasing Shift (or pushing the encoder) puts it in the column.
 | WT FM Source | Left, Trk 1..8 | the modulator: the track to the left or a chosen track |
 | Grids X / Grids Y | -100..+100 | live Grids kits: moves the map point (redrawn at once) |
 | Grids Density | -100..+100 | live Grids kits: more / fewer hits on all three parts |
-| Loop Lock | -100..+100 | M1..M3, TM8 / TM16, R1 / R2: + locks the loop, - lets it change more each loop |
+| Loop Lock | -100..+100 | per track: M1..M3, TM8 / TM16, R1 / R2: + locks the loop, - lets it change more; TM: the Turing Machine knob |
 | DeRez | 0..100 | sample-rate reduction (sample and hold) on the tracks' samples, after Airwindows DeRez |
 
 **Scenes** (SETBOOK): hold **Fx2** and press **F1..F8** to store the Perform
@@ -185,8 +197,10 @@ title.
   with the lock probability (85 / 60 / 30 %), else draws a new one (mostly a
   step with a note): a loop that slowly rewrites itself.
 - **TM8 / TM16 (Turing Machine)**: an 8 / 16-bit shift register; its low byte
-  picks the step, the bit coming back in flips with (1 - lock) / 2. Locked it
-  repeats, at Loop Lock -100 it is fully random (the Turing knob at noon).
+  picks the step, the bit coming back in may flip. **Loop Lock** on the track
+  is the Turing Machine knob: 0 changes slowly (5 % per step), **+100 locks
+  it** (an 8 / 16 step loop that repeats), -50 is random, -100 a locked loop
+  of twice the length with the second half inverted.
 - **R1 / R2 (randLoops, after SickoCV)**: the track plays forward, but every
   note drifts by scale degrees: each loop a note moves one degree up or down
   with 1 - lock (R1 slow, R2 faster), kept within +-4 degrees of the original.
@@ -262,11 +276,20 @@ effect's random parts are seeded the same for both channels of a stereo sample.
   diffused), **Plate** (Jon Dattorro's plate, the network of Valley's Plateau,
   its tank at half rate), **Room** (after Dragonfly Room: early reflections and
   a short dense tail). Size, Damping, Predelay and Diffusion drive all of them.
-- **Master colour** (Master 4/5 Saturation list after the stock modes, or
-  Config > Master colour): **ToTape**, **Console**, **Density**,
+- **Master Reverb 2/2** (Shift on Master Reverb): **Low cut** (Off, 20 Hz ..
+  1 kHz, a 12 dB/oct high-pass on the send) and **Width** (0..150 %) for every
+  model, and two character values per model (50 = the model as designed):
+  Hall Mod depth / Mod rate, Shimmer Shimmer / Mod depth, Gated Hold /
+  Release, Texture Grain / Octaves, Plate Mod depth / Bandwidth, Room Early /
+  Mod depth. Saved with the project (`otfork.bin`), each model keeps its own.
+- **Master colour** (the Saturation list on Master 1/5 and 4/5 after the stock
+  modes, or Config > Master colour, the same setting): **ToTape**,
+  **Console**, **Density**,
   **PurestDrive** in the manner of Airwindows (MIT): ToTape a sine curve with
   a head bump and a soft top, Console the Spiral curve, Density and
-  PurestDrive their sine blends. Drive, Mix and Tone work on it.
+  PurestDrive their sine blends. A colour replaces the stock mode (it does not
+  run on top of it); Drive (Master 4/5) sets how hard it is hit, Mix and Tone
+  work on it.
 - **Delay models** (Config > Delay model): Stock, **Tape** (wow and flutter
   on the read head, repeats that saturate and darken), **Lo-fi** (repeats that
   lose bits and bandwidth). Time, Sync, Feedback, Filter and Ping-pong drive
@@ -274,7 +297,8 @@ effect's random parts are seeded the same for both channels of a stereo sample.
 - Both run in the stock effects' memory. Cost in the bench's busiest set
   (est. share of the audio block over the stock effect): Hall +1.6 %,
   Shimmer +5.2 %, Gated +2.6 %, Tape +1.8 %, Lo-fi +2.9 %, Texture +3.0 %,
-  Plate +4.3 %, Room +4.9 %, colour +1.3 %.
+  Plate +4.3 %, Room +4.9 %, colour +1.3 %; Low cut and Width are within the
+  noise.
 
 - **Master 5/5 Sidechain**: two sidechains, **SC 1** and **SC 2** (F1 switches),
   each with its own source, envelope and targets, saved with the project

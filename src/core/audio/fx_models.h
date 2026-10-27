@@ -40,10 +40,16 @@ public:
     void setDamping(float v) { if (v != damp_) { damp_ = v; dirty_ = true; } }
     void setDiffusion(float v) { if (v != diff_) { diff_ = v; dirty_ = true; } }
     void setPredelay(float v) { pre_ = uint32_t((v < 0 ? 0 : (v > 1 ? 1 : v)) * 5000.0f); }
+    // Master Reverb page 2 character values A / B (0..1, 0.5 = the model's
+    // own sound): Hall mod depth / rate, Shimmer amount / mod depth, Gated
+    // hold / release, Room early reflections / mod depth.
+    void setChar(float a, float b) { if (a != chA_ || b != chB_) { chA_ = a; chB_ = b; dirty_ = true; } }
     bool process(const float* in, float* outL, float* outR);
 
 private:
     void configure();
+    float chA_ = 0.5f, chB_ = 0.5f;
+    float modScale_ = 1.0f, rateHz_ = 0.45f, erScale_ = 1.0f, relC_ = 0.004f;
     void clearAll();
     int16_t* pre_mem_ = nullptr;
     int16_t* line_[kLines] = {};

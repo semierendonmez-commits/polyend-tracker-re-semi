@@ -4,6 +4,7 @@
 #include "test.h"
 
 #include <set>
+#include <vector>
 
 #include "app/live_gen.h"
 #include "app/perf_presets.h"
@@ -227,7 +228,7 @@ TEST(play_modes_m_tm_r_tables) {
     a.seq.setPerfPlayMode(0, 42);   // M3
     a.seq.setPerfPlayMode(1, 44);   // TM16
     a.seq.setPerfPlayMode(2, 46);   // R2
-    live::setLoopLock(-100);        // move every loop
+    for (int t = 0; t < 3; ++t) live::setLoopLock(t, -50);   // move every loop (TM: random)
     a.togglePlay(false);
     std::set<uint32_t> m3, tm, r2;
     for (int loop = 0; loop < 6; ++loop) {
@@ -263,7 +264,36 @@ TEST(play_modes_m_tm_r_tables) {
         CHECK((0x0AD5 >> (note % 12)) & 1 || a.scale() == 0);
     }
     a.togglePlay(false);
-    live::setLoopLock(0);
+    // The Turing Machine knob: +100 locks the 16-step loop, -100 gives a
+    // locked loop of twice the length (two tables taking turns).
+    for (int lockV : {100, -100}) {
+        live::setLoopLock(1, lockV);
+        a.togglePlay(false);
+        std::vector<uint32_t> seen;
+        for (int loop = 0; loop < 7; ++loop) {
+            int last = a.seq.patternPosition();
+            for (int k = 0; k < 20000; ++k) {
+                h.audio.pump(1);
+                h.run(2);
+                const int pos = a.seq.patternPosition();
+                if (pos < last) break;
+                last = pos;
+            }
+            h.run(20);
+            uint32_t ht = 0;
+            for (int k = 0; k < 16; ++k) ht = ht * 31 + seq::gGenoTables[1][k];
+            seen.push_back(ht);
+        }
+        a.togglePlay(false);
+        // Skip the first loops (the register fills), then check the period.
+        if (lockV > 0) {
+            CHECK(seen[3] == seen[4] && seen[4] == seen[5] && seen[5] == seen[6]);
+        } else {
+            CHECK(seen[3] == seen[5] && seen[4] == seen[6]);
+            CHECK(seen[3] != seen[4]);
+        }
+    }
+    for (int t = 0; t < 3; ++t) live::setLoopLock(t, 0);
 }
 
 TEST(grids_live_perform_offsets) {

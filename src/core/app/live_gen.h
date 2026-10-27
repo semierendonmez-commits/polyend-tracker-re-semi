@@ -62,7 +62,7 @@ void grids(App& a, const int16_t* v, const gen::Target& t, uint32_t rngSeed);
 bool gridsActive(int track);
 void setGridsPerf(int x, int y, int density);
 // Perform "Loop Lock" (-100..100) for the M / TM / R play modes.
-void setLoopLock(int v);
+void setLoopLock(int track, int v);   // Perform "Loop Lock" per track (-100..+100)
 void stopAll();
 
 }  // namespace live
