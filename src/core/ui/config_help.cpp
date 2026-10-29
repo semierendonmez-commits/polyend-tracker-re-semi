@@ -22,13 +22,17 @@ const char* const kProjectHelp[] = {
     "Makes the sample editor markers move to the nearest zero crossing, which avoids clicks at loop and slice "
     "points.",
 };
-// spec 15 §2.2 General: all 11 have help (9 and 10 short in stock); 2.x adds CPU meter and Synth voices.
+// spec 15 §2.2 General: all 11 have help (9 and 10 short in stock); 2.x adds Export theme, CPU meter, Synth voices, Export sample rate and the two SD streaming rows.
 const char* const kGeneralHelp[] = {
     "Selects the FM band and channel steps used by the built-in radio in your part of the world.",
     "Sets the backlight level of the screen.",
-    "Selects the colour scheme of the user interface. The first three are the stock themes; the others are "
-    "OpenTracker fork palettes (a stock firmware shows their base theme).",
+    "Selects the colour scheme of the user interface. The first three are the stock themes, then the "
+    "OpenTracker fork palettes (a stock firmware shows their base theme), then the theme files from the Themes "
+    "folder of the SD card.",
     "Selects the set of fonts used on screen.",
+    // [I] 2.x theme files.
+    "Saves the current colour scheme (a fork palette too) as a text file in the Themes folder of the SD card, "
+    "to edit on a computer and choose under Display theme. An existing file is never overwritten.",
     "Sets how bright the pad lights are.",
     "Lights the pads of the notes on the current pattern line: on the cursor track only, on all tracks, or "
     "not at all.",
@@ -65,6 +69,13 @@ const char* const kGeneralHelp[] = {
     "A colour stage after the master saturation, in the manner of Airwindows: ToTape (soft tape curve, head bump, "
     "rounded top), Console (Spiral), Density, PurestDrive. Drive, Mix and Tone on Master 4/5 work on it; also "
     "chosen in the Saturation list there.",
+    "Sample rate of exported songs, patterns, stems and renders. 44.1 kHz converts them, so they play in "
+    "time in any DAW. 44117 Hz keeps the Tracker's own rate as the original firmware does; a DAW converts "
+    "them on import.",
+    "Plays long samples straight from the SD card, so they use only a little memory. Auto streams samples "
+    "longer than the threshold (and long ones when the project would not fit); All streams every long "
+    "sample. The project reloads when you change it.",
+    "How long a sample must be before Auto streams it from the card.",
 };
 // spec 15 §2.3 MIDI: only CC in (8), CC in channel (9) and Clock sync correction (11).
 const char* const kMidiHelp[] = {

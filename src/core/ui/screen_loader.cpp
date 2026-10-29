@@ -190,30 +190,84 @@ bool hasExt(const char* s, const char* ext) {
     return true;
 }
 
+// Listing context (spec 06 §5.2, issue #54).
 struct ListCtx {
-    LoaderScreen* self;
+    LoaderList* l;
     int count;
+    int cap;          // entries this view may hold
+    int part;         // 0 whole folder, k >= 1 part k
+    int files;        // .wav / .pti seen so far, in directory order
+    int dirs;         // subfolders taken (part view)
+    size_t used;      // pool bytes
+    size_t dirLen;    // strlen(dir)
 };
+// [I] The files that count towards a part are those the loader lists by
+// extension (.wav / .pti, without the WAV header check, so counting stays
+// one directory read). Open: whether stock counts other files.
+bool countable(const char* n) { return hasExt(n, ".wav") || hasExt(n, ".pti"); }
+bool addName(ListCtx& c, const char* name, bool dir) {
+    const size_t n = std::strlen(name) + 1;
+    if (c.used + n > LoaderList::kPoolBytes) return false;   // pool full [I]
+    std::memcpy(c.l->pool + c.used, name, n);
+    c.l->off[c.count] = uint16_t(c.used);
+    c.l->part[c.count] = 0;
+    c.l->isDir[c.count] = dir;
+    c.used += n;
+    ++c.count;
+    return true;
+}
 bool listFn(const IStorage::DirEntry& e, void* ctx) {
-    auto* c = static_cast<ListCtx*>(ctx);
-    if (e.name[0] == '.' || c->count >= LoaderScreen::kMaxEntries) return c->count < LoaderScreen::kMaxEntries;
-    if (!e.isDir && !hasExt(e.name, ".wav") && !hasExt(e.name, ".pti")) return true;
-    if (std::strlen(e.name) >= sizeof(c->self->entries[0])) return true;
-    std::snprintf(c->self->entries[c->count], sizeof(c->self->entries[0]), "%s", e.name);
-    c->self->isDir[c->count] = e.isDir;
-    ++c->count;
+    auto& c = *static_cast<ListCtx*>(ctx);
+    if (e.name[0] == '.') return true;
+    if (!e.isDir && !countable(e.name)) return true;
+    const size_t len = std::strlen(e.name);
+    // The joined path must fit the storage path limit [I: such a name could
+    // not be opened]; a name is at most 255 characters (FAT).
+    const bool fits = len <= size_t(LoaderList::kNameMax) &&
+                      (c.dirLen ? c.dirLen + 1 : 0) + len <= size_t(LoaderScreen::kPathMax);
+    if (c.part == 0) {
+        // Whole folder: the first 101 names (spec 06 §5.2).
+        if (c.count >= c.cap) return false;
+        if (fits) addName(c, e.name, e.isDir);
+        return true;
+    }
+    if (e.isDir) {
+        // Subfolders are never counted and are listed in part 1 only (at
+        // most 100 of them [I]).
+        if (c.part == 1 && c.dirs < LoaderScreen::kPartFiles && fits && addName(c, e.name, true)) ++c.dirs;
+        return true;
+    }
+    // Part k: the files (k-1)*100+1 .. k*100 in directory order. Later
+    // entries can still be subfolders, so the read goes on (part 1).
+    const int idx = c.files++;
+    if (idx >= (c.part - 1) * LoaderScreen::kPartFiles && idx < c.part * LoaderScreen::kPartFiles && fits)
+        addName(c, e.name, false);
+    return c.part == 1 || idx < c.part * LoaderScreen::kPartFiles;
+}
+bool countFn(const IStorage::DirEntry& e, void* ctx) {
+    if (!e.isDir && e.name[0] != '.' && countable(e.name)) ++*static_cast<int*>(ctx);
     return true;
 }
 
 // spec 06 §5.2: a .wav is listed only when its header passes the WAV check
 // (RIFF/WAVE, 1-2 channels, PCM 8/16/24/32 or float 32; stock 0x70bb0).
-bool wavHeaderOk(IStorage& fs, const char* path) {
+// The same read fills the file's import probe (frames / channels as the
+// import writes them).
+bool wavHeaderOk(IStorage& fs, const char* path, LoaderList::Probe& pr) {
     IStorage::Handle h = fs.open(path, IStorage::kRead);
     if (h < 0) return false;
     StorageReader r(fs, h);
     WavInfo info;
     const bool ok = wavParseHeader(r, info) && wavIsSupported(info);
     fs.close(h);
+    if (ok) {
+        WavImportOptions opt;
+        opt.stereo = true;   // as App::importProbe
+        const WavImportPlan p = wavPlanImport(info, opt);
+        pr.frames = p.outFrames;
+        pr.flags = uint8_t(p.outFrames ? LoaderList::kProbeOk : 0) |
+                   uint8_t(p.outChannels == 2 ? LoaderList::kProbeStereo : 0);
+    }
     return ok;
 }
 
@@ -227,47 +281,124 @@ int cmpNoCase(const char* a, const char* b) {
 }
 }  // namespace
 
-void LoaderScreen::entryPath(int i, char* out, int cap) const {
-    if (dir[0]) std::snprintf(out, size_t(cap), "%s/%s", dir, entries[i]);
-    else std::snprintf(out, size_t(cap), "%s", entries[i]);
+ImportProbe LoaderScreen::probeOf(int i) const {
+    const LoaderList::Probe& pr = list_->probe[i];
+    ImportProbe p;
+    if (!(pr.flags & LoaderList::kProbeOk)) return p;   // frames 0: Unreadable
+    p.frames = pr.frames;
+    p.stereo = (pr.flags & LoaderList::kProbeStereo) != 0;
+    p.pti = (pr.flags & LoaderList::kProbePti) != 0;
+    p.playMode = pr.playMode;
+    p.loopPoint1 = pr.loop1;
+    return p;
+}
+
+bool LoaderScreen::entryPath(int i, char* out, int cap) const {
+    const int n = dir[0] ? std::snprintf(out, size_t(cap), "%s/%s", dir, entries[i])
+                         : std::snprintf(out, size_t(cap), "%s", entries[i]);
+    return n >= 0 && n < cap;
+}
+
+void LoaderScreen::entryLabel(int i, char* out, int cap) const {
+    const int k = entryPart(i);
+    if (k > 0)
+        std::snprintf(out, size_t(cap), "/%s (%d-%d)", entries[i], (k - 1) * kPartFiles + 1, k * kPartFiles);
+    else
+        std::snprintf(out, size_t(cap), "%s%s", isDir[i] ? "/" : "", entries[i]);
 }
 
 void LoaderScreen::list() {
-    // Folders first, then files, alphabetical; at most 101 names (spec 06 §5.2).
-    ListCtx c{this, 0};
-    if (depth_ > 0) {
-        std::snprintf(entries[0], sizeof(entries[0]), "..");
-        isDir[0] = true;
-        c.count = 1;
-    }
+    // Folders first, then files, alphabetical (spec 06 §5.2). A whole
+    // folder lists at most 101 names; part k of a folder with more than 100
+    // files lists its files (k-1)*100+1..k*100 (directory order), and part 1
+    // also the subfolders. A subfolder with more than 100 files becomes the
+    // entries "name (1-100)", "name (101-200)", ... (issue #54).
+    LoaderList& L = *list_;
+    ListCtx c{&L, 0, part ? kMaxEntries : kMaxUnsplit, part, 0, 0, 0, std::strlen(dir)};
+    if (depth_ > 0) addName(c, "..", true);
     const int first = c.count;
+    count = 0;   // nothing valid to draw while a progress popup shows
     app_.fs().listDir(dir, listFn, &c);
-    count = c.count;
-    // Insertion sort (small lists).
-    for (int i = first + 1; i < count; ++i) {
-        char tmp[40];
-        bool td = isDir[i];
-        std::memcpy(tmp, entries[i], sizeof(tmp));
+    // Split the subfolders with more than 100 files: one listDir each.
+    const uint32_t t0 = app_.millis();
+    uint32_t shown = 0;
+    bool popup = false;
+    char path[kPathMax + 1];
+    int dirsSeen = 0, dirsTotal = 0;
+    for (int i = first; i < c.count; ++i) dirsTotal += L.isDir[i] ? 1 : 0;
+    for (int i = first; i < c.count; ++i) {
+        if (!L.isDir[i] || L.part[i]) continue;
+        // [I] A long count on the card shows the progress popup (stock
+        // lists in a background job behind it, spec 06 §5.1).
+        const uint32_t t = app_.millis();
+        if (t - t0 >= 150 && (!popup || t - shown >= 100)) {
+            shown = t;
+            popup = true;
+            ui_.progress("Loading", dirsTotal ? dirsSeen * 100 / dirsTotal : 0);
+        }
+        ++dirsSeen;
+        int files = 0;
+        if (!entryPath(i, path, sizeof(path))) continue;
+        app_.fs().listDir(path, countFn, &files);
+        if (files <= kPartFiles) continue;
+        int parts = (files + kPartFiles - 1) / kPartFiles;
+        if (parts > c.cap - c.count + 1) parts = c.cap - c.count + 1;   // the view is full
+        if (parts <= 1) continue;
+        // Entries i+1.. move up by parts-1; the parts share the name.
+        const int add = parts - 1;
+        for (int j = c.count - 1; j > i; --j) {
+            L.off[j + add] = L.off[j];
+            L.part[j + add] = L.part[j];
+            L.isDir[j + add] = L.isDir[j];
+        }
+        for (int k = 0; k < parts; ++k) {
+            L.off[i + k] = L.off[i];
+            L.part[i + k] = uint16_t(k + 1);
+            L.isDir[i + k] = true;
+        }
+        c.count += add;
+        i += add;
+    }
+    if (popup) ui_.progressDone();
+    // Insertion sort (records only, the names stay in the pool): folders
+    // first, then by name, the parts of a folder in order.
+    auto after = [&](int a, uint16_t bo, uint16_t bp, bool bd) {
+        if (L.isDir[a] != bd) return !L.isDir[a];
+        const int r = cmpNoCase(L.pool + L.off[a], L.pool + bo);
+        return r > 0 || (r == 0 && L.part[a] > bp);
+    };
+    for (int i = first + 1; i < c.count; ++i) {
+        const uint16_t to = L.off[i], tp = L.part[i];
+        const bool td = L.isDir[i];
         int j = i - 1;
-        while (j >= first && ((isDir[j] == td && cmpNoCase(entries[j], tmp) > 0) || (!isDir[j] && td))) {
-            std::memcpy(entries[j + 1], entries[j], sizeof(tmp));
-            isDir[j + 1] = isDir[j];
+        while (j >= first && after(j, to, tp, td)) {
+            L.off[j + 1] = L.off[j];
+            L.part[j + 1] = L.part[j];
+            L.isDir[j + 1] = L.isDir[j];
             --j;
         }
-        std::memcpy(entries[j + 1], tmp, sizeof(tmp));
-        isDir[j + 1] = td;
+        L.off[j + 1] = to;
+        L.part[j + 1] = tp;
+        L.isDir[j + 1] = td;
     }
-    // Drop .wav files whose header fails the check.
+    // Drop .wav files whose header fails the check; probe the files for the
+    // projection (a .pti: one header read).
     int w = first;
-    char path[256];
-    for (int i = first; i < count; ++i) {
-        if (!isDir[i] && hasExt(entries[i], ".wav")) {
-            entryPath(i, path, sizeof(path));
-            if (!wavHeaderOk(app_.fs(), path)) continue;
+    for (int i = first; i < c.count; ++i) {
+        LoaderList::Probe pr{0, 0, 0, 0};
+        if (!L.isDir[i] && hasExt(entries[i], ".wav")) {
+            if (!entryPath(i, path, sizeof(path)) || !wavHeaderOk(app_.fs(), path, pr)) continue;
+        } else if (!L.isDir[i] && entryPath(i, path, sizeof(path))) {
+            ImportProbe p;
+            if (app_.importProbe(path, p))
+                pr = {p.frames, p.loopPoint1, p.playMode,
+                      uint8_t(LoaderList::kProbeOk | LoaderList::kProbePti | (p.stereo ? LoaderList::kProbeStereo : 0))};
         }
+        L.probe[w] = pr;
         if (w != i) {
-            std::memcpy(entries[w], entries[i], sizeof(entries[0]));
-            isDir[w] = isDir[i];
+            L.off[w] = L.off[i];
+            L.part[w] = L.part[i];
+            L.isDir[w] = L.isDir[i];
         }
         ++w;
     }
@@ -316,23 +447,78 @@ void LoaderScreen::listRange(bool sd, int* first, int* last) const {
 }
 
 void LoaderScreen::memoryProjection() {
+    projectSelection();
+    // What the bar and the Memory label show (issue #93). Right after an
+    // import (Add, trim Import) the actual use, until a cursor or the
+    // selection moves: the slot now holds the file, a trimmed import less
+    // than the whole file, so a projection of the whole file again is no
+    // longer what the user is looking at.
+    shown_ = projected_;
+    shownOver_ = over_;
+    if (!imported_) return;
+    int f, l;
+    listRange(true, &f, &l);
+    if (trim || sdCursor != importSd_ || insCursor != importIns_ || f != importF_ || l != importL_) {
+        imported_ = false;
+        return;
+    }
+    shown_ = app_.bank.usedBytes();
+    shownOver_ = false;
+}
+
+void LoaderScreen::importDone() {
+    imported_ = true;
+    importSd_ = sdCursor;
+    importIns_ = insCursor;
+    listRange(true, &importF_, &importL_);
+    memoryProjection();
+}
+
+void LoaderScreen::projectSelection() {
     // spec 06 §5.4 memory bar.
     App& a = app_;
     uint64_t used = a.bank.usedBytes();
     over_ = false;
     projected_ = uint32_t(used);
+    if (trim) {
+        // Trimming (issue #93): the Start..End selection at Normal quality
+        // replaces the instrument slot (2.x: a stereo file stays stereo).
+        const uint64_t n = uint64_t(uint32_t(trimEnd - trimStart)) * trimBytes_ / 65535;
+        const uint64_t slot = uint64_t(a.bank.samples(insCursor)) * 2;
+        used = used + n > slot ? used + n - slot : 0;
+        projected_ = uint32_t(used);
+        over_ = used > a.bank.capacityBytes();
+        return;
+    }
     // The projection always concerns the SD selection loaded at the
-    // instrument cursor, whichever list has the focus.
-    if (count == 0 || isDir[sdCursor]) return;
+    // instrument cursor, whichever list has the focus. From the listing's
+    // probes: no file read; the card space is checked at Add (a first
+    // f_getfree after a mount scans the whole FAT).
+    // 2.x '~' marks (rowRoute_): where each file lands when added at the
+    // instrument cursor, a selection row at its slot after the rows before.
     int f, l;
     listRange(true, &f, &l);
-    char path[256];
+    const bool sel = count > 0 && !isDir[sdCursor];
+    for (int i = 0; i < count; ++i) {
+        rowRoute_[i] = uint8_t(ImportRoute::Unreadable);
+        if (isDir[i] || (sel && i >= f && i <= l)) continue;
+        rowRoute_[i] = uint8_t(a.importRoute(probeOf(i), insCursor, nullptr, nullptr, UINT64_MAX));
+    }
+    if (!sel) return;
+    int streams = 0;
     for (int i = f; i <= l; ++i) {
         if (isDir[i]) continue;
-        entryPath(i, path, sizeof(path));
-        used += a.sampleBytesNeeded(path);
         const int slot = insCursor + (i - f);
-        if (slot < kSampleInstrumentCount) used -= a.bank.samples(slot) * 2;
+        if (slot >= kSampleInstrumentCount) continue;
+        // The whole sample when it fits (or cannot stream: the bar turns
+        // red), only its head when it will stream from the card (C14).
+        uint32_t b = 0;
+        const ImportRoute r = a.importRoute(probeOf(i), slot, &b, nullptr, UINT64_MAX,
+                                            int64_t(used) - int64_t(a.bank.usedBytes()), streams);
+        rowRoute_[i] = uint8_t(r);
+        streams += r == ImportRoute::Streams;
+        used += b;
+        used -= a.bank.samples(slot) * 2;
     }
     projected_ = uint32_t(used);
     // [I] A resample take holds the free memory it may record into (#7).
@@ -372,7 +558,9 @@ void LoaderScreen::refreshBar() {
     if (g <= 0) std::snprintf(v, sizeof(v), "-inf dB");
     else std::snprintf(v, sizeof(v), "%.2f dB", double(20.0f * std::log10(g)));
     b.set(6, "Preview Vol", v);
-    std::snprintf(v, sizeof(v), "%u%%", unsigned(uint64_t(projected_) * 100 / (a.bank.capacityBytes() ? a.bank.capacityBytes() : 1)));
+    const unsigned pct = unsigned(uint64_t(shown_) * 100 / (a.bank.capacityBytes() ? a.bank.capacityBytes() : 1));
+    if (const int n = a.streamedCount()) std::snprintf(v, sizeof(v), "%u%% +%d", pct, n);   // + samples streamed
+    else std::snprintf(v, sizeof(v), "%u%%", pct);
     b.set(7, "Memory", v);
     b.highlight(6, focus == 2);
 }
@@ -393,6 +581,19 @@ void LoaderScreen::openImport() {
     int f, l;
     listRange(true, &f, &l);
     if (focus > 1 || count == 0 || f != l || isDir[sdCursor] || !hasExt(entries[sdCursor], ".wav")) return;
+    {   // The trim view decodes the whole file into sample memory: say so up
+        // front when it cannot fit (a long file streams with Add next).
+        const App& a = app_;
+        char path[kPathMax + 1];
+        entryPath(sdCursor, path, sizeof(path));
+        const int64_t room = int64_t(a.bank.capacityBytes()) - int64_t(a.bank.usedBytes()) +
+                             2 * int64_t(a.bank.samples(insCursor));
+        if (int64_t(app_.sampleBytesNeeded(path)) > room) {
+            ui_.notify(a.streamingOn() ? "Too long for Import: use Add next (streams)"
+                                       : "Too long for Import: not enough sample memory");
+            return;
+        }
+    }
     if (app_.instrPresent[insCursor]) {
         ui_.ask("Replace sample?", "The sample will be replaced", nullptr, "Cancel", "Yes",
                 [](void* ctx, int key) {
@@ -410,7 +611,7 @@ void LoaderScreen::startTrim() {
     // §5.5 step 2: read the whole file (here: decoded into the free tail of
     // the sample bank), then the trim state.
     App& a = app_;
-    char path[256];
+    char path[kPathMax + 1];
     entryPath(sdCursor, path, sizeof(path));
     WavImportResult res;
     WavImportOptions opt;
@@ -419,11 +620,13 @@ void LoaderScreen::startTrim() {
         return;
     }
     trimLen_ = res.frames;
+    trimBytes_ = a.sampleBytesNeeded(path);
     trimStart = 0;
     trimEnd = 65535;
     trimSel = 0;
     trimPlaying_ = false;
     trim = true;
+    memoryProjection();
     refreshBar();
 }
 
@@ -434,12 +637,19 @@ void LoaderScreen::enter() {
         if (s) *s = 0;
         else dir[0] = 0;
         if (depth_ > 0) --depth_;
+        // Back to the listing the folder (or part) was entered from, with
+        // the cursor on its entry (issue #54: "name (101-200)").
+        part = partHist_[depth_];
+        sdCursor = cursorHist_[depth_];
         list();
         sdCursor = clampi(cursorHist_[depth_], 0, count - 1);
     } else if (depth_ < kMaxDepth - 1) {
+        // A part entry opens that part of the real folder.
+        char nd[kPathMax + 1];
+        if (!entryPath(sdCursor, nd, sizeof(nd))) return;
+        partHist_[depth_] = part;
         cursorHist_[depth_++] = sdCursor;
-        char nd[200];
-        entryPath(sdCursor, nd, sizeof(nd));
+        part = entryPart(sdCursor);
         std::snprintf(dir, sizeof(dir), "%s", nd);
         sdCursor = 0;
         list();
@@ -447,24 +657,64 @@ void LoaderScreen::enter() {
 }
 
 void LoaderScreen::doAdd(bool next) {
+    addNext_ = next;
+    int f, l;
+    listRange(true, &f, &l);
+    addFiles_ = addStreamed_ = 0;
+    for (int i = f; i <= l; ++i) addFiles_ += isDir[i] ? 0 : 1;
+    addLastFailed_ = false;
+    addFrom(f, 0);
+}
+
+void LoaderScreen::addFrom(int i, int n) {
     App& a = app_;
     int f, l;
     listRange(true, &f, &l);
-    int n = 0;
-    char path[256];
-    for (int i = f; i <= l; ++i) {
+    char path[kPathMax + 1];
+    for (; i <= l; ++i) {
         if (isDir[i]) continue;
         entryPath(i, path, sizeof(path));
         const int slot = insCursor + n;
         if (slot >= kSampleInstrumentCount) break;
+        if (a.importRoute(path, slot) == ImportRoute::Streams) {
+            // Too big for the memory: converted onto the card and streamed
+            // (a background job; the Add goes on when it is done).
+            ui_.progressDone();
+            addI_ = i + 1;
+            addN_ = n + 1;
+            if (a.startStreamedImport(path, slot, &LoaderScreen::streamedDone, this)) return;
+            ui_.notify(a.importNotice()[0] ? a.importNotice() : "Import failed", 3000);
+            addLastFailed_ = true;
+            ++n;
+            continue;
+        }
         ui_.progress("Loading", (i - f) * 100 / (l - f + 1));
-        if (!a.importSample(path, slot)) ui_.notify("Import failed");
+        addLastFailed_ = !a.importSample(path, slot);
+        if (addLastFailed_) ui_.notify("Import failed");
         ++n;
     }
     ui_.progressDone();
-    if (next) insCursor = clampi(insCursor + n, 0, 47);
+    // 2.x: several files, some streamed: one summary (a failure of the last
+    // file keeps its own notice).
+    if (addFiles_ > 1 && addStreamed_ > 0 && !addLastFailed_) {
+        char msg[40];
+        std::snprintf(msg, sizeof(msg), "%d of %d stream from the card", addStreamed_ & 63, addFiles_ & 63);
+        ui_.notify(msg, 3000);
+    }
+    if (addNext_) insCursor = clampi(insCursor + n, 0, 47);
     a.setCurrentInstrument(insCursor);
-    memoryProjection();
+    importDone();
+    refreshBar();
+}
+
+void LoaderScreen::streamedDone(void* ctx, bool ok) {
+    LoaderScreen& s = *static_cast<LoaderScreen*>(ctx);
+    const char* msg = s.app_.importNotice();
+    s.addStreamed_ += ok ? 1 : 0;
+    s.addLastFailed_ = !ok;
+    // One file: why it streams; several: the summary at the end of the Add.
+    if (!ok || s.addFiles_ <= 1) s.ui_.notify(msg[0] ? msg : (ok ? "Streams from the card" : "Import failed"), 3000);
+    s.addFrom(s.addI_, s.addN_);
 }
 
 void LoaderScreen::add(bool next) {
@@ -489,8 +739,27 @@ void LoaderScreen::add(bool next) {
     memoryProjection();
     if (over_) {
         // [I] Say why when a resample take holds the memory (#7); otherwise
-        // the red memory bar shows it, as stock.
-        if (a.bank.reserved()) ui_.notify("Sample memory is reserved by the resample take", 3000);
+        // the red memory bar shows it, as stock. SD streaming C14: a file
+        // too big to stream names the reason (Stream from card Off, ...).
+        if (a.bank.reserved()) {
+            ui_.notify("Sample memory is reserved by the resample take", 3000);
+            return;
+        }
+        char path[kPathMax + 1];
+        for (int i = f, n = 0; i <= l; ++i) {
+            if (isDir[i]) continue;
+            entryPath(i, path, sizeof(path));
+            const ImportRoute r = a.importRoute(path, insCursor + n++);
+            const char* why = r == ImportRoute::Off        ? "Not enough memory: turn on Config > Stream from card"
+                              : r == ImportRoute::TooMany  ? "16 instruments already stream from the card"
+                              : r == ImportRoute::CardFull ? "Not enough space on the SD card"
+                              : r == ImportRoute::NoMemory ? "Not enough sample memory"
+                                                           : nullptr;
+            if (why) {
+                ui_.notify(why, 3000);
+                break;
+            }
+        }
         return;
     }
     bool occupied = false;
@@ -511,6 +780,7 @@ void LoaderScreen::add(bool next) {
 
 void LoaderScreen::moveCursor(int d) {
     const bool sh = ui_.shift();
+    imported_ = false;   // a cursor move: the projection again (#93)
     if (focus == 0) {
         if (count == 0) return;
         const int old = sdCursor;
@@ -540,7 +810,7 @@ void LoaderScreen::moveCursor(int d) {
             previewStreamStop(app_);
             app_.previewAllOff();
             if (!isDir[nc]) {
-                char path[256];
+                char path[kPathMax + 1];
                 entryPath(nc, path, sizeof(path));
                 if (hasExt(path, ".wav")) previewStreamStart(app_, path);
                 else if (hasExt(path, ".pti")) previewPtiStart(app_, path);
@@ -592,19 +862,20 @@ void LoaderScreen::onButton(uint8_t id, uint8_t state) {
                     trim = false;
                     trimPlaying_ = false;
                     a.previewAllOff();
+                    memoryProjection();   // back to the whole file
                     break;
                 case btn::F7:
                 case btn::F8: {
                     if (!importAllowed(id == btn::F7)) break;   // disabled key does nothing
                     a.previewAllOff();
                     trimPlaying_ = false;
-                    char path[256];
+                    char path[kPathMax + 1];
                     entryPath(sdCursor, path, sizeof(path));
                     trim = false;
                     ui_.progress("Importing", 50);
                     if (!a.importSample(path, insCursor, trimStart, trimEnd, id == btn::F7)) ui_.notify("Import failed");
                     ui_.progressDone();
-                    memoryProjection();
+                    importDone();
                     break;
                 }
                 default: break;
@@ -632,7 +903,7 @@ void LoaderScreen::onButton(uint8_t id, uint8_t state) {
                     previewing_ = true;
                 } else if (fcs == 0 && count > 0 && !isDir[sdCursor]) {
                     // Streamed into the free tail of the sample bank.
-                    char path[256];
+                    char path[kPathMax + 1];
                     entryPath(sdCursor, path, sizeof(path));
                     if (hasExt(path, ".wav")) previewStreamStart(a, path);
                     else if (hasExt(path, ".pti")) previewPtiStart(a, path);
@@ -802,6 +1073,7 @@ void LoaderScreen::onEncoder(int d) {
         // 109 units per detent; Start <= End - 2 (spec 06 §5.5).
         if (trimSel == 0) trimStart = uint16_t(clampi(int(trimStart) + d * 109, 0, int(trimEnd) - 2));
         else trimEnd = uint16_t(clampi(int(trimEnd) + d * 109, int(trimStart) + 2, 65535));
+        memoryProjection();
         refreshBar();
         return;
     }
@@ -911,16 +1183,21 @@ void LoaderScreen::draw(Gfx& g) {
         if (l) {
             v.item = [](void* c, int i, char* out, int cap) {
                 const App& ap = static_cast<LoaderScreen*>(c)->app_;
-                if (ap.instrPresent[i]) std::snprintf(out, size_t(cap), "%d.%s", i + 1, ap.instruments[i].name);   // [S snap 009]
+                // [S snap 009]; 2.x: '~' marks a sample streamed from the card.
+                if (ap.instrPresent[i]) std::snprintf(out, size_t(cap), "%d.%s%s", i + 1, ap.streamed(i) ? "~" : "", ap.instruments[i].name);
                 else std::snprintf(out, size_t(cap), "%d.", i + 1);
             };
             v.marked = [](void* c, int i) { return static_cast<LoaderScreen*>(c)->insMarked_[i] != 0; };
         } else {
             v.item = [](void* c, int i, char* out, int cap) {
                 const LoaderScreen& ls = *static_cast<LoaderScreen*>(c);
-                std::snprintf(out, size_t(cap), "%s%s", ls.isDir[i] ? "/" : "", ls.entries[i]);
+                ls.entryLabel(i, out, cap);
             };
             v.marked = [](void* c, int i) { return static_cast<LoaderScreen*>(c)->marked_[i] != 0; };
+            // 2.x: '~' at the right, a file that will stream from the card.
+            v.tag = [](void* c, int i) -> const char* {
+                return static_cast<LoaderScreen*>(c)->rowRoute_[i] == uint8_t(ImportRoute::Streams) ? "~" : nullptr;
+            };
         }
         wg::list(g, th, v);
     }
@@ -932,9 +1209,9 @@ void LoaderScreen::draw(Gfx& g) {
     if (focus == 2) wg::panelFocus(g, th, 601, 97);
     const float cap = float(a.bank.capacityBytes() ? a.bank.capacityBytes() : 1);
     const float cur = float(a.bank.usedBytes()) / cap;
-    const float proj = float(projected_) / cap;
+    const float proj = float(shown_) / cap;
     wg::ValueBarStyle ms;
-    if (over_) {
+    if (shownOver_) {
         ms.fill = th.slot(slot::kFocusFrame);
         wg::valueBar(g, th, 701, 29, 97, 394, 1.0f, ms);
     } else {

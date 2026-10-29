@@ -66,6 +66,7 @@ size_t SampleBank::usedSamples() const {
 }
 
 int16_t* SampleBank::reserve(int idx, uint32_t frames, bool stereo) {
+    if (valid(idx)) slots_[idx].full = 0;   // rewritten: no longer a streamed head
     if (!valid(idx) || !pool_) return nullptr;
     const uint32_t need = frames * (stereo ? 2u : 1u);
     const uint32_t old = slots_[idx].samples();
@@ -83,6 +84,12 @@ int16_t* SampleBank::reserve(int idx, uint32_t frames, bool stereo) {
     slots_[idx].stereo = stereo;
     slots_[idx].loaded = true;
     return pool_ + start;
+}
+
+bool SampleBank::setPartial(int idx, uint32_t fullFrames) {
+    if (!loaded(idx) || fullFrames <= slots_[idx].frames) return false;
+    slots_[idx].full = fullFrames;
+    return true;
 }
 
 bool SampleBank::store(int idx, const int16_t* samples, uint32_t frames, bool stereo) {
@@ -111,6 +118,7 @@ bool SampleBank::commitTail(int idx, uint32_t frames, bool stereo) {
         if (slots_[j].loaded) slots_[j].off += n;
     slots_[idx].off = start;
     slots_[idx].frames = frames;
+    slots_[idx].full = 0;
     slots_[idx].stereo = stereo;
     slots_[idx].loaded = true;
     return true;
@@ -141,17 +149,53 @@ void SampleBank::crop(int idx, uint32_t start, uint32_t n) {
 }
 
 bool SampleBank::replaceFromTail(int idx, uint32_t frames, bool stereo) {
+    if (valid(idx)) slots_[idx].full = 0;
     if (!loaded(idx)) return false;
     const uint32_t n = frames * (stereo ? 2u : 1u);
     const size_t used = usedSamples();
     if (n == 0 || n > cap_ - reserved_ - used) return false;
     const uint32_t start = slots_[idx].off;
     const uint32_t old = slots_[idx].samples();
-    // [C][B][N] -> [N][C][B] -> [N][B][C]
-    std::rotate(pool_ + start, pool_ + used, pool_ + used + n);
-    std::rotate(pool_ + start + n, pool_ + start + n + old, pool_ + used + n);
-    for (int j = idx + 1; j < kSlots; ++j)
-        if (slots_[j].loaded) slots_[j].off = slots_[j].off - old + n;
+    if (n == old) {
+        // Same size (most Sample Editor effects, and their undo): C and N
+        // swap places, the rest of the bank stays where it is. Block copies
+        // through a small buffer instead of rotating everything after the
+        // slot twice (a few hundred ms per apply in a loaded project).
+        int16_t buf[128];
+        for (uint32_t i = 0; i < n; i += 128) {
+            const size_t k = (n - i < 128 ? n - i : 128) * sizeof(int16_t);
+            std::memcpy(buf, pool_ + start + i, k);
+            std::memcpy(pool_ + start + i, pool_ + used + i, k);
+            std::memcpy(pool_ + used + i, buf, k);
+        }
+    } else {
+        // Another size: [C][B][N][free] -> [N][B][C]. With room in the free
+        // memory after N, block moves (sequential, the device's memmove):
+        // C (and, when the result grows, N) is parked there first, so no move
+        // overwrites data it still needs. Otherwise the two rotations.
+        int16_t* const s = pool_ + start;
+        const size_t b = used - start - old;   // B: the slots after this one
+        const size_t room = cap_ - reserved_ - used - n;
+        int16_t* const park = pool_ + used + n;
+        if (n < old && room >= old) {
+            std::memcpy(park, s, old * sizeof(int16_t));                    // C aside
+            std::memmove(s, pool_ + used, n * sizeof(int16_t));             // N to the front
+            std::memmove(s + n, s + old, b * sizeof(int16_t));              // B left
+            std::memmove(s + n + b, park, old * sizeof(int16_t));           // C to the tail
+        } else if (n > old && room >= size_t(old) + n) {
+            std::memcpy(park, s, old * sizeof(int16_t));                    // C aside
+            std::memcpy(park + old, pool_ + used, n * sizeof(int16_t));     // N aside
+            std::memmove(s + n, s + old, b * sizeof(int16_t));              // B right
+            std::memcpy(s, park + old, n * sizeof(int16_t));                // N to the front
+            std::memmove(s + n + b, park, old * sizeof(int16_t));           // C to the tail
+        } else {
+            // [C][B][N] -> [N][C][B] -> [N][B][C]
+            std::rotate(s, pool_ + used, pool_ + used + n);
+            std::rotate(s + n, s + n + old, pool_ + used + n);
+        }
+        for (int j = idx + 1; j < kSlots; ++j)
+            if (slots_[j].loaded) slots_[j].off = slots_[j].off - old + n;
+    }
     slots_[idx].frames = frames;
     slots_[idx].stereo = stereo;
     return true;
@@ -350,6 +394,9 @@ void AudioEngine::voiceNoteOn(uint8_t track, const VoiceNoteOn& n) {
         voices_[track].noteOn(&ins, ss->headL, ss->frames, n.note, n.volume, n.fxA.type, n.fxA.value, n.fxB.type,
                               n.fxB.value, ss->headR, ss, &rings_[track]);
     } else {
+        // A partial (streamed-head) slot never plays as a whole sample: no
+        // source bound yet, streaming turned off, or a bank move in progress.
+        if (bank_.partial(n.instrument)) return;
         voices_[track].noteOn(&ins, bank_.left(n.instrument), bank_.frames(n.instrument), n.note, n.volume,
                               n.fxA.type, n.fxA.value, n.fxB.type, n.fxB.value,
                               bank_.stereo(n.instrument) ? bank_.right(n.instrument) : nullptr, nullptr,
@@ -1234,6 +1281,61 @@ bool patchRate(IStorage& fs, const char* path) {
     fs.close(h);
     return ok;
 }
+
+// [I] Convert device-rate audio (180 MHz * 16 / 255 / 256 = 44100 * 2500 /
+// 2499 Hz) to 44.1 kHz WAV samples without changing pitch or duration. Stock
+// writes the device-rate samples with 44117 in the header (spec 04 §6.1);
+// DAWs at 44.1 kHz then resample or play them 0.04 % slow. The position runs
+// in exact integer steps of 2500/2499 input frames per output frame; the
+// interpolation is the WAV import's (cubicS16, formats/wav.h).
+class ExportResampler {
+public:
+    static constexpr uint32_t kInputPerOutput = 2500;
+    static constexpr uint32_t kOutputPerInput = 2499;
+
+    uint32_t push(const int16_t* in, uint32_t frames, int16_t* out) {
+        const uint32_t start = outputFrames_;
+        for (uint32_t i = 0; i < frames; ++i) {
+            for (int ch = 0; ch < 2; ++ch) history_[ch][inputFrames_ & 3u] = in[2 * i + ch];
+            ++inputFrames_;
+            while (sourceIndex_ + 2 < inputFrames_) emit(out, start);
+        }
+        return outputFrames_ - start;
+    }
+
+    uint32_t finish(int16_t* out) {
+        const uint32_t start = outputFrames_;
+        const uint32_t target = uint32_t(uint64_t(inputFrames_) * kOutputPerInput / kInputPerOutput);
+        while (outputFrames_ < target) emit(out, start);
+        return outputFrames_ - start;
+    }
+
+private:
+    int16_t sample(int channel, int64_t frame) const {
+        if (frame < 0 || uint64_t(frame) >= inputFrames_) return 0;
+        return history_[channel][uint32_t(frame) & 3u];
+    }
+
+    void emit(int16_t* out, uint32_t start) {
+        const float mu = float(phase_) / float(kOutputPerInput);
+        const uint32_t outFrame = outputFrames_ - start;
+        for (int ch = 0; ch < 2; ++ch)
+            out[2 * outFrame + ch] = cubicS16(float(sample(ch, int64_t(sourceIndex_) - 1)),
+                                              float(sample(ch, sourceIndex_)), float(sample(ch, sourceIndex_ + 1)),
+                                              float(sample(ch, sourceIndex_ + 2)), mu);
+        ++outputFrames_;
+        phase_ += kInputPerOutput;
+        sourceIndex_ += phase_ / kOutputPerInput;
+        phase_ %= kOutputPerInput;
+    }
+
+    int16_t history_[2][4] = {};
+    uint32_t inputFrames_ = 0;
+    uint32_t outputFrames_ = 0;
+    uint32_t sourceIndex_ = 0;
+    uint32_t phase_ = 0;
+};
+
 void joinPath(char* dst, size_t cap, const char* dir, const char* name) {
     size_t n = 0;
     for (const char* p = dir; *p && n + 1 < cap; ++p) dst[n++] = *p;
@@ -1244,7 +1346,7 @@ void joinPath(char* dst, size_t cap, const char* dir, const char* name) {
 }  // namespace
 
 int32_t AudioEngine::exportWav(IStorage& fs, const char* path, bool stems, uint32_t maxBlocks,
-                               bool (*running)(void*), void* ctx) {
+                               bool (*running)(void*), void* ctx, bool resampleTo44100) {
     static const char* const kNames[StemBlock::kStems] = {"track1.wav", "track2.wav", "track3.wav", "track4.wav",
                                                           "track5.wav", "track6.wav", "track7.wav", "track8.wav",
                                                           "reverb.wav", "delay.wav",  "master.wav", "synth_1.wav",
@@ -1270,22 +1372,32 @@ int32_t AudioEngine::exportWav(IStorage& fs, const char* path, bool stems, uint3
     }
     beginOffline();
     int16_t masterBuf[kBlock * 2];
+    int16_t rateBuf[kBlock * 2];
+    ExportResampler resamplers[StemBlock::kStems];
     uint32_t n = 0;
     bool ok = true;
     while (n < maxBlocks && (!running || running(ctx))) {
         renderOfflineBlock(masterBuf, stems ? stemBuf : nullptr);
-        if (stems) {
-            for (int i = 0; i < nw && ok; ++i) ok = writers[i].write(stemBuf->data[i], kBlock);
-        } else {
-            ok = writers[0].write(masterBuf, kBlock);
+        for (int i = 0; i < nw && ok; ++i) {
+            const int16_t* src = stems ? stemBuf->data[i] : masterBuf;
+            if (!resampleTo44100) {
+                ok = writers[i].write(src, kBlock);
+                continue;
+            }
+            const uint32_t outFrames = resamplers[i].push(src, kBlock, rateBuf);
+            ok = !outFrames || writers[i].write(rateBuf, outFrames);
         }
         if (!ok) break;
         ++n;
     }
     endOffline();
     for (int i = 0; i < nw; ++i) {
+        if (resampleTo44100) {
+            const uint32_t outFrames = resamplers[i].finish(rateBuf);
+            if (outFrames) ok = writers[i].write(rateBuf, outFrames) && ok;
+        }
         ok = writers[i].close() && ok;
-        ok = patchRate(fs, names[i]) && ok;
+        if (!resampleTo44100) ok = patchRate(fs, names[i]) && ok;
     }
     return ok ? int32_t(n) : -1;
 }

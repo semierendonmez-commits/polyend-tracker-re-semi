@@ -11,10 +11,13 @@
 #include "app/sample_fx.h"
 #include "gen/gen.h"
 #include "model/synth_patch.h"
+#include "ui/loader_list.h"
 #include "ui/ui.h"
 #include "ui/wave.h"
 
 namespace ot {
+
+struct ImportProbe;   // app/app.h
 
 // [I] One buffer for the browsers' name lists (SDRAM on the device,
 // screens.cpp): Sample Loader, Synth patch browser, File Open / Save,
@@ -22,8 +25,11 @@ namespace ot {
 // and each rebuilds its list when it opens (LoaderScreen::start,
 // SynthScreen::openBrowser, FileScreen enterBrowser / F3, ConfigScreen's
 // firmware entry), so they share it; each list's layout static_asserts that
-// it fits. The largest is Import Mod (200 x 56 names + 200 kinds).
-constexpr size_t kBrowserListBytes = 200 * 56 + 200;
+// it fits. The largest is the Sample Loader's (LoaderList: 101 FAT long
+// names of 255 characters, issue #54), then Import Mod (200 x 56 names +
+// 200 kinds).
+constexpr size_t kBrowserListBytes =
+    sizeof(LoaderList) > 200 * 56 + 200 ? (sizeof(LoaderList) + 7) / 8 * 8 : 200 * 56 + 200;
 extern unsigned char g_browserLists[kBrowserListBytes];   // screens.cpp (.sdram_bss on the device)
 inline void* browserListMem() { return g_browserLists; }
 
@@ -265,6 +271,10 @@ public:
     uint32_t tapT0 = 0;
     bool tapShown = false;         // "TAP n/4" display flag SO+0x131 (spec 06 §2.4)
     int transportState() const;    // F1/F2 label state 0..5 (spec 06 §2.2)
+    // The slot row the green progress line is on, -1 for none: the song
+    // position while the song (or its looped slot) plays, or the slot F1
+    // "Play Pattern" started (user report 2.2.2).
+    int playingRow() const;
     // Loop Pattern active in the current play run (a stop elsewhere ends it).
     bool loopingInSong() const;
     bool loopTogglePending() const { return togglePending_; }
@@ -289,6 +299,10 @@ private:
     int followPos_ = -1;           // playing slot the cursor last followed (-1: follow at once)
     uint32_t loopRun_ = 0;         // App::playStartMs() of the run that set loopInSong_
     bool loopInSong_ = false;      // state 3: song paused on one pattern (spec 06 §2.2)
+    int patSlot_ = -1;             // slot F1 "Play Pattern" / Preview Track started
+    bool patPending_ = false;      // its run has not shown up in App::playStartMs() yet
+    uint32_t patStartSeen_ = 0;    // App::playStartMs() at the F1 press
+    uint32_t patRun_ = 0;          // App::playStartMs() of that run
     bool togglePending_ = false;   // F1 deferred action (seq+0x548 = 0x5ae00, spec 06 §2.3)
     int toggleStep_ = 0;           // master step at scheduling; fires on the next one
 };
@@ -330,7 +344,6 @@ private:
     void refreshBar();
     void valueText(int col, char* out, int cap, float* frac, bool* bipolar) const;
     bool held_[8] = {};
-    int heldCount_ = 0;
     bool usedWhileHeld_[8] = {};
 };
 
@@ -351,13 +364,28 @@ public:
     bool encoderOnList() const override;
 #endif
 
-    static constexpr int kMaxEntries = 101;   // spec 06 §5.2
+    // spec 06 §5.2: at most 101 names per folder; a part of a folder with
+    // more than 100 files lists its files plus (part 1) the subfolders.
+    static constexpr int kMaxEntries = LoaderList::kMaxEntries;
+    static constexpr int kMaxUnsplit = 101;
+    static constexpr int kPartFiles = 100;   // files per part (issue #54)
     static constexpr int kMaxDepth = 20;
-    char dir[200] = {};
+    static constexpr int kPathMax = int(IStorage::kMaxPath);   // longest storage path
+    char dir[kPathMax + 1] = {};   // the real folder (never a part label)
+    int part = 0;                  // 0: the whole folder; k >= 1: part k of it
     int count = 0;
-    // In browserListMem(): names, then the folder flags.
-    char (*entries)[40] = static_cast<char (*)[40]>(browserListMem());
-    bool* isDir = static_cast<bool*>(browserListMem()) + kMaxEntries * 40;
+    // The names (LoaderList in browserListMem()): entries[i] is the file or
+    // folder name, entryPart(i) the part of a split folder entry.
+    struct Names {
+        const LoaderScreen* s;
+        const char* operator[](int i) const { return s->list_->pool + s->list_->off[i]; }
+    };
+    Names entries{this};
+    bool* isDir = static_cast<LoaderList*>(browserListMem())->isDir;
+    int entryPart(int i) const { return list_->part[i]; }
+    // List label: "/name", "/name (101-200)" for a part, "name" for a file.
+    void entryLabel(int i, char* out, int cap) const;
+    int depth() const { return depth_; }
     int sdCursor = 0;
     int insCursor = 0;
     int focus = 0;          // 0 SD, 1 instruments, 2 preview volume
@@ -366,6 +394,7 @@ public:
     uint16_t trimStart = 0, trimEnd = 65535;
     int trimSel = 0;
     uint32_t trimLen_ = 0;
+    uint32_t trimBytes_ = 0;            // the whole file in the bank (2.x: stereo stays stereo)
 
     void list();
     void enter();
@@ -374,25 +403,44 @@ public:
     // §5.5 gating: Normal iff 2n < free - 10000, low quality iff n < free - 10000.
     bool importAllowed(bool lowQuality) const;
     bool over() const { return over_; }
+    uint32_t memoryShown() const { return shown_; }   // bytes the memory bar and label show
 
 private:
     void refreshBar();
     void selectionRange(int* first, int* last) const;               // focused list
     void listRange(bool sd, int* first, int* last) const;
     void memoryProjection();
+    void projectSelection();            // projected_ / over_: the selection loaded at the cursor
+    void importDone();                  // show the actual use until a cursor moves (#93)
     void startTrim();
     void moveCursor(int d);
     void doAdd(bool next);
-    void entryPath(int i, char* out, int cap) const;
+    // Add from the selection's i-th entry (n samples placed so far): a
+    // file that streams (SD streaming C14) runs as a background import and
+    // the rest continues from its done callback.
+    void addFrom(int i, int n);
+    static void streamedDone(void* ctx, bool ok);
+    bool entryPath(int i, char* out, int cap) const;
+    ImportProbe probeOf(int i) const;   // the listing's probe of entry i
     uint32_t now() const { return ui_.now(); }
+    LoaderList* list_ = static_cast<LoaderList*>(browserListMem());
     int depth_ = 0;
     int cursorHist_[kMaxDepth] = {};
+    int partHist_[kMaxDepth] = {};
     uint8_t marked_[kMaxEntries] = {};
+    uint8_t rowRoute_[kMaxEntries] = {};   // 2.x: ImportRoute of each row (projectSelection)
     uint8_t insMarked_[48] = {};
     int prevFocus_ = 0;
     uint32_t projected_ = 0;
     bool over_ = false;
+    uint32_t shown_ = 0;                // the bar and the Memory label
+    bool shownOver_ = false;
+    bool imported_ = false;
+    int importSd_ = 0, importIns_ = 0, importF_ = 0, importL_ = 0;
     bool addNext_ = false;
+    int addI_ = 0, addN_ = 0;   // C14: where a streamed import resumes the Add
+    int addFiles_ = 0, addStreamed_ = 0;   // 2.x: files in the Add, streamed so far (summary notice)
+    bool addLastFailed_ = false;
     int copySrc_ = -1, copyCount_ = 0;
     bool previewing_ = false;
     uint32_t pendingProjAt_ = 0;
@@ -573,6 +621,9 @@ public:
     static constexpr int kFwMax = 101;
     static int firmwareCount();
     static const char* firmwareName(int i);
+    // [I] 2.x Display theme picker: the card's theme files (after the stock three).
+    static int themeCount();
+    static const char* themeName(int i);
     // /.develop overlay values (spec 06 §7.2), refreshed every > 1 s.
     DevStats dev;
     bool devValid = false;
@@ -596,6 +647,9 @@ public:
     static int categoryCount();
     static const char* categoryName(int cat);
     static int optionCount(int cat);
+    // Pen x where category cat's values end (right-aligned): the stock x
+    // without a scroll bar, left of the bar when the list scrolls.
+    static int valueRight(int cat);
     static bool optionInfo(int cat, int i, OptionInfo* out);
     int optionIndex(int cat, int i) const;   // current picker index of the value
     void optionText(int cat, int i, char* out, int cap) const;
@@ -652,6 +706,7 @@ public:
     // the x of its marker on the position bar (-1 when not in Wavetable).
     uint32_t wavetableShownWindow() const;
     uint16_t granularShownPosition() const;   // Granular: the preview voice's grain position, else the instrument's
+    void grainSpan(uint16_t* first, uint16_t* last) const;   // Granular: the shaded span (sample points)
     static constexpr uint32_t kGrainColour = 0x5A8CDC;   // the manual's blue grain (p.135) [OT shade]
     int wavetablePositionX() const;
     uint32_t wtShown_ = 0xFFFFFFFFu;
@@ -1175,7 +1230,7 @@ private:
     int listTop_ = 0;
 };
 
-static_assert(LoaderScreen::kMaxEntries * (40 + sizeof(bool)) <= kBrowserListBytes, "Loader list");
+static_assert(sizeof(LoaderList) <= kBrowserListBytes, "Loader list");
 static_assert(SynthScreen::kBrowserMax * (SynthScreen::kBrowserNameMax + 1) <= kBrowserListBytes, "Synth list");
 static_assert(ProjectBrowser::kMaxEntries * 40 <= kBrowserListBytes, "File list");
 static_assert(ConfigScreen::kFwMax * 48 <= kBrowserListBytes, "Firmware list");

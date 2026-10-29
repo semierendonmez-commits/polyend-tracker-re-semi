@@ -46,7 +46,13 @@ constexpr const char* kSeedHelp = "0: a new result every time. 1-999: the same r
 #define NONE {nullptr, 0, 0, 0, nullptr, nullptr}
 #define SEED {"Seed", 0, 999, 0, nullptr, kSeedHelp}
 
-KindDesc gKinds[kKindCount] = {
+// Labels filled at the first use (names from the generators' own tables);
+// the descriptor table itself is const (flash), it only points at them.
+const char* gCrStyleLabels[kCrStyleCount];
+const char* gCrStrategyLabels[kCrStrategyCount];
+const char* gBBProcLabels[kBBProcCount];
+
+const KindDesc gKinds[kKindCount] = {
     {"Acid", "303 line: density, accent, slide (after TB-3PO)",
      {{"Density", -7, 7, 5, nullptr, "TB-3PO: 0 sparse, +-7 every step; below 0 fewer pitches (-7 root only). Live: Perform Acid Density"},
       {"Accent", 0, 100, 40, nullptr, "Chance of an accent (Volume 100)"},
@@ -58,8 +64,8 @@ KindDesc gKinds[kKindCount] = {
       {"Gate", 0, 2, 0, kAcidGate, "Length of the notes that do not slide"},
       NONE, NONE, NONE, NONE}},
     {"Call+Resp", "Call phrase, then the answer (Nordl3 C/R Generator)",
-     {{"Style", 0, kCrStyleCount - 1, 0, nullptr, "Genre profile: density, leaps, accents, slides, rests"},
-      {"Answer", 0, kCrStrategyCount - 1, 35, nullptr, "How the answer is made from the call (default Q+closure)"},
+     {{"Style", 0, kCrStyleCount - 1, 0, gCrStyleLabels, "Genre profile: density, leaps, accents, slides, rests"},
+      {"Answer", 0, kCrStrategyCount - 1, 35, gCrStrategyLabels, "How the answer is made from the call (default Q+closure)"},
       {"Density", 0, 100, 0, nullptr, "Notes per phrase. 0 = the style's own density"},
       {"Layout", 0, 2, 0, kCrLayout, "One track / answer the call you wrote / call and answer on two tracks"},
       {"Form", 0, 5, 0, kCrForm, "Order of the parts: C = call, R = answer (R2 = a second answer)"},
@@ -70,7 +76,7 @@ KindDesc gKinds[kKindCount] = {
       {"Motif", 0, 3, 0, kCrMotif, "Length of the repeated motif in steps. Auto = from the part length"},
       NONE, NONE}},
     {"BBCut", "Rearrange a sliced break (BBCut / BBenCut procs)",
-     {{"Proc", 0, kBBProcCount - 1, 0, nullptr, "BBCut cut procedure"},
+     {{"Proc", 0, kBBProcCount - 1, 0, gBBProcLabels, "BBCut cut procedure"},
       {"A", 0, 100, 50, nullptr, nullptr},
       {"B", 0, 100, 50, nullptr, nullptr},
       {"Source", 0, 5, 0, kBBSource, "Length of the break: Auto from the sample length at the song tempo"},
@@ -137,18 +143,11 @@ KindDesc gKinds[kKindCount] = {
 #undef SEED
 
 bool labelsReady = false;
-const char* gCrStyleLabels[kCrStyleCount];
-const char* gCrStrategyLabels[kCrStrategyCount];
-const char* gBBProcLabels[kBBProcCount];
-
 void initLabels() {
     if (labelsReady) return;
     for (int i = 0; i < kCrStyleCount; ++i) gCrStyleLabels[i] = crStyleName(i);
     for (int i = 0; i < kCrStrategyCount; ++i) gCrStrategyLabels[i] = crStrategyName(i);
     for (int i = 0; i < kBBProcCount; ++i) gBBProcLabels[i] = bbProcName(i);
-    gKinds[kCallResponse].p[0].labels = gCrStyleLabels;
-    gKinds[kCallResponse].p[1].labels = gCrStrategyLabels;
-    gKinds[kBBCut].p[0].labels = gBBProcLabels;
     labelsReady = true;
 }
 

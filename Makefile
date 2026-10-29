@@ -3,24 +3,25 @@
 # make SELFTEST=1 -> build/selftest/PolyendTracker_OTst<DIAG_N>.ptf (24 chars)
 # make host-test  -> build and run host-side unit tests
 # make perf-gate  -> bench-m4 instruction counts vs tests/perf_baseline.txt (+5 % max), engine
-#                    limits, flash <= 800,000 B (semi fork), host bench, telemetry thresholds on LOG=<device log>
+#                    limits, flash <= 860,000 B (semi fork), host bench, telemetry thresholds on LOG=<device log>
 #                    (docs/HARDWARE_TESTING.md)
-# OT_GAMES=0      -> image without Games (NES player, screen, menu entry; build dir build/nogames)
+# OT_GAMES=1      -> image with Games (NES player, screen, menu entry; build dir build/games); off by default since 2.2.1
 # OT_SDRAM_CACHE=0 -> image without the LMEM system cache for the SDRAM (build dir build/nocache)
 # OT_FASTRUN=0    -> image with all audio code in flash (no .fastrun in SRAM_L; build dir build/nofastrun)
 # OT_USB_MSC=0    -> image without the USB mass-storage interface (old MIDI + Serial descriptors;
 #                    build dir build/nomsc)
 # make testsongs  -> build/testsongs/Projects/<name>/ (2.x hardware-test projects, TESTSONGS.md)
+# make patches    -> build/patches/Patches/<MODEL>/ (synth preset pack, tools/make_patches/PRESETS.md)
 # make fonts      -> regenerate the committed UI font image (src/core/ui/fonts/font_data.*,
 #                    the firmware's packed font_data_z.inc / font_adv.inc,
 #                    sim/third_party/rom_fonts.inc); needs python3 + Pillow
-VERSION   ?= 2.2.1
+VERSION   ?= 2.2.3
 BUILD     := build
 # Image file names must be exactly 24 characters (like the stock
 # "PolyendTracker_1.9.2.ptf"): the device's update bootloader rejected a
 # 45-character name and accepted a 24-character one (docs/HARDWARE_TESTING.md).
 # DIAG_N numbers successive diagnostic selftest images (one digit).
-DIAG_N    ?= 2
+DIAG_N    ?= 3
 VERNUM    := $(subst .,,$(VERSION))
 # OT fork (semi): FORK names the build. The image becomes
 # PolyendTrackerOTs<ver>.ptf (still 24 characters, so the update bootloader
@@ -56,13 +57,19 @@ OT_FASTRUN ?= 1
 ifeq ($(OT_FASTRUN),0)
 BUILD     := $(BUILD)/nofastrun
 endif
-# Games (spec 14): 1 = NES player + Games screen + menu entry (2.0.0 default),
-# 0 = compiled out (docs/OPTIMIZATION_2X.md OP-4). Own build dir.
-# semi fork: no Games by default (the fork's features fill the flash gate that
-# Games would need; `make OT_GAMES=1` still builds it, over the 720 KB gate).
+# Games (spec 14): 1 = NES player + Games screen + menu entry (2.0.0 - 2.2.0
+# default), 0 = compiled out (docs/OPTIMIZATION_2X.md OP-4). Off by default
+# since 2.2.1 (owner decision): -48.9 KB flash, -5.8 KB RAM (stack headroom for
+# SD streaming). Host tests and the simulator still build it. Own build dir.
 OT_GAMES ?= 0
-ifeq ($(OT_GAMES),0)
-BUILD     := $(BUILD)/nogames
+ifeq ($(OT_GAMES),1)
+BUILD     := $(BUILD)/games
+endif
+# Stack guard test build (src/hal/stack_guard.h): 1 = with
+# /Firmware/ot_guardtest.txt on the card, overflows the stack once on purpose.
+OT_STACK_GUARD_TEST ?= 0
+ifeq ($(OT_STACK_GUARD_TEST),1)
+BUILD     := $(BUILD)/guardtest
 endif
 # USB Storage mode (docs/PLAN_2X.md, Tracker Mini manual §13.10): 1 = the USB
 # device adds a mass-storage interface (third_party/teensy3/usb_msc.h) next to
@@ -81,7 +88,8 @@ endif
 # before any public release.
 USB_ID    := -DOT_USB_VID=0x1209 -DOT_USB_PID=0x0001
 CORE      := third_party/teensy3
-CROSS     ?= arm-none-eabi-
+ARM_GCC   := $(lastword $(sort $(wildcard /Applications/ArmGNUToolchain/*/arm-none-eabi/bin/arm-none-eabi-gcc)))
+CROSS     ?= $(if $(ARM_GCC),$(patsubst %gcc,%,$(ARM_GCC)),arm-none-eabi-)
 CC        := $(CROSS)gcc
 CXX       := $(CROSS)g++
 OBJCOPY   := $(CROSS)objcopy
@@ -91,9 +99,9 @@ CPUFLAGS  := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16
 DEFS      := -D__MK66FX1M0__ -DF_CPU=180000000 -DUSB_MIDI_SERIAL -DLAYOUT_US_ENGLISH \
              -DF_BUS=90000000 -DSERIAL5_TX_BUFFER_SIZE=512 -DSERIAL5_RX_BUFFER_SIZE=512 \
              -DTEENSYDUINO=159 -DARDUINO=10819 -DOT_VERSION=\"$(OT_VER_STR)\" -DOT_TARGET_DEVICE=1 \
-             -DOT_SDRAM_CACHE=$(OT_SDRAM_CACHE) -DOT_GAMES=$(OT_GAMES) -DOT_FASTRUN=$(OT_FASTRUN) -DOT_USB_MSC=$(OT_USB_MSC) -DOT_FONTS_COMPRESSED=1 $(USB_ID) $(DEFS_EXTRA)
+             -DOT_SDRAM_CACHE=$(OT_SDRAM_CACHE) -DOT_GAMES=$(OT_GAMES) -DOT_FASTRUN=$(OT_FASTRUN) -DOT_USB_MSC=$(OT_USB_MSC) -DOT_STACK_GUARD_TEST=$(OT_STACK_GUARD_TEST) -DOT_FONTS_COMPRESSED=1 $(USB_ID) $(DEFS_EXTRA)
 INCS      := -I$(CORE) -Isrc -Isrc/core -Isrc/hal -Ithird_party/fatfs
-COMMON    := $(CPUFLAGS) $(DEFS) $(INCS) -O2 -g -ffunction-sections -fdata-sections -Wall -MMD
+COMMON    := $(CPUFLAGS) $(DEFS) $(INCS) -O2 -g -ffunction-sections -fdata-sections -Wall -MMD -fstack-usage
 CFLAGS    := $(COMMON) -std=gnu11
 CXXFLAGS  := $(COMMON) -std=gnu++17 -fno-exceptions -fno-rtti -felide-constructors -Wno-psabi
 # Own linker script: the Teensy one + the uncached `.dma` section (src/hal/opentracker.ld).
@@ -145,7 +153,31 @@ $(patsubst %,$(BUILD)/%.o,$(DPROMO)): WARN := -Wdouble-promotion
 # The stock updater only lists Firmware/ files named "PolyendTrac*.ptf" (spec 06), so the
 # image name keeps that prefix for compatibility (and the 24-character length, above).
 
-all: $(BUILD)/opentracker.hex $(PTF)
+all: check-toolchain $(BUILD)/opentracker.hex $(PTF)
+
+# Fail early if a host-only ARM GCC package is installed without the target
+# C/C++ headers needed to build firmware.
+check-toolchain:
+	@set -eu; \
+	for tool in "$(CC)" "$(CXX)" "$(OBJCOPY)" "$(SIZE)"; do \
+	    if ! command -v "$$tool" >/dev/null 2>&1; then \
+	        echo "error: required ARM tool '$$tool' was not found." >&2; \
+	        echo "Install the complete Arm GNU Toolchain, or set CROSS=/path/to/arm-none-eabi-." >&2; \
+	        exit 1; \
+	    fi; \
+	done; \
+	if ! printf '#include <stdint.h>\n' | $(CC) $(CPUFLAGS) -x c -fsyntax-only - >/dev/null 2>&1; then \
+	    echo "error: $(CC) cannot find the ARM C standard headers (for example stdint.h)." >&2; \
+	    echo "The installed compiler may not include the target runtime; install the complete Arm GNU Toolchain." >&2; \
+	    exit 1; \
+	fi; \
+	if ! printf '#include <cstdint>\n' | $(CXX) $(CPUFLAGS) -std=gnu++17 -x c++ -fsyntax-only - >/dev/null 2>&1; then \
+	    echo "error: $(CXX) cannot find the ARM C++ standard headers." >&2; \
+	    echo "Install the complete Arm GNU Toolchain, or set CROSS=/path/to/arm-none-eabi-." >&2; \
+	    exit 1; \
+	fi
+
+$(OBJS): | check-toolchain
 
 $(BUILD)/%.c.o: %.c
 	@mkdir -p $(dir $@)
@@ -158,6 +190,8 @@ $(BUILD)/%.cpp.o: %.cpp
 $(BUILD)/opentracker.elf: $(OBJS) $(LDSCRIPT)
 	$(CXX) $(LDFLAGS) $(OBJS) -L$(CORE) $(LIBS) -o $@ -Wl,-Map=$(BUILD)/opentracker.map
 	$(SIZE) $@
+	@# No static constructor may touch SDRAM (it is not running before main()).
+	python3 -I tools/check_ctors.py $(CROSS)objdump $@ || { rm -f $@; exit 1; }
 
 $(BUILD)/opentracker.hex: $(BUILD)/opentracker.elf
 	$(OBJCOPY) -O ihex -R .eeprom $< $@
@@ -176,29 +210,34 @@ clean:
 	rm -rf $(BUILD)
 
 -include $(OBJS:.o=.d)
-.PHONY: all clean host-test
+.PHONY: all check-toolchain clean host-test
 
 # Performance gate (docs/PLAN_2X.md "Gate"; docs/HARDWARE_TESTING.md "Performance gate").
 #  1. bench-m4: QEMU -icount instruction counts per audio block vs tests/perf_baseline.txt
-#     (fail above +5 %); skipped with a note when qemu-system-arm / arm-none-eabi-g++ are missing.
+#     (fail above +5 %); skipped with a note when qemu-system-arm / $(CROSS)g++ are missing.
 #  2. host bench (timing on this machine, informational).
-#     The same run gates the per-engine limit lines (acd.* / vap* / perc*: "limit N").
+#     The same run gates the per-engine limit lines (acd.* / vap* / fat* / perc*: "limit N").
 #  3. tools/telemetry_check.py: its built-in sample check, plus LOG=<captured device log>
 #     against the thresholds (render avg < 45 %, max < 70 %, loop max < 50 ms outside loading).
-#  4. Flash size of the firmware image (.text + .data): fail above 800,000 B (semi fork; upstream 720,000), warn above
+#  4. Flash size of the firmware image (.text + .data): fail above 860,000 B (semi fork; upstream 720,000), warn above
 #     600,000 B (docs/VERIFY_M1.md R4); builds build/opentracker.elf when it is stale.
+#  5. Stack frames (-fstack-usage .su files): fail when one function's frame reaches the stack
+#     guard (src/hal/stack_guard.h) less 256 B for an interrupt's exception frame, or is
+#     unbounded, or when an object of the image has no .su file (built before the flag:
+#     make clean); warn above 75 % of the guard.
 PERF_OUT := build/perf
 perf-gate:
 	@mkdir -p $(PERF_OUT)
-	@if command -v qemu-system-arm >/dev/null 2>&1 && command -v arm-none-eabi-g++ >/dev/null 2>&1; then \
-	    $(MAKE) -s -C tests bench-m4 > $(PERF_OUT)/bench_m4.txt && \
+	@if command -v qemu-system-arm >/dev/null 2>&1 && command -v $(CXX) >/dev/null 2>&1; then \
+	    $(MAKE) -s -C tests bench-m4 CROSS=$(CROSS) > $(PERF_OUT)/bench_m4.txt && \
 	    python3 tools/telemetry_check.py bench --baseline tests/perf_baseline.txt $(PERF_OUT)/bench_m4.txt; \
-	else echo "perf-gate: qemu-system-arm or arm-none-eabi-g++ missing -- bench-m4 SKIPPED (host-only gate)"; fi
+	else echo "perf-gate: qemu-system-arm or $(CXX) missing -- bench-m4 SKIPPED (host-only gate)"; fi
 	@if command -v $(CXX) >/dev/null 2>&1; then \
 	    { $(MAKE) -s $(BUILD)/opentracker.elf > $(PERF_OUT)/firmware_build.txt 2>&1 || \
 	      { tail -20 $(PERF_OUT)/firmware_build.txt; exit 1; }; } && \
-	    python3 tools/telemetry_check.py size --size-tool $(SIZE) $(BUILD)/opentracker.elf; \
-	else echo "perf-gate: $(CXX) missing -- flash size check SKIPPED"; fi
+	    python3 tools/telemetry_check.py size --size-tool $(SIZE) $(BUILD)/opentracker.elf && \
+	    python3 tools/telemetry_check.py frames --objects $(OBJS); \
+	else echo "perf-gate: $(CXX) missing -- flash size and stack frame checks SKIPPED"; fi
 	@$(MAKE) -s -C tests bench > $(PERF_OUT)/bench_host.txt && sed 's/^/  host: /' $(PERF_OUT)/bench_host.txt | head -8
 	@python3 tools/telemetry_check.py selftest
 	@if [ -n "$(LOG)" ]; then python3 tools/telemetry_check.py log "$(LOG)" \
@@ -217,9 +256,15 @@ fonts:
 
 # 2.x hardware-test projects (TESTSONGS.md): build/testsongs/Projects/<name>/.
 # SONGS="1 3" limits the set; songs whose milestone is not built are skipped.
+# STEMS_SECONDS=180: song 19's stems 180 s long (default 30 s; the hardware run).
 testsongs:
-	$(MAKE) -C tools/make_testsongs run SONGS="$(SONGS)"
+	$(MAKE) -C tools/make_testsongs run SONGS="$(SONGS)" STEMS_SECONDS="$(STEMS_SECONDS)"
 .PHONY: testsongs
+
+# Synth preset pack (tools/make_patches/PRESETS.md): build/patches/Patches/<MODEL>/.
+patches:
+	$(MAKE) -C tools/make_patches run
+.PHONY: patches
 
 # Desktop simulator (sim/README.md).
 sim:

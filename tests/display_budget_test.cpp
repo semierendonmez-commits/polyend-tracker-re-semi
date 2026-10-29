@@ -29,7 +29,6 @@ public:
     uint32_t frames = 0;
     std::vector<std::string> maxFrame;                  // commands of the largest frame
     bool ready = true;
-    int readyPolls = 0;
     Ui* ui = nullptr;
 
     static constexpr uint32_t kChunk = 1024;            // Ft81xDisplay::kStage
@@ -38,8 +37,9 @@ public:
     static constexpr uint32_t kSpiHz = 30000000;        // board::kSpi2CtarFast
 
     bool frameReady() override {
+        if (ready) return RecordingDisplay::frameReady();   // the sent frame is reported
         ++readyPolls;
-        return ready;
+        return false;
     }
     void dlStart() override {
         RecordingDisplay::dlStart();
@@ -393,12 +393,25 @@ struct WorstRig {
     uint64_t acc = 0;
     uint32_t worst = 0;
     std::string worstName;
-    explicit WorstRig(bool customFonts = true) : h(false), a(*h.app) {
+    // narrowNames: the 97 file names are 200 characters of the narrowest
+    // glyph (issue #54: names of any length are listed, each row cut at the
+    // column edge, the selected one scrolling).
+    explicit WorstRig(bool customFonts = true, bool narrowNames = false) : h(false), a(*h.app) {
         setRomTextMode(kRomGlyphs);   // the device / simulator path (OP-6)
         // 101 list entries (the loader's maximum): 3 folders, 97 + 1 files.
+        char narrow[2] = {'i', 0};
+        if (narrowNames) {
+            m.customFonts = customFonts;
+            applyFontSet(&m, 0);   // widths of the font set the frames use
+            for (const char* c = "abcdefghijklmnopqrstuvwxyz0123456789!'-_.,;()"; *c; ++c)
+                if (textWidth(kFont1, c, 1) < textWidth(kFont1, narrow)) narrow[0] = *c;
+        }
         for (int i = 0; i < 97; ++i) {
-            char n[64];
-            std::snprintf(n, sizeof(n), "WWWWWWWW_long_sample_name_%03d_mmmmm.wav", i);   // 39: longest listed
+            char n[256];
+            if (narrowNames)
+                std::snprintf(n, sizeof(n), "%03d_%s.wav", i, std::string(192, narrow[0]).c_str());   // 200
+            else
+                std::snprintf(n, sizeof(n), "WWWWWWWW_long_sample_name_%03d_mmmmm.wav", i);   // 39
             h.fs.files[n] = wavFile(800, false);
         }
         h.fs.files["WWWW_stereo_long_WWWWWWWWWWWWWWWWWW.wav"] = wavFile(30000, true);
@@ -940,6 +953,16 @@ TEST(overlay_matrix_synth) {
     SynthScreen& sy = *static_cast<SynthScreen*>(a.ui.screen(kModSynth));
     a.setCurrentInstrument(66);
     h.tap(btn::Pattern);
+    {
+        // Instrument Params takes the instrument under the cursor (issue #52):
+        // a note there plays Synth 3 too.
+        const PatternScreen& ps = *static_cast<PatternScreen*>(a.ui.screen(kModPattern));
+        Step& st = a.pattern().tracks[ps.track].steps[ps.step];
+        if (st.note >= 0) {
+            st.instrument = 66;
+            a.patternEdited();
+        }
+    }
     r.screen(btn::InstrParams, "synth parameters (VAP)");
     CHECK_EQ(a.ui.active(), int(kModSynth));
     h.tap(btn::F3);
@@ -1197,6 +1220,74 @@ TEST(device_fault_falls_back_to_low_detail) {
     Harness::dlOverflowFatal = true;
 }
 
+// #71: a fault is only found when the driver polls the frame's outcome. On a
+// static screen nothing is dirty after the frame, so before the fix nothing
+// polled, the fault was never seen and the display stayed frozen (MIDI
+// instrument page). The frame that faults here is the screen's last one;
+// nobody calls dirty() after it.
+TEST(device_fault_on_a_static_screen_is_redrawn) {
+    Harness::dlOverflowFatal = false;
+    Harness h;
+    App& a = *h.app;
+    h.tap(btn::Master);
+    h.tap(btn::Master);   // Track Mixer 2/3, static (not playing)
+    h.run(200);
+    CHECK(!h.disp.sent);   // every frame's outcome was polled
+    const uint32_t frames0 = a.ui.frames(), low0 = a.ui.lowDetailFrames();
+    h.disp.faultNextFrames = 1;
+    a.ui.dirty();   // one more frame, and it faults
+    h.run(500);
+    CHECK_EQ(h.disp.faultCount, 1u);
+    CHECK_EQ(a.ui.hwFaultFrames(), 1u);
+    CHECK(a.ui.frames() >= frames0 + 2);    // the faulted frame, then a redraw
+    CHECK(a.ui.lowDetailFrames() > low0);   // in low detail
+    CHECK(!h.disp.sent);
+    Harness::dlOverflowFatal = true;
+}
+
+// A screen whose every frame faults (the estimate off by more than the
+// tightest guard allows): the redraws stop once it is in low detail at the
+// tightest guard, and the log gets one entry, not one per fault.
+TEST(device_fault_that_never_fits_stops_redrawing) {
+    Harness::dlOverflowFatal = false;
+    Harness h;
+    App& a = *h.app;
+    h.tap(btn::Master);
+    h.tap(btn::Master);
+    h.run(200);
+    static int logged;
+    logged = 0;
+    a.ui.platform.dlOverflow = [](const char*, uint32_t, uint32_t, bool) { ++logged; };
+    h.disp.faultNextFrames = 1000;   // every frame from here on faults
+    a.ui.dirty();
+    h.run(3000);
+    const uint32_t faults = h.disp.faultCount;
+    CHECK(faults >= 2 && faults < 20);
+    CHECK_EQ(a.ui.dlScale(), 128);
+    CHECK(a.ui.lowDetail());
+    CHECK_EQ(logged, 1);
+    h.run(2000);   // idle: no more redraws into the same fault
+    CHECK_EQ(h.disp.faultCount, faults);
+    CHECK(!h.disp.sent);
+    a.ui.platform.dlOverflow = nullptr;
+    Harness::dlOverflowFatal = true;
+}
+
+// The idle poll stops once the frame is reported: a static screen doesn't
+// keep the SPI busy.
+TEST(idle_screen_stops_polling_the_display) {
+    Harness h;
+    App& a = *h.app;
+    h.tap(btn::Master);
+    h.tap(btn::Master);
+    h.run(200);
+    const uint32_t frames0 = a.ui.frames(), polls0 = h.disp.readyPolls;
+    h.run(1000);
+    // Each frame is polled before it starts and once after it is sent.
+    CHECK(h.disp.readyPolls - polls0 <= 2 * (a.ui.frames() - frames0) + 1);
+    CHECK(!h.disp.sent);
+}
+
 TEST(device_measurement_calibrates_the_guard) {
     Harness::dlOverflowFatal = false;
     Harness h;
@@ -1226,4 +1317,26 @@ TEST(device_measurement_calibrates_the_guard) {
     h2.run(100);
     CHECK_EQ(h2.app->ui.dlScale(), 64);
     Harness::dlOverflowFatal = true;
+}
+
+// Issue #54: 101 names of 200 narrow glyphs in the Sample Loader, the
+// selected one scrolling (marquee), with the overlays: every frame within
+// the RAM_DL target.
+TEST(loader_long_names_budget) {
+    WorstRig r(true, true);
+    Harness& h = r.h;
+    r.screen(btn::SampleLoader, "sample loader (101 x 200-char names)", 300);
+    LoaderScreen& l = *static_cast<LoaderScreen*>(r.a.ui.screen(kModLoader));
+    CHECK(l.count >= 101);
+    int target = -1;   // the third long file name
+    for (int i = 0, seen = 0; i < l.count && target < 0; ++i)
+        if (std::strlen(l.entries[i]) == 200 && ++seen == 3) target = i;
+    CHECK(target > 0);
+    for (int k = 0; k < 200 && target > 0 && l.sdCursor != target; ++k) h.tap(l.sdCursor < target ? btn::Down : btn::Up);
+    CHECK(std::strlen(l.entries[l.sdCursor]) == 200);
+    h.run(3000);   // scrolled well into the name
+    r.measure("sample loader marquee (200-char name)", 300);
+    h.tap(btn::Right);   // instrument list
+    r.measure("sample loader instruments", 300);
+    std::printf("  worst: %s, %u words\n", r.worstName.c_str(), unsigned(r.worst));
 }

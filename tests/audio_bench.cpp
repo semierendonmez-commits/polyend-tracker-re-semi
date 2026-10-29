@@ -25,6 +25,8 @@
 //             ping-pong, filter + overdrive + bit crusher on all, 5 LFOs,
 //             saturation, side-chain limiter, line-in with sends
 //   synth4    2.x synth framework: 4 voices of the internal test engine
+//   synth4w   synth4 with Width 1 (stereo S2 slot widener)
+//   fatstereo fatworst with the [OT] Stereo at 1 (stereo S4: D stack, two filter paths)
 //             (sine + envelope) in Synth 1, reverb send on; WP-F engines
 //             replace the test engine (docs/MINI_PLAN.md §4: <= 72k/block)
 //   synth.fw  (component) framework overhead per block for those 4 voices:
@@ -353,13 +355,18 @@ void fatWorst(float* vals) {
 // down from pitch 108 to 96 on a reused voice: the polyBLEP event cost grows
 // with pitch, so the figure is taken at the top of the range; the 3 s glide
 // moves ~1.2 semitones over the emulated run, so it is measured at ~108).
-double fatVoice(bool worst) {
+double fatVoice(bool worst, bool stereo = false) {
     static float vals[kSynthParamMax];
     int count = 0;
     const PatchParamRange* t = patchEngineParams(kSynthEngineFat, &count);
     for (int i = 0; i < count; ++i) vals[i] = t[i].def;
     vals[fat::kAmpS] = 1.0f;   // keep the voice sounding for the whole run
     if (worst) fatWorst(vals);
+    if (stereo) {   // [OT] Stereo 1 (both sides' filters), Width 0
+        vals[fat::kWidthParam] = 0.0f;
+        vals[fat::kStereoParam] = 1.0f;
+        count = fat::kStereoParam + 1;
+    }
     static SynthParams p;
     p.engine = kSynthEngineFat;
     p.count = count;
@@ -1316,6 +1323,19 @@ int main(int argc, char** argv) {
         report("synth4", timeBlocks(r, 2000, lineNoise));
         std::printf("  (synth voices sounding after the run: %d)\n", r.eng->synth().sounding());
     }
+    {   // synth4w: synth4 with the slot's [OT] Width at 1 (stereo S2 widener)
+        Rig r;
+        r.synth(4);
+        SynthSlotRecord rc = SynthSlotRecord::defaults(0);
+        rc.model = uint32_t(SynthModel::ACD);
+        rc.polyphony = 4;
+        rc.reverbSend = 40.0f;
+        synthParamSet(gSynthPatch, synthWidthParam(kSynthEngineAcd), 1.0f);
+        r.eng->synth().setSlotRecord(0, rc);
+        r.eng->synth().patchChanged(0);
+        for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
+        report("synth4w", timeBlocks(r, 2000, lineNoise));
+    }
     for (int i = 0; i < kBlock * 2; ++i) gLineNoise[i] = lineNoise[i];
     mixBench(4, "mix");   // Governor::kDefaultBudget
     mixBench(5, "mix5");
@@ -1334,6 +1354,7 @@ int main(int argc, char** argv) {
     reportVoice("pltharm", pltVoice(1), 18000);
     reportVoice("fatinit", fatVoice(false), 12000);
     reportVoice("fatworst", fatVoice(true), 22000);
+    reportVoice("fatstereo", fatVoice(true, true), 34000);
     reportVoice("wtfminit", wtfmVoice(false), 12000);
     reportVoice("wtfmworst", wtfmVoice(true), 32000);
     components();

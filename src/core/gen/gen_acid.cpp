@@ -41,6 +41,12 @@ AcidCfg cfg(const int16_t* v) {
 }
 
 uint8_t byte(Rng& rng) { return uint8_t(rng.below(256)); }
+// A 16-bit draw from the same uniform as before, and "draw below amount".
+uint16_t q16(float u) {
+    const float v = u * 65536.0f;
+    return uint16_t(v >= 65535.0f ? 65535.0f : (v < 0.0f ? 0.0f : v));
+}
+bool below(uint16_t q, float amount) { return float(q) < amount * 65536.0f; }
 
 void rollPitch(Rng& rng, MonoStep& m) {
     m.rep = byte(rng);
@@ -49,11 +55,11 @@ void rollPitch(Rng& rng, MonoStep& m) {
 }
 
 void rollState(const AcidCfg& c, Rng& rng, MonoStep& m) {
-    m.thr = rng.uni();
-    m.accThr = rng.uni();
-    m.accent = m.accThr < c.accent;
-    m.slideThr = rng.uni();
-    m.slideWant = m.slideThr < c.slide;
+    m.thr = q16(rng.uni());
+    m.accThr = q16(rng.uni());
+    m.accent = below(m.accThr, c.accent);
+    m.slideThr = q16(rng.uni());
+    m.slideWant = below(m.slideThr, c.slide);
     m.gate = c.gate;
 }
 
@@ -100,10 +106,10 @@ void acidApplyDensity(MonoStep* ph, int n, int density, int root, uint16_t scale
             } else if (octaves >= 2) {
                 oct = m.oct < 38 ? 1 : (m.oct < 64 ? 2 : (m.oct < 102 ? -1 : 0));
             }
-            m.note = degreeNote(root, deg, nd, d + oct * nd);
+            m.note = int16_t(degreeNote(root, deg, nd, d + oct * nd));
         }
         // Gate.
-        m.active = m.thr < p;
+        m.active = below(m.thr, p);
         any = any || m.active;
         if (m.thr < ph[lowest].thr) lowest = i;
     }
@@ -113,8 +119,8 @@ void acidApplyDensity(MonoStep* ph, int n, int density, int root, uint16_t scale
 
 void acidApplyAccentSlide(MonoStep* ph, int n, float accent, float slide) {
     for (int i = 0; i < n; ++i) {
-        ph[i].accent = ph[i].accThr < accent;
-        ph[i].slideWant = ph[i].slideThr < slide;
+        ph[i].accent = below(ph[i].accThr, accent);
+        ph[i].slideWant = below(ph[i].slideThr, slide);
     }
 }
 

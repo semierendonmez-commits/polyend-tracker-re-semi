@@ -1,7 +1,7 @@
 # OpenTracker
 
-> **This is the semi fork (2.2.1-semi).** What it adds is listed right below, under
-> [New in 2.2.1-semi](#new-in-221-semi-this-fork); the full guide is **[FORK.md](FORK.md)**.
+> **This is the semi fork (2.2.3-semi), on top of OpenTracker 2.2.3.** What it adds is listed
+> right below, under [New in the semi fork](#new-in-the-semi-fork); the full guide is **[FORK.md](FORK.md)**.
 > Polyend Backstage feature requests (all 254 Tracker topics) and what this fork can do about them:
 > **[FEATURE_REQUESTS.md](FEATURE_REQUESTS.md)**, the doable ones with notes: **[YAPILABILIR.md](YAPILABILIR.md)**.
 
@@ -9,13 +9,31 @@ OpenTracker is an open-source, clean-room firmware for the **original Polyend Tr
 written from behavioural specifications. It contains no Polyend code, fonts, icons or
 graphics, and is not affiliated with or endorsed by Polyend.
 
-## New in 2.2.1-semi (this fork)
+## New in the semi fork
 
-Image: `PolyendTrackerOTs221.ptf` (installs like the upstream image, see Install). Everything
+Image: `PolyendTrackerOTs223.ptf` (installs like the upstream image, see Install). Everything
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
-### Latest update (2.2.1-semi.6)
+### Latest update (2.2.3-semi.1): on top of OpenTracker 2.2.3
+
+Everything of the semi fork, now on the upstream 2.2.3 code (2.2.3-beta2, 51 upstream changes):
+
+- **From upstream 2.2.3:** SD streaming (long samples play from the card, Config > Stream from
+  card), USB audio streaming, stereo synths (Width) for every engine, theme files on the card
+  (`/Themes/*.txt`, Config > Export theme) and the Halloween theme file, exports at 44.1 kHz,
+  MIDI pitch bend on live notes, eight synthwave PERC kits, Sample Editor effects up to 60x
+  faster, the stack guard, the CPU meter levels and many fixes (SD card, Sample Loader,
+  display, MIDI clock on DIN).
+- **Display theme** lists the stock three, the 26 fork palettes, then the card's theme files;
+  **Export theme** writes a fork palette as a file too, to edit on a computer.
+- **Config** keeps both sides in one record (upstream's fields first, the fork's after them);
+  a config saved by an earlier semi image loads with all its settings, Perform scenes too.
+- **Memory:** the play-mode step tables moved to the SDRAM and the Acid step data got smaller,
+  so the stack keeps the headroom 2.2.3 needs for SD streaming (77 KiB, gate 75 KiB). The
+  image is about 840 KB (fork gate 860 KB, hard limit 877 KB).
+
+### Previous update (2.2.1-semi.6)
 
 | **Track Link: a track plays live with another track's notes** | **Linked track: "<1" on its header** |
 |---|---|
@@ -40,7 +58,7 @@ and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**
 - **Master colour fix:** ToTape / Console / Density / PurestDrive now replace the stock
   saturation instead of running after Drive+; they are in the Master 1/5 list too.
 
-### Previous update (2.2.1-semi.5)
+### Earlier update (2.2.1-semi.5)
 
 | **Generate: Grids (Mutable drum map, live)** | **Generate: Marbles (deja vu)** |
 |---|---|
@@ -344,6 +362,10 @@ the whole 2.x line (2.0 to 2.2.1); the full list is in the release notes of the
 same way, or put its file name into `/Firmware/ot_restore.txt` and power-cycle. Keep only the
 image you want, plus stock, in `/Firmware`: the rear reset button installs a random `.ptf`
 from that folder.
+
+**Stack guard:** 2.x stops a stack overflow with a reset and says "Restarted after a crash
+(stack overflow)" on the next boot. To run without the guard, put an empty
+`/Firmware/ot_noguard.txt` on the card.
 
 **Note:** projects saved by 2.x use the Mini's 16-track patterns. Stock firmware for the
 original Tracker reads only tracks 1–8 of those patterns (expected from the stock loader's

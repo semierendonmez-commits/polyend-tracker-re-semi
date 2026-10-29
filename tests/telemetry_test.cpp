@@ -56,22 +56,54 @@ TEST(telemetry_format) {
     s.sdramFree = 491520;
     s.i2c0Errors = 1;
     s.i2c2Errors = 2;
-    char b[256];
+    char b[448];
     size_t n = formatTelemetry(b, sizeof b, s);
     CHECK(n == std::strlen(b));
     CHECK(std::string(b) ==
           "telemetry: render cyc/block min 41000 avg 52224 max 104448 (20.0% of 522240) blocks 1723 | "
-          "loop max 12.345 ms (n 4000) | SDRAM free 491520 B | i2c errors i2c0 1 i2c2 2");
+          "loop max 12.345 ms (n 4000) | SDRAM free 491520 B | i2c errors i2c0 1 i2c2 2 | rx restarts 0 stale 0");
+    s.stackSize = 97856;
+    s.stackPeak = 41000;
+    s.heap = 1856;
+    s.rxRestarts = 3;
+    s.rxStale = 12;
+    formatTelemetry(b, sizeof b, s);
+    // The heap has its own reserve below the stack guard: free = room - peak.
+    CHECK(std::strstr(b, "i2c2 2 | stack peak 41000 B heap 1856 B of 97856 B (free 56856 B) | rx restarts 3 stale 12") != nullptr);
+    s.stackPeak = 100000;     // clamped: never reports negative free space
+    formatTelemetry(b, sizeof b, s);
+    CHECK(std::strstr(b, "stack peak 97856 B heap 1856 B of 97856 B (free 0 B)") != nullptr);
     s.cycMax = 365568;        // exactly 70 %
     s.loopMaxUs = 7;
     formatTelemetry(b, sizeof b, s);
     CHECK(std::strstr(b, "(70.0% of 522240)") != nullptr);
     CHECK(std::strstr(b, "loop max 0.007 ms") != nullptr);
     CHECK(std::strstr(b, " RENDER>70%") != nullptr);
+    CHECK(std::strstr(b, "din clock") == nullptr);   // no clock out: no field
+    // MIDI clock out on DIN: queued -> UART, the longest in the window.
+    s.cycMax = 104448;
+    s.dinClocks = 240;
+    s.dinClockLateMaxUs = 31250;
+    formatTelemetry(b, sizeof b, s);
+    CHECK(std::strstr(b, "stale 12 | din clock late max 31.250 ms (n 240)") != nullptr);
     // Small buffers truncate safely.
     char small[16];
     formatTelemetry(small, sizeof small, s);
     CHECK(std::strlen(small) == 15);
+}
+
+TEST(telemetry_stack_scan) {
+    uint32_t st[16];
+    for (uint32_t& w : st) w = kStackPaint;
+    CHECK(untouchedStackWords(st, st + 16) == 16);   // never used
+    st[10] = 0;                                      // deepest write so far
+    st[13] = 0x1234;
+    CHECK(untouchedStackWords(st, st + 16) == 10);
+    st[2] = kStackPaint + 1;                         // a deeper write that differs by one bit
+    CHECK(untouchedStackWords(st, st + 16) == 2);
+    st[0] = 7;
+    CHECK(untouchedStackWords(st, st + 16) == 0);    // overflowed to the bottom
+    CHECK(untouchedStackWords(st, st) == 0);
 }
 
 // ---- 2.x "cpu" line (spec 2x-02 §4, tools/telemetry_check.py) -------------
@@ -148,4 +180,53 @@ TEST(telemetry_cpu_line) {
     CHECK(std::strstr(line, "peak=50.0%") != nullptr);
     CHECK_EQ(c.tick(1500, m, g, line, sizeof line), 0u);
     CHECK(c.tick(2100, m, g, line, sizeof line) > 0);
+}
+
+// SD streaming C11 (docs/PLAN_SD_STREAMING_P1C_P2.md): the 5 s "stream" line.
+TEST(telemetry_stream_line) {
+    StreamSample s;
+    s.streams = 4;
+    s.active = 3;
+    s.chunks = 212;
+    s.readAvgUs = 2700;
+    s.readMaxUs = 3149;
+    s.leadMinMs = 612;
+    s.underruns = 2;
+    s.underrunsDelta = 0;
+    s.errors = 0;
+    s.passes = 1180;
+    char line[200];
+    const size_t n = formatStream(line, sizeof line, s);
+    CHECK_EQ(n, std::strlen(line));
+    CHECK_STR(line, "telemetry: stream streams 4 active 3 | chunks 212 read avg 2.7 max 3.1 ms | lead min 612 ms"
+                    " | underruns 2 (+0) errors 0 | passes 1180");
+    s.leadMinMs = 0xFFFFFFFFu;   // nothing left to read: no lead
+    s.underrunsDelta = 1;
+    s.loading = true;
+    formatStream(line, sizeof line, s);
+    CHECK_STR(line, "telemetry: stream streams 4 active 3 | chunks 212 read avg 2.7 max 3.1 ms | lead min - ms"
+                    " | underruns 2 (+1) errors 0 | passes 1180 | loading");
+}
+
+TEST(telemetry_stream_sample_from_stats) {
+    ot::audio::StreamServiceStats st;
+    st.chunks = 10;
+    st.sumReadUs = 25000;
+    st.maxReadUs = 4000;
+    st.minLeadFrames = 44118;   // 1 s
+    st.underruns = 3;
+    st.passes = 50;
+    uint32_t last = 1;
+    const StreamSample s = streamSample(st, 2, 1, last, false);
+    CHECK_EQ(s.readAvgUs, 2500u);
+    CHECK_EQ(s.leadMinMs, 1000u);
+    CHECK_EQ(s.underrunsDelta, 2u);
+    CHECK_EQ(last, 3u);
+    CHECK_EQ(s.streams, 2u);
+    CHECK_EQ(s.active, 1u);
+    ot::audio::StreamServiceStats idle;   // no reads, no active ring
+    const StreamSample z = streamSample(idle, 0, 0, last, false);
+    CHECK_EQ(z.readAvgUs, 0u);
+    CHECK_EQ(z.leadMinMs, 0xFFFFFFFFu);
+    CHECK_EQ(z.underrunsDelta, 0u);   // the mirror is 0 when nothing ran: never negative
 }

@@ -5,6 +5,10 @@
 
 #include "audio/dsp.h"
 #include "audio/engine.h"
+#include "audio/engines/acd.h"
+#include "audio/synth_engine.h"
+#include "formats/patch_pb.h"
+#include "formats/wav.h"
 #include "mem_storage.h"
 #include "sequencer/sequencer.h"
 #include "test.h"
@@ -743,6 +747,80 @@ TEST(sample_bank_packing) {
     CHECK_EQ(bank.usedSamples(), 300u);
 }
 
+// The Sample Editor's apply / undo (SampleBank::replaceFromTail): the new data
+// waits in tail(); afterwards the slot holds it and tail() holds the old data.
+// Same size: the two swap, nothing else moves. Another size: the slots after
+// it move.
+TEST(sample_bank_replace_from_tail) {
+    std::vector<int16_t> pool(2000);
+    SampleBank bank;
+    bank.init(pool.data(), pool.size());
+    std::vector<int16_t> a(100), b(300), c(50);
+    for (int i = 0; i < 100; ++i) a[size_t(i)] = int16_t(1000 + i);
+    for (int i = 0; i < 300; ++i) b[size_t(i)] = int16_t(2000 + i);
+    for (int i = 0; i < 50; ++i) c[size_t(i)] = int16_t(3000 + i);
+    CHECK(bank.store(0, a.data(), 100, false));
+    CHECK(bank.store(1, b.data(), 150, true));   // stereo, 300 samples
+    CHECK(bank.store(2, c.data(), 50, false));
+    const int16_t* c0 = bank.left(2);
+    // Same size, stereo: 300 new samples into slot 1 (a 300-sample swap, in
+    // 128-sample blocks plus a partial one).
+    for (int i = 0; i < 300; ++i) bank.tail()[i] = int16_t(-i);
+    CHECK(bank.replaceFromTail(1, 150, true));
+    CHECK_EQ(bank.left(2), c0);                  // nothing after it moved
+    for (int i = 0; i < 300; ++i) CHECK_EQ(bank.left(1)[i], -i);
+    for (int i = 0; i < 300; ++i) CHECK_EQ(bank.tail()[i], 2000 + i);   // the old data, for undo
+    for (int i = 0; i < 50; ++i) CHECK_EQ(bank.left(2)[i], 3000 + i);
+    for (int i = 0; i < 100; ++i) CHECK_EQ(bank.left(0)[i], 1000 + i);
+    // Undo: the old data back in.
+    CHECK(bank.replaceFromTail(1, 150, true));
+    for (int i = 0; i < 300; ++i) CHECK_EQ(bank.left(1)[i], 2000 + i);
+    // Another size: slot 0 grows from 100 to 130 frames, slots 1 and 2 move up.
+    for (int i = 0; i < 130; ++i) bank.tail()[i] = int16_t(5000 + i);
+    CHECK(bank.replaceFromTail(0, 130, false));
+    CHECK_EQ(bank.left(1) - bank.left(0), 130);
+    CHECK_EQ(bank.left(2) - bank.left(0), 430);
+    for (int i = 0; i < 130; ++i) CHECK_EQ(bank.left(0)[i], 5000 + i);
+    for (int i = 0; i < 300; ++i) CHECK_EQ(bank.left(1)[i], 2000 + i);
+    for (int i = 0; i < 50; ++i) CHECK_EQ(bank.left(2)[i], 3000 + i);
+    for (int i = 0; i < 100; ++i) CHECK_EQ(bank.tail()[i], 1000 + i);
+    CHECK_EQ(bank.usedSamples(), 480u);
+    // Shrink: slot 1 from 150 stereo frames to 40 mono, slots after it move down.
+    for (int i = 0; i < 40; ++i) bank.tail()[i] = int16_t(7000 + i);
+    CHECK(bank.replaceFromTail(1, 40, false));
+    CHECK_EQ(bank.left(2) - bank.left(1), 40);
+    for (int i = 0; i < 40; ++i) CHECK_EQ(bank.left(1)[i], 7000 + i);
+    for (int i = 0; i < 50; ++i) CHECK_EQ(bank.left(2)[i], 3000 + i);
+    for (int i = 0; i < 130; ++i) CHECK_EQ(bank.left(0)[i], 5000 + i);
+    for (int i = 0; i < 300; ++i) CHECK_EQ(bank.tail()[i], 2000 + i);   // the old stereo data
+    CHECK_EQ(bank.usedSamples(), 220u);
+}
+
+// Size changes with too little free memory to park the blocks: the rotation
+// fallback gives the same layout.
+TEST(sample_bank_replace_from_tail_tight) {
+    std::vector<int16_t> pool(430);
+    SampleBank bank;
+    bank.init(pool.data(), pool.size());
+    std::vector<int16_t> a(100), b(200);
+    for (int i = 0; i < 100; ++i) a[size_t(i)] = int16_t(1000 + i);
+    for (int i = 0; i < 200; ++i) b[size_t(i)] = int16_t(2000 + i);
+    CHECK(bank.store(0, a.data(), 100, false));
+    CHECK(bank.store(1, b.data(), 200, false));
+    // Grow slot 0 to 120: 10 samples free after N, 220 needed to park.
+    for (int i = 0; i < 120; ++i) bank.tail()[i] = int16_t(5000 + i);
+    CHECK(bank.replaceFromTail(0, 120, false));
+    for (int i = 0; i < 120; ++i) CHECK_EQ(bank.left(0)[i], 5000 + i);
+    for (int i = 0; i < 200; ++i) CHECK_EQ(bank.left(1)[i], 2000 + i);
+    for (int i = 0; i < 100; ++i) CHECK_EQ(bank.tail()[i], 1000 + i);
+    // Shrink slot 1 to 30: 80 free after N, 200 needed to park.
+    for (int i = 0; i < 30; ++i) bank.tail()[i] = int16_t(6000 + i);
+    CHECK(bank.replaceFromTail(1, 30, false));
+    for (int i = 0; i < 120; ++i) CHECK_EQ(bank.left(0)[i], 5000 + i);
+    for (int i = 0; i < 30; ++i) CHECK_EQ(bank.left(1)[i], 6000 + i);
+    for (int i = 0; i < 200; ++i) CHECK_EQ(bank.tail()[i], 2000 + i);
+}
+
 // --- full engine --------------------------------------------------------------
 
 TEST(engine_extremes_no_clip_nan) {
@@ -938,7 +1016,11 @@ TEST(deterministic_render_hash) {
     std::printf("  scripted render hash: %016llx\n", (unsigned long long)ha);
     // Golden value (host x86-64 SSE float); update deliberately when the DSP changes.
     // 1.9.9: bit depth rounds to nearest (was 0x4e126ff813060a1b with the floor).
+#if defined(__x86_64__)
     CHECK_EQ(ha, 0xe2e2f8dd73d3e8d6ull);   // spec 07: Q9 delay filter, Q5 bipolar LFOs
+#else
+    std::puts("  x86-64 render golden skipped on this host architecture");
+#endif
 }
 
 TEST(export_stems_wav) {
@@ -956,17 +1038,18 @@ TEST(export_stems_wav) {
         if (x->blocks == 0) x->rig->note(0, 0, 60);
         return ++x->blocks <= 50;
     };
-    const int32_t n = rig.eng->exportWav(fs, "Export/p/p_P1_S0001", true, 1000, running, &ctx);
+    const int32_t n =
+        rig.eng->exportWav(fs, "Export/p/p_P1_S0001", true, 1000, running, &ctx, /*resampleTo44100=*/true);
     CHECK_EQ(n, 50);
     const char* names[] = {"track1", "track2", "track8", "reverb", "delay", "master"};
     for (const char* nm : names) {
         std::string p = std::string("Export/p/p_P1_S0001/") + nm + ".wav";
         CHECK(fs.files.count(p) == 1);
         const auto& f = fs.files[p];
-        CHECK_EQ(f.size(), 44u + 50u * kBlock * 4u);
+        CHECK_EQ(f.size(), 44u + 6397u * 4u);
         if (f.size() < 44) continue;
-        CHECK_EQ(uint32_t(f[24] | f[25] << 8 | f[26] << 16), 44117u);
-        CHECK_EQ(uint32_t(f[28] | f[29] << 8 | f[30] << 16), 176468u);
+        CHECK_EQ(uint32_t(f[24] | f[25] << 8 | f[26] << 16 | f[27] << 24), 44100u);
+        CHECK_EQ(uint32_t(f[28] | f[29] << 8 | f[30] << 16 | f[31] << 24), 176400u);
     }
     // track1 carries the note, track2 is silent.
     const auto& t1 = fs.files["Export/p/p_P1_S0001/track1.wav"];
@@ -978,8 +1061,171 @@ TEST(export_stems_wav) {
     CHECK_EQ(nz2, 0);
     // Master-only export.
     rig.note(0, 0, 60);
-    CHECK_EQ(rig.eng->exportWav(fs, "Export/p/p_Song_0001.wav", false, 20, nullptr, nullptr), 20);
-    CHECK_EQ(fs.files["Export/p/p_Song_0001.wav"].size(), 44u + 20u * kBlock * 4u);
+    CHECK_EQ(rig.eng->exportWav(fs, "Export/p/p_Song_0001.wav", false, 20, nullptr, nullptr,
+                                /*resampleTo44100=*/true),
+             20);
+    CHECK_EQ(fs.files["Export/p/p_Song_0001.wav"].size(), 44u + 2558u * 4u);
+}
+
+// Stock export (spec 04 §6.1): blocks x 128 device-rate frames, 44117 Hz and
+// byte rate 44117 x 4 in the header.
+TEST(export_stems_wav_device_rate) {
+    Rig rig;
+    rig.load(0, sine(20000, 330.0f), PlayMode::OneShot);
+    MemStorage fs;
+    struct Ctx {
+        Rig* rig;
+        uint32_t blocks;
+    } ctx{&rig, 0};
+    auto running = [](void* c) {
+        Ctx* x = static_cast<Ctx*>(c);
+        if (x->blocks == 0) x->rig->note(0, 0, 60);
+        return ++x->blocks <= 50;
+    };
+    const int32_t n =
+        rig.eng->exportWav(fs, "Export/p/p_P1_S0001", true, 1000, running, &ctx, /*resampleTo44100=*/false);
+    CHECK_EQ(n, 50);
+    const char* names[] = {"track1", "track2", "track8", "reverb", "delay", "master"};
+    for (const char* nm : names) {
+        std::string p = std::string("Export/p/p_P1_S0001/") + nm + ".wav";
+        CHECK(fs.files.count(p) == 1);
+        const auto& f = fs.files[p];
+        CHECK_EQ(f.size(), 44u + 50u * kBlock * 4u);
+        if (f.size() < 44) continue;
+        CHECK_EQ(uint32_t(f[24] | f[25] << 8 | f[26] << 16 | f[27] << 24), 44117u);
+        CHECK_EQ(uint32_t(f[28] | f[29] << 8 | f[30] << 16 | f[31] << 24), 176468u);
+    }
+    // Master-only export.
+    rig.note(0, 0, 60);
+    CHECK_EQ(rig.eng->exportWav(fs, "Export/p/p_Song_0001.wav", false, 20, nullptr, nullptr,
+                                /*resampleTo44100=*/false),
+             20);
+    const auto& m = fs.files["Export/p/p_Song_0001.wav"];
+    CHECK_EQ(m.size(), 44u + 20u * kBlock * 4u);
+    if (m.size() < 44) return;
+    CHECK_EQ(uint32_t(m[24] | m[25] << 8 | m[26] << 16 | m[27] << 24), 44117u);
+    CHECK_EQ(uint32_t(m[28] | m[29] << 8 | m[30] << 16 | m[31] << 24), 176468u);
+}
+
+namespace {
+// Export a held ACD sine and check the WAV, then the instrument that the
+// Render & Load import (wavImport with stereo on) makes from it.
+void checkSynthExport(bool resampleTo44100) {
+    Rig rig;
+    SynthPatch patch;
+    CHECK(patchInit(kSynthEngineAcd, &patch));
+    patch.params[acd::kAmpS] = PatchParam{patchFloatToBits(1.0f), true};
+    SynthBank& synth = rig.eng->synth();
+    synth.setEngineOverride(synthTestEngine());
+    synth.bindPatch(0, &patch);
+    SynthSlotRecord record = SynthSlotRecord::defaults(0);
+    record.model = uint32_t(SynthModel::ACD);
+    record.polyphony = 1;
+    synth.setSlotRecord(0, record);
+
+    constexpr uint32_t kBlocks = 2600;  // A sustained note for a little over four bars at 130 BPM.
+    struct Ctx {
+        AudioEngine* engine;
+        uint32_t blocks = 0;
+    } ctx{rig.eng.get()};
+    auto running = [](void* p) {
+        Ctx& c = *static_cast<Ctx*>(p);
+        if (c.blocks == 0) {
+            SynthNoteOn note;
+            note.slot = 0;
+            note.note = 60;  // C4, 261.6256 Hz.
+            c.engine->synthNoteOn(0, note);
+        }
+        return ++c.blocks <= kBlocks;
+    };
+
+    MemStorage fs;
+    CHECK_EQ(rig.eng->exportWav(fs, "Export/synth", true, kBlocks, running, &ctx, resampleTo44100),
+             int32_t(kBlocks));
+    const auto& wav = fs.files["Export/synth/synth_1.wav"];
+    constexpr size_t kHeaderBytes = 44;
+    const uint32_t deviceFrames = kBlocks * kBlock;
+    const uint32_t expectedFrames = resampleTo44100 ? uint32_t(uint64_t(deviceFrames) * 2499 / 2500) : deviceFrames;
+    CHECK_EQ(wav.size(), kHeaderBytes + size_t(expectedFrames) * 4);
+    CHECK(wav.size() >= kHeaderBytes);
+    if (wav.size() < kHeaderBytes) return;
+    const uint32_t sampleRate = uint32_t(wav[24]) | (uint32_t(wav[25]) << 8) | (uint32_t(wav[26]) << 16) |
+                                (uint32_t(wav[27]) << 24);
+    const uint32_t byteRate = uint32_t(wav[28]) | (uint32_t(wav[29]) << 8) | (uint32_t(wav[30]) << 16) |
+                              (uint32_t(wav[31]) << 24);
+    CHECK_EQ(sampleRate, resampleTo44100 ? 44100u : 44117u);
+    CHECK_EQ(byteRate, sampleRate * 4);
+    if (wav.size() < kHeaderBytes + size_t(expectedFrames) * 4) return;
+
+    std::vector<int16_t> left(expectedFrames);
+    int peak = 0;
+    int maxStep = 0;
+    int clipped = 0;
+    bool stereoEqual = true;
+    double mean = 0.0;
+    for (uint32_t i = 0; i < expectedFrames; ++i) {
+        const size_t offset = kHeaderBytes + size_t(i) * 4;
+        const uint16_t rawL = uint16_t(uint8_t(wav[offset])) | (uint16_t(uint8_t(wav[offset + 1])) << 8);
+        const uint16_t rawR = uint16_t(uint8_t(wav[offset + 2])) | (uint16_t(uint8_t(wav[offset + 3])) << 8);
+        left[i] = int16_t(rawL);
+        const int sample = left[i];
+        peak = std::max(peak, std::abs(sample));
+        clipped += sample == 32767 || sample == -32768;
+        mean += sample;
+        stereoEqual &= int16_t(rawR) == left[i];
+        if (i > 0) maxStep = std::max(maxStep, std::abs(sample - int(left[i - 1])));
+    }
+    const uint32_t dataBytes = uint32_t(wav[40]) | (uint32_t(wav[41]) << 8) | (uint32_t(wav[42]) << 16) |
+                               (uint32_t(wav[43]) << 24);
+    CHECK_EQ(dataBytes, expectedFrames * 4);
+    CHECK(stereoEqual);
+    CHECK(peak > 1000);
+    CHECK_EQ(clipped, 0);
+    CHECK(std::fabs(mean / expectedFrames) < 20.0);
+    CHECK(maxStep < peak / 5);  // No single-sample jumps characteristic of a resampling glitch.
+
+    // The import takes a 44100 Hz file as is and converts a 44117 Hz file
+    // (spec 02 §8.1). The header rate is not the device rate (44117.647 Hz),
+    // so the two modes give different instrument lengths.
+    WavImportOptions opt;
+    opt.stereo = true;
+    std::vector<int16_t> imported(2 * size_t(deviceFrames));
+    WavImportResult res;
+    CHECK(wavImportMemory(wav.data(), wav.size(), opt, imported.data(), imported.size(), res) == FmtStatus::Ok);
+    const uint32_t importedFrames =
+        resampleTo44100 ? expectedFrames : uint32_t(uint64_t(deviceFrames) * 44100 / 44117);
+    CHECK_EQ(res.frames, importedFrames);
+    CHECK(res.stereo);
+    if (res.frames != importedFrames) return;
+    const int16_t* loaded = imported.data();   // planar: left channel first
+
+    // Measure positive zero-crossing periods away from the attack and tail.
+    const uint32_t firstFrame = 44100 / 4;
+    const uint32_t lastFrame = importedFrames - 44100 / 4;
+    uint32_t firstCrossing = 0, lastCrossing = 0, crossings = 0;
+    for (uint32_t i = firstFrame + 1; i < lastFrame; ++i) {
+        if (loaded[i - 1] < 0 && loaded[i] >= 0) {
+            if (crossings == 0) firstCrossing = i;
+            lastCrossing = i;
+            ++crossings;
+        }
+    }
+    CHECK(crossings > 1000);
+    if (crossings > 1) {
+        const double measuredHz = double(crossings - 1) * 44100.0 / double(lastCrossing - firstCrossing);
+        CHECK_NEAR(measuredHz, 261.6256, 0.02);   // 0.04 % off would be 0.105 Hz
+        std::printf("  synth export (%s): %.4f Hz, %u file frames, %u loaded, peak %d, max step %d\n",
+                    resampleTo44100 ? "44100" : "44117", measuredHz, expectedFrames, importedFrames, peak, maxStep);
+    }
+}
+}  // namespace
+
+TEST(export_synth_sine_pitch_duration_and_signal_quality) {
+    checkSynthExport(/*resampleTo44100=*/true);
+}
+
+TEST(export_synth_sine_device_rate_pitch_and_duration) {
+    checkSynthExport(/*resampleTo44100=*/false);
 }
 
 namespace {

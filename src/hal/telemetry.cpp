@@ -157,6 +157,12 @@ void Telemetry::resetWindow() {
     // keep lastUs_ so the next mark measures it.
 }
 
+size_t untouchedStackWords(const uint32_t* lo, const uint32_t* hi) {
+    const uint32_t* p = lo;
+    while (p < hi && *p == kStackPaint) ++p;
+    return size_t(p - lo);
+}
+
 size_t formatTelemetry(char* out, size_t cap, const TelemetrySample& s) {
     Fmt o(out, cap);
     const uint32_t permille = uint32_t(uint64_t(s.cycMax) * 1000u / kRenderBudgetCycles);
@@ -170,7 +176,56 @@ size_t formatTelemetry(char* out, size_t cap, const TelemetrySample& s) {
     o.str(" | SDRAM free ").dec(s.sdramFree).str(" B");
     o.str(" | i2c errors i2c0 ").dec(s.i2c0Errors).str(" i2c2 ").dec(s.i2c2Errors);
     if (s.i2c0Naks || s.i2c2Naks) o.str(" nak i2c0 ").dec(s.i2c0Naks).str(" i2c2 ").dec(s.i2c2Naks);
+    if (s.stackSize) {
+        // The heap has its own reserve below the stack guard (stack_guard.h):
+        // the stack's room is all of S.
+        const uint32_t peak = s.stackPeak < s.stackSize ? s.stackPeak : s.stackSize;
+        o.str(" | stack peak ").dec(peak).str(" B heap ").dec(s.heap).str(" B of ").dec(s.stackSize);
+        o.str(" B (free ").dec(s.stackSize - peak).str(" B)");
+    }
+    o.str(" | rx restarts ").dec(s.rxRestarts).str(" stale ").dec(s.rxStale);
+    if (s.dinClocks) {
+        o.str(" | din clock late max ").dec(s.dinClockLateMaxUs / 1000).ch('.');
+        const uint32_t c = s.dinClockLateMaxUs % 1000;
+        o.ch(char('0' + c / 100)).ch(char('0' + c / 10 % 10)).ch(char('0' + c % 10));
+        o.str(" ms (n ").dec(s.dinClocks).str(")");
+    }
     if (permille >= kRenderAlarmPermille) o.str(" RENDER>70%");
+    return o.len;
+}
+
+StreamSample streamSample(const audio::StreamServiceStats& st, uint32_t streams, uint32_t active,
+                          uint32_t& lastUnderruns, bool loading) {
+    StreamSample s;
+    s.loading = loading;
+    s.streams = streams;
+    s.active = active;
+    s.chunks = st.chunks;
+    s.errors = st.readErrors;
+    s.passes = st.passes;
+    s.readAvgUs = st.chunks ? st.sumReadUs / st.chunks : 0;
+    s.readMaxUs = st.maxReadUs;
+    s.leadMinMs = st.minLeadFrames == 0xFFFFFFFFu
+                      ? 0xFFFFFFFFu
+                      : uint32_t((uint64_t(st.minLeadFrames) * 1000u + 22059u) / 44118u);   // device rate, rounded
+    s.underruns = st.underruns;
+    s.underrunsDelta = st.underruns > lastUnderruns ? st.underruns - lastUnderruns : 0;
+    lastUnderruns = st.underruns;
+    return s;
+}
+
+size_t formatStream(char* out, size_t cap, const StreamSample& s) {
+    Fmt o(out, cap);
+    o.str("telemetry: stream streams ").dec(s.streams).str(" active ").dec(s.active);
+    o.str(" | chunks ").dec(s.chunks);
+    o.str(" read avg ").dec(s.readAvgUs / 1000).ch('.').dec((s.readAvgUs % 1000) / 100);
+    o.str(" max ").dec(s.readMaxUs / 1000).ch('.').dec((s.readMaxUs % 1000) / 100).str(" ms");
+    o.str(" | lead min ");
+    if (s.leadMinMs == 0xFFFFFFFFu) o.ch('-');
+    else o.dec(s.leadMinMs);
+    o.str(" ms | underruns ").dec(s.underruns).str(" (+").dec(s.underrunsDelta).str(") errors ").dec(s.errors);
+    o.str(" | passes ").dec(s.passes);
+    if (s.loading) o.str(" | loading");
     return o.len;
 }
 

@@ -7,11 +7,13 @@
 
 #include "app/capture.h"
 #include "app/resample.h"
+#include "audio/stream_source.h"
 #include "app/config.h"
 #include "app/fork_project.h"
 #include "app/midi_cc.h"
 #include "app/pattern_ops.h"
 #include "app/project_io.h"
+#include "app/stream_policy.h"
 #include "app/undo.h"
 #include "audio/engine.h"
 #include "hal_api.h"
@@ -56,6 +58,10 @@ struct HalRefs {
     // 2.x USB Storage mode (Config > USB > USB Storage). Null: not available
     // in this build (OT_USB_MSC=0).
     IUsbStorage* usbStorage = nullptr;
+    // SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md): reads streamed sample
+    // data from the card (device: raw sectors; host / sim: IStorage). Null:
+    // streaming not available (the option reads as Off).
+    audio::IStreamReader* streamReader = nullptr;
 };
 
 // Large buffers (SDRAM on the device, spec 02 §8.2 for the sample bank).
@@ -104,6 +110,29 @@ struct AppMemory {
 constexpr const char* kWorkspace = "Workspace";
 constexpr const char* kProjectsDir = "Projects";
 constexpr const char* kExportDir = "Export";
+
+// SD streaming C14 (sample_import.cpp): how the Sample Loader can import a
+// file into a slot.
+enum class ImportRoute : uint8_t {
+    Fits,        // into the sample memory (App::importSample)
+    Streams,     // too big, but converted onto the card and streamed
+    Off,         // too big and Stream from card is Off
+    TooMany,     // too big: 16 instruments already stream
+    NoMemory,    // too big, and not even its streamed head fits
+    CardFull,    // the card cannot hold the converted file
+    Unreadable,  // not a supported WAV / .pti
+};
+
+// What the import route needs of a file (App::importProbe, one header read):
+// frames / channels as the import produces them; a .pti's own play mode and
+// loop start (a WAV takes the slot's).
+struct ImportProbe {
+    uint32_t frames = 0;
+    bool stereo = false;
+    bool pti = false;
+    uint8_t playMode = 0;
+    uint16_t loopPoint1 = 0;
+};
 
 class App final : public ISequencerHost {
 public:
@@ -290,6 +319,26 @@ public:
     bool saveConfig();                            // INvStore, else kConfigPath
     void loadConfig();                            // boot: EEPROM, else import the file once
     void setNvStore(INvStore* nv) { hal_.nvstore = nv; }
+
+    // ---- 2.x theme files from the card (ui/theme_file.h) -------------------
+    // The stock themes stay in flash; a Themes/<name>.txt chosen in Config is
+    // parsed into one SDRAM table and drawn instead while it is active. Its
+    // name is kept in cfg.themeFile (cfg.theme = its base) and the file is
+    // read again at every boot(); without it the base theme is used.
+    // loadCustomTheme: false (nothing changes) when the file does not open.
+    bool loadCustomTheme(const char* name);
+    void clearCustomTheme();                      // back to the stock cfg.theme
+    bool customThemeActive() const { return themeActive_; }
+    const char* customThemeName() const { return themeName_; }
+    // OT fork: a fork palette (cfg.uiTheme 3+) wins over the stock theme byte.
+    const Theme& activeTheme() const {
+        return themeActive_ ? themeView_ : theme(cfg.uiTheme >= kThemeCount ? cfg.uiTheme : cfg.theme);
+    }
+    const char* activeThemeName() const { return themeActive_ ? themeName_ : activeTheme().name; }
+    // Config > Export theme: Themes/<activeThemeName()>.txt, never overwritten;
+    // refused in USB Storage mode.
+    enum class ThemeExport : uint8_t { kOk = 0, kExists, kUnavailable, kFailed };
+    ThemeExport exportTheme();
     void setUsbStorage(IUsbStorage* u) { hal_.usbStorage = u; }
 
     // ---- 2.x USB Storage mode (Tracker Mini manual §13.10) ----------------
@@ -304,6 +353,72 @@ public:
     UsbEnter enterUsbStorage();
     void exitUsbStorage();
     bool usbStorageActive() const { return usbActive_; }
+
+    // ---- SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md) ----
+    // Rings carved from the top of the sample bank when streaming is on
+    // (bank cleared; called at New and the project-load stage).
+    void applyStreamOption();
+    bool streamingOn() const { return stream_.on; }
+    bool streamed(int slot) const {
+        return slot >= 0 && slot < kSampleInstrumentCount && stream_.streamOf[slot] >= 0;
+    }
+    int streamedCount() const {
+        int n = 0;
+        for (int i = 0; i < kSampleInstrumentCount; ++i) n += stream_.streamOf[i] >= 0;
+        return n;
+    }
+    bool instrumentSampleDirty(int slot) const {
+        return slot >= 0 && slot < kSampleInstrumentCount && instrSampleDirty_[slot];
+    }
+    audio::StreamRing* streamRings() { return stream_.rings; }
+    const audio::StreamServiceStats& streamStats() const { return stream_.stats; }
+    // One telemetry window of the stream service (C11): the stats so far,
+    // then a fresh window; the underrun count stays the rings' running total.
+    audio::StreamServiceStats takeStreamStats() {
+        const audio::StreamServiceStats w = stream_.stats;
+        stream_.stats = audio::StreamServiceStats{};
+        stream_.stats.underruns = w.underruns;
+        return w;
+    }
+    // Rings playing a stream right now.
+    int streamActive() const {
+        int n = 0;
+        for (const audio::StreamRing& r : stream_.rings) n += r.src != nullptr;
+        return n;
+    }
+    // Every stream unbound (card lost, USB Storage mode, project change).
+    void streamUnbindAll();
+    // One slot's stream unbound (delete, import, resample into it).
+    void streamUnbind(int slot);
+    // After a bank move: every streamed slot's head / loop-head pointers again.
+    void refreshStreamSources();
+    // A streamed instrument loaded whole from its Workspace file (Sample
+    // Editor, play modes that need memory). False (nothing changed, notice)
+    // when it does not fit.
+    bool loadStreamedIntoMemory(int slot);
+    // SD streaming C14: the route of importing `path` into `slot` (the
+    // slot's current sample replaced), and the import of a file that does
+    // not fit: a background job (progress popup, Back cancels) converts it
+    // into the slot's Workspace .pti through instruments/import.tmp, then
+    // loads its head and streams the rest. The old instrument stays until
+    // the new one is in place. False (importNotice() says why) when the
+    // route is not Streams or the job could not start.
+    // bankBytes (optional): what the slot then holds in the sample memory
+    // (the whole sample when it fits, the streamed head when it streams).
+    // The route follows Config > Stream from card like a project open
+    // (importDecision); why (optional): the reason it streams. The probe
+    // form makes no I/O; cardFree UINT64_MAX skips the card-space check;
+    // pendingBytes / pendingStreams: what the files placed before this one
+    // add to the memory and the streams (the Sample Loader's selection).
+    ImportRoute importRoute(const char* path, int slot, uint32_t* bankBytes = nullptr);
+    bool importProbe(const char* path, ImportProbe& p);
+    ImportRoute importRoute(const ImportProbe& p, int slot, uint32_t* bankBytes, StreamWhy* why,
+                            uint64_t cardFree, int64_t pendingBytes = 0, int pendingStreams = 0);
+    bool startStreamedImport(const char* path, int slot, void (*done)(void* ctx, bool ok) = nullptr,
+                             void* ctx = nullptr);
+    const char* importNotice() const { return importNotice_; }
+    static constexpr const char* kImportTmp = "Workspace/instruments/import.tmp";
+    bool streamTestEnable = false;   // tests: carve the rings without the Config option
     IUsbStorage::Host usbHost() const {
         return hal_.usbStorage ? hal_.usbStorage->host() : IUsbStorage::Host::kNoUsb;
     }
@@ -424,6 +539,11 @@ public:
     // One accepted Control Change (after the Config "CC in" port/channel
     // filter): Performance (screen active), master levels, instrument map.
     void handleControlChange(uint8_t cc, uint8_t value);
+    // 2.x: an accepted MIDI input pitch bend (after the "Notes in" filter).
+    // Live notes only, +-kLiveBendSemis: sample instruments bend their track
+    // voice, synth slots their live voices, MIDI instruments get it forwarded.
+    void handlePitchBend(uint8_t lsb, uint8_t msb);
+    static constexpr float kLiveBendSemis = 2.0f;   // [I] the common default range
     // Performance screen hook for CC 41-48 / 51-62 (task B4); null = ignore.
     PerformanceCcSink* perfCc = nullptr;
     // Instrument chosen in the MIDI Mapping list (appendix C §1 +0x335,
@@ -575,6 +695,25 @@ private:
 
     HalRefs hal_;
     AppMemory mem_;
+    // SD streaming runtime (SRAM; the audio block reads the rings).
+    struct StreamRuntime {
+        audio::StreamRing rings[audio::kVoices];
+        audio::StreamSource src[audio::kMaxStreams];
+        int8_t streamOf[kSampleInstrumentCount];   // slot -> src index, -1 = RAM
+        uint8_t warnedMode[kSampleInstrumentCount];   // play mode last notified as not streamable
+        bool on = false;
+        audio::StreamServiceStats stats;
+    };
+    StreamRuntime stream_;
+    void serviceStreams(uint32_t nowMs);
+    // Head-only loading (project_io.cpp): the bank samples a slot needs (and
+    // whether it streams), its bank ranges, and the bind at the end.
+    uint32_t streamWouldResident(int slot, uint32_t frames, bool stereo);
+    void planStreamRanges(int slot, uint32_t frames, bool stereo, uint32_t off);
+    // False with *reason (StreamBindInfo::reason, or "no reader" / "no slot")
+    // when the slot cannot stream; a load without `reason` notes it in
+    // loadNotice_ instead.
+    bool bindStreamSlot(int slot, const char* path, const char** reason = nullptr);
     ExtTrackPool ext_;              // tracks 12..15 of the store (SDRAM blocks)
     Track* extDiscard_ = nullptr;   // storedTrack() target when the pool is full (SDRAM)
     uint32_t extFullReported_ = 0;  // ext_.fullEvents() at the last notice
@@ -607,6 +746,7 @@ private:
     // 0 = free) and the next one to take when all are held.
     uint16_t synthLive_[4] = {};
     uint8_t synthLiveNext_ = 0;
+    float liveBend_ = 0.0f;         // last MIDI input pitch bend (semitones)
     char loadNotice_[64] = {};      // first problem of the last load (one notice)
     uint8_t patDirty_[32] = {};
     bool forkDirty_ = false;
@@ -630,6 +770,14 @@ private:
         uint32_t blocks = 0, tail = 0;
         int songLen = 0;
     } job_;
+    // SD streaming C14 import (sample_import.cpp).
+    char importNotice_[64] = {};
+    int importUnit(uint32_t& cost);
+    void importCleanup();
+    bool importFinalize();
+    static int importUnitThunk(void* ctx, uint32_t& cost);
+    static int importPercentThunk(void* ctx);
+    static void importDoneThunk(void* ctx, bool ok);
     OT_APP_SDRAM_MEMBER(ProjectJob, pj_);   // background project operation (project_io.cpp)
     bool lastJobOk_ = true;
     int lastJobErrors_ = 0;
@@ -638,7 +786,14 @@ private:
     volatile uint32_t patternEnds_ = 0;
     volatile bool patternEditedFromSeq_ = false;
     bool outputOn_ = false;    // audio mute line state (setOutputEnabled)
+    uint32_t unmuteFrom_ = 0;  // start-up load finished at (ms), 0 = not yet
+    static constexpr uint32_t kUnmuteSettleMs = 500;
     bool booted_ = false;
+    // 2.x theme file (custom_theme.cpp): the view over the SDRAM slot table.
+    void restoreCustomTheme();
+    Theme themeView_{};
+    char themeName_[21] = {};
+    bool themeActive_ = false;
     bool usbActive_ = false;   // USB Storage mode: the computer owns the card
     bool wasPlaying_ = false;
     // [I] Resample bar tracking (audio context, App::preBlock).

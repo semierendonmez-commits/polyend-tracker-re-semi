@@ -35,7 +35,8 @@ TEST(cpu_config_extension_record) {
     CHECK(c.save(nv));
     CHECK(std::equal(stock.begin(), stock.end(), nv.mem.begin()));
     // Payload: cpuMeter, synthVoices (2.x M3, OP-8), then the 8-bit sum.
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 24, 1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5);   // OT fork payload 24
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 6, 49, 1, 4, 0, 1, 0, 1, 0);   // v6: upstream v5 payload + the fork's 22 bytes
+    CHECK_EQ(nv.mem[0xF4 + 5 + 49], 7);   // sum (the empty name adds 0)
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.cpuMeter, 1);
@@ -77,7 +78,8 @@ TEST(synth_voices_config) {
     CHECK_EQ(c.synthVoices, 4);
     c.synthVoices = 6;   // a non-default budget alone writes the record
     CHECK(c.save(nv));
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 24, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6);   // OT fork payload 24
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 6, 49, 0, 6, 0, 1, 0, 1, 0);   // v6: upstream v5 payload + the fork's 22 bytes
+    CHECK_EQ(nv.mem[0xF4 + 5 + 49], 8);   // sum (the empty name adds 0)
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.synthVoices, 6);
@@ -114,7 +116,7 @@ TEST(cpu_config_info_lines) {
     CHECK_STR(t, "0");
     c.optionText(info, 3, t, sizeof t);
     CHECK_STR(t, "4/4");
-    c.optionText(1, 11, t, sizeof t);
+    c.optionText(1, 12, t, sizeof t);   // after 2.x Export theme
     CHECK_STR(t, "Auto");
 }
 
@@ -153,12 +155,16 @@ TEST(cpu_cell_poll_and_frame) {
     h.audio.pump(8);
     h.run(1000);
     CHECK_EQ(h.disp.swaps, swaps);
-    // Auto: hidden below 60 %, shown (and redrawn) at 65 %.
+    // Auto: hidden below 85 % (65 % too), shown (and redrawn) at 88 %.
     a.cfg.cpuMeter = 0;
     h.run(300);
     CHECK(!a.ui.cpuCell().shown());
     CHECK(h.disp.swaps > swaps);
     setLoad(650);
+    h.audio.pump(8);
+    h.run(300);
+    CHECK(!a.ui.cpuCell().shown());
+    setLoad(880);
     h.audio.pump(8);
     h.run(300);
     CHECK(a.ui.cpuCell().level == wg::CpuLevel::kWarn);
@@ -274,4 +280,45 @@ TEST(ot_fork_extension_fields) {
     nv6.mem[Config::kScenesOffset + 20] ^= 0x55;   // a broken record is ignored
     CHECK(hr.load(nv6));
     CHECK(!hr.anyScene());
+}
+
+TEST(export_rate_config_record) {
+    // Config > General "Export sample rate" (record v4, payload byte 6):
+    // 1 = 44.1 kHz (converted, default), 0 = the device rate with 44117 in
+    // the header, as stock. Payload bytes 3 and 4 are the SD streaming
+    // options; byte 5 belongs to a later 2.x option: a build that doesn't
+    // know it keeps it as it is.
+    FakeNvStore nv;
+    Config c;
+    CHECK_EQ(c.exportRate, 1);
+    c.exportRate = 0;   // alone writes the record
+    CHECK(c.save(nv));
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 6, 49, 0, 4, 0, 1, 0, 0, 0);   // v6: upstream v5 payload + the fork's 22 bytes
+    CHECK_EQ(nv.mem[0xF4 + 5 + 49], 5);   // sum (the empty name adds 0)
+    Config r;
+    CHECK(r.load(nv));
+    CHECK_EQ(r.exportRate, 0);
+    // Bytes 3..5 written by another 2.x build: 3 and 4 are read, 5 survives
+    // a load and a save.
+    const uint8_t other[] = {'O', 'T', 'X', 4, 6, 0, 4, 2, 3, 1, 1, 11};
+    for (size_t i = 0; i < sizeof(other); ++i) nv.mem[0xF4 + i] = other[i];
+    CHECK(r.load(nv));
+    CHECK_EQ(r.exportRate, 1);
+    CHECK_EQ(r.streamMode, 2);
+    CHECK_EQ(r.streamThreshold, 3);
+    r.cpuMeter = 1;
+    CHECK(r.save(nv));
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 6, 49, 1, 4, 2, 3, 1, 1, 0);   // v6: upstream v5 payload + the fork's 22 bytes
+    CHECK_EQ(nv.mem[0xF4 + 5 + 49], 12);
+    // An older record (payload 2) loads with the default 44.1 kHz.
+    const uint8_t v1[] = {'O', 'T', 'X', 1, 2, 2, 4, 6};
+    for (size_t i = 0; i < sizeof(v1); ++i) nv.mem[0xF4 + i] = v1[i];
+    for (size_t i = sizeof(v1); i < 12; ++i) nv.mem[0xF4 + i] = 0xFF;
+    r.exportRate = 0;
+    CHECK(r.load(nv));
+    CHECK_EQ(r.cpuMeter, 2);
+    CHECK_EQ(r.exportRate, 1);
+    c.exportRate = 7;
+    c.sanitize();
+    CHECK_EQ(c.exportRate, 1);
 }

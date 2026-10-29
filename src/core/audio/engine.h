@@ -64,7 +64,9 @@ public:
     // Sample editor apply / one-level undo (spec 06 §6.3/§6.4): idx (loaded)
     // takes the block of `frames` written at tail(); its old data ends up at
     // the new tail() (same planar layout), so a second call with the old
-    // size swaps back. In place (rotations), no extra memory.
+    // size swaps back. Same size: a swap through a 256-byte stack buffer;
+    // another size: block moves via the free pool memory after the new
+    // block when it has room, else two in-place rotations.
     bool replaceFromTail(int idx, uint32_t frames, bool stereo);
     int16_t* data(int idx) { return loaded(idx) ? pool_ + slots_[idx].off : nullptr; }
     uint32_t samples(int idx) const { return valid(idx) ? slots_[idx].samples() : 0u; }
@@ -77,11 +79,19 @@ public:
     bool stereo(int idx) const { return loaded(idx) && slots_[idx].stereo; }
     size_t usedSamples() const;
     size_t capacitySamples() const { return cap_; }
+    // SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md §2.3): a loaded slot that
+    // holds only the head(s) of a streamed instrument of fullFrames frames.
+    // Every call that rewrites the slot clears it. A partial slot never plays
+    // without its stream source (AudioEngine::voiceNoteOn).
+    bool setPartial(int idx, uint32_t fullFrames);
+    bool partial(int idx) const { return loaded(idx) && slots_[idx].full != 0; }
+    uint32_t fullFrames(int idx) const { return partial(idx) ? slots_[idx].full : frames(idx); }
 
 private:
     struct Slot {
         uint32_t off = 0;
         uint32_t frames = 0;
+        uint32_t full = 0;   // partial (streamed) slot: the instrument's whole length, else 0
         bool stereo = false;
         bool loaded = false;
         uint32_t samples() const { return loaded ? frames * (stereo ? 2u : 1u) : 0u; }
@@ -316,10 +326,12 @@ public:
     // Render into WAV files: stems=false -> `path` is the master file;
     // stems=true -> `path` is a directory receiving track1..8/reverb/delay/master
     // and synth_1..3.wav (Mini %s/synth_%d.wav, spec 21 §2; 1-based: U13).
-    // Stops after maxBlocks or when running(ctx) returns false. Header sample
-    // rate field is 44117 (spec 04 §6.1). Returns blocks rendered, <0 on I/O error.
+    // Stops after maxBlocks or when running(ctx) returns false.
+    // resampleTo44100=false: device-rate samples with 44117 in the header, as
+    // stock (spec 04 §6.1). [I] resampleTo44100=true: the WAVs are resampled to
+    // 44.1 kHz and say 44100. Returns blocks rendered, <0 on I/O error.
     int32_t exportWav(IStorage& fs, const char* path, bool stems, uint32_t maxBlocks, bool (*running)(void*),
-                      void* ctx);
+                      void* ctx, bool resampleTo44100);
     // Stem block buffer for exportWav (~7 KB; SDRAM on the device). Without
     // one, exportWav allocates it for the export.
     void setExportScratch(StemBlock* s) { exportScratch_ = s; }
@@ -358,6 +370,10 @@ public:
     // ISequencerSink (spec 03 §6).
     void voiceNoteOn(uint8_t track, const VoiceNoteOn& n) override;
     void voiceNoteOff(uint8_t track, NoteOffMode mode) override;
+    // 2.x live MIDI input pitch bend of the note on a track (Voice::setBend).
+    void voiceSetBend(uint8_t track, float semis) {
+        if (track < kVoices) voices_[track].setBend(semis);
+    }
     void voiceApplyFx(uint8_t track, uint8_t slot, uint8_t type, uint8_t value) override;
     void resetAllVoiceFx() override;
     void engineBlockUpdate(float smoothedTempoBpm) override { tempo_ = smoothedTempoBpm > 0.0f ? smoothedTempoBpm : tempo_; }

@@ -161,6 +161,10 @@ public:
 
     // Introspection for tests / UI.
     float rate() const { return targetRate_ + glideOff_; }
+    // 2.x live MIDI input pitch bend in semitones (0 none): main loop, set
+    // after noteOn(); every noteOn() clears it, so sequenced notes on the
+    // track never inherit it. Applied from the next block.
+    void setBend(float semis) { bendSemis_ = semis; }
     float modOutput(int slot) const { return mods_[slot].out; }
     float envelopeLevel() const { return env_.level(); }
     // Play position (absolute sample frame) while the player runs, -1 otherwise.
@@ -260,6 +264,7 @@ private:
     float glideOff_ = 0.0f, glideInc_ = 0.0f;
     uint32_t glideLeft_ = 0;
     float slideSemis_ = 0.0f;
+    volatile float bendSemis_ = 0.0f;   // live pitch bend (setBend)
     bool slidePending_ = false, slideActive_ = false;
     int8_t slideDirNew_ = 0;
     uint8_t slideValNew_ = 0;
@@ -315,6 +320,12 @@ private:
     Svf svfR_;                 // right channel filter (stereo notes)
     uint8_t sendsTouched_ = 0; // see sendsTouched()
 };
+
+// Granular grain bounds in sample points (0..65535) for a sample of `len`
+// frames (spec 04 §3.1): the grain length limited to 44..44100 frames, centred
+// on `pos` and moved inward at either end so it keeps its length. The voice
+// plays it; the Sample Playback screen shades it.
+void grainSpanPoints(uint32_t len, uint16_t grainLength, uint16_t pos, int32_t* first, int32_t* last);
 
 }  // namespace audio
 }  // namespace ot

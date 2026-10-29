@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cstring>
 
+#include "ui/theme_file.h"
+
 namespace ot {
 
 namespace {
@@ -103,6 +105,9 @@ void Config::setDefaults() {
 void Config::sanitize() {
     // Range validation in the spirit of spec 05 §5.4 configValidate.
     clampField<uint8_t>(radioRegion, 3, 0);
+    clampField<uint8_t>(streamMode, 2, 0);
+    clampField<uint8_t>(streamThreshold, 3, 1);
+    clampField<uint8_t>(exportRate, 1, 1);
     clampField<uint8_t>(brightness, 2, 2);
     clampField<uint8_t>(theme, 2, 0);
     clampField<uint8_t>(font, 1, 0);
@@ -155,6 +160,8 @@ void Config::sanitize() {
     clampField<uint8_t>(limLink, 1, 0);
     clampField<uint8_t>(satColor, uint8_t(kSatColors - 1), 0);
     if (synthVoices < 1 || synthVoices > kMaxSynthVoices) synthVoices = kDefaultSynthVoices;
+    themeFile[sizeof(themeFile) - 1] = 0;
+    if (themeFile[0] && !themeNameValid(themeFile)) std::memset(themeFile, 0, sizeof(themeFile));
     validateImage(image);
 }
 
@@ -181,26 +188,56 @@ void Config::toExt(uint8_t* out) const {
     out[4] = uint8_t(kExtPayload);
     out[5] = cpuMeter;
     out[6] = synthVoices;
-    out[7] = sliceDetector;
-    out[8] = uiTheme;
-    out[9] = bbReseed;
-    out[10] = sliceThru;
-    out[11] = uiFont;
-    out[12] = scaleLock;
-    out[13] = screenSaver;
-    out[14] = levelMeter;
-    out[15] = reverbModel;
-    out[16] = delayModel;
-    out[17] = satDrive;
-    out[18] = satMixInv;
-    out[19] = satToneInv;
-    out[20] = limCeiling;
-    out[21] = limLink;
-    out[22] = satColor;
-    for (int i = 0; i < 6; ++i) out[23 + i] = extReserved[i];
+    out[7] = streamMode;
+    out[8] = streamThreshold;
+    out[9] = extKeep[0];
+    out[10] = exportRate;
+    std::memcpy(out + 11, themeFile, sizeof(themeFile));
+    // OT fork bytes after the upstream payload.
+    uint8_t* f = out + 5 + kUpstreamExtPayload;
+    f[0] = sliceDetector;
+    f[1] = uiTheme;
+    f[2] = bbReseed;
+    f[3] = sliceThru;
+    f[4] = uiFont;
+    f[5] = scaleLock;
+    f[6] = screenSaver;
+    f[7] = levelMeter;
+    f[8] = reverbModel;
+    f[9] = delayModel;
+    f[10] = satDrive;
+    f[11] = satMixInv;
+    f[12] = satToneInv;
+    f[13] = limCeiling;
+    f[14] = limLink;
+    f[15] = satColor;
+    for (int i = 0; i < 6; ++i) f[16 + i] = extReserved[i];
     uint8_t sum = 0;
     for (uint32_t i = 0; i < kExtPayload; ++i) sum = uint8_t(sum + out[5 + i]);
     out[5 + kExtPayload] = sum;
+}
+
+// OT fork fields (record v6 after the upstream payload, or the older fork
+// record); n = the fork bytes present (missing ones keep their defaults).
+void Config::forkFromExt(const uint8_t* f, uint32_t n) {
+    sliceDetector = (n >= 1 && f[0] <= 1) ? f[0] : 0;
+    // A fork palette (3+) replaces the stock theme byte; else the image decides.
+    if (n >= 2 && f[1] >= kThemeCount && f[1] < kThemeTotal) uiTheme = f[1];
+    bbReseed = (n >= 3 && f[2] <= kBBLocked) ? f[2] : 0;
+    sliceThru = (n >= 4 && f[3] <= 1) ? f[3] : 0;
+    if (n >= 5 && f[4] == 2) uiFont = 2;   // the Pixel set; else the image's font decides
+    scaleLock = (n >= 6 && f[5] <= 1) ? f[5] : 0;
+    screenSaver = (n >= 7 && f[6] <= kScreenSaverMax) ? f[6] : 0;
+    levelMeter = (n >= 8 && f[7] <= 1) ? f[7] : 0;
+    reverbModel = (n >= 9 && f[8] < kReverbModels) ? f[8] : 0;
+    delayModel = (n >= 10 && f[9] < kDelayModels) ? f[9] : 0;
+    satDrive = (n >= 11 && f[10] <= 24) ? f[10] : 0;
+    satMixInv = (n >= 12 && f[11] <= 100) ? f[11] : 0;
+    satToneInv = (n >= 13 && f[12] <= 100) ? f[12] : 0;
+    limCeiling = (n >= 14 && f[13] <= 12) ? f[13] : 0;
+    limLink = (n >= 15 && f[14] <= 1) ? f[14] : 0;
+    satColor = (n >= 16 && f[15] < kSatColors) ? f[15] : 0;
+    for (uint32_t i = 0; i < 6; ++i) extReserved[i] = n >= 17 + i ? f[16 + i] : 0;
 }
 
 bool Config::fromExt(const uint8_t* in, uint32_t len) {
@@ -213,24 +250,22 @@ bool Config::fromExt(const uint8_t* in, uint32_t len) {
     // Newer versions only append fields: read the ones this build knows.
     cpuMeter = in[5] <= 2 ? in[5] : 0;
     synthVoices = (n >= 2 && in[6] >= 1 && in[6] <= kMaxSynthVoices) ? in[6] : kDefaultSynthVoices;
-    sliceDetector = (n >= 3 && in[7] <= 1) ? in[7] : 0;
-    // A fork palette (3+) replaces the stock theme byte; else the image decides.
-    if (n >= 4 && in[8] >= kThemeCount && in[8] < kThemeTotal) uiTheme = in[8];
-    bbReseed = (n >= 5 && in[9] <= kBBLocked) ? in[9] : 0;
-    sliceThru = (n >= 6 && in[10] <= 1) ? in[10] : 0;
-    if (n >= 7 && in[11] == 2) uiFont = 2;   // the Pixel set; else the image's font decides
-    scaleLock = (n >= 8 && in[12] <= 1) ? in[12] : 0;
-    screenSaver = (n >= 9 && in[13] <= kScreenSaverMax) ? in[13] : 0;
-    levelMeter = (n >= 10 && in[14] <= 1) ? in[14] : 0;
-    reverbModel = (n >= 11 && in[15] < kReverbModels) ? in[15] : 0;
-    delayModel = (n >= 12 && in[16] < kDelayModels) ? in[16] : 0;
-    satDrive = (n >= 13 && in[17] <= 24) ? in[17] : 0;
-    satMixInv = (n >= 14 && in[18] <= 100) ? in[18] : 0;
-    satToneInv = (n >= 15 && in[19] <= 100) ? in[19] : 0;
-    limCeiling = (n >= 16 && in[20] <= 12) ? in[20] : 0;
-    limLink = (n >= 17 && in[21] <= 1) ? in[21] : 0;
-    satColor = (n >= 18 && in[22] < kSatColors) ? in[22] : 0;
-    for (uint32_t i = 0; i < 6; ++i) extReserved[i] = n >= 19 + i ? in[23 + i] : 0;
+    const Config d;
+    if (in[3] == 1 && n >= 3) {
+        // The semi fork's older record: the fork bytes right after synthVoices.
+        forkFromExt(in + 7, n - 2);   // semi.1 .. semi.6 (payload 4, 8, 16, 24)
+        return true;
+    }
+    streamMode = (n >= 3 && in[7] <= 2) ? in[7] : d.streamMode;
+    streamThreshold = (n >= 4 && in[8] <= 3) ? in[8] : d.streamThreshold;
+    extKeep[0] = n >= 5 ? in[9] : d.extKeep[0];
+    exportRate = (n >= 6 && in[10] <= 1) ? in[10] : 1;
+    std::memset(themeFile, 0, sizeof(themeFile));
+    if (n >= 6 + sizeof(themeFile) && in[11 + sizeof(themeFile) - 1] == 0) {
+        std::memcpy(themeFile, in + 11, sizeof(themeFile));
+        if (!themeNameValid(themeFile)) std::memset(themeFile, 0, sizeof(themeFile));
+    }
+    forkFromExt(in + 5 + kUpstreamExtPayload, n > kUpstreamExtPayload ? n - kUpstreamExtPayload : 0);
     return true;
 }
 
@@ -295,6 +330,11 @@ bool Config::fromImage(const uint8_t* img) {
     std::memcpy(c.extReserved, extReserved, sizeof(extReserved));
     std::memcpy(c.scenes, scenes, sizeof(scenes));
     c.uiTheme = c.theme;     // the stock theme; an extension record may name a fork palette
+    c.streamMode = streamMode;
+    c.streamThreshold = streamThreshold;
+    c.exportRate = exportRate;
+    std::memcpy(c.themeFile, themeFile, sizeof(themeFile));
+    std::memcpy(c.extKeep, extKeep, sizeof(extKeep));
     c.sanitize();
     *this = c;
     toImage();
@@ -306,17 +346,31 @@ bool Config::load(INvStore& nv) {
     if (nv.size() < kImageSize || !nv.read(0, buf, kImageSize)) return false;
     if (!fromImage(buf)) return false;
     uint8_t ext[kExtSize];
-    cpuMeter = 0;
-    synthVoices = kDefaultSynthVoices;
+    const Config d;
+    cpuMeter = d.cpuMeter;
+    synthVoices = d.synthVoices;
+    streamMode = d.streamMode;
+    streamThreshold = d.streamThreshold;
+    exportRate = d.exportRate;
+    themeFile[0] = 0;
+    std::memcpy(extKeep, d.extKeep, sizeof(extKeep));
     sliceDetector = 0;
     bbReseed = 0;
     sliceThru = 0;
     scaleLock = screenSaver = levelMeter = reverbModel = delayModel = 0;
-    if (nv.size() >= kExtOffset + kExtSize && nv.read(kExtOffset, ext, kExtSize)) fromExt(ext, kExtSize);
-    else if (nv.size() >= kExtOffset + kExtSize - 1 && nv.read(kExtOffset, ext, kExtSize - 1)) fromExt(ext, kExtSize - 1);   // v1 record
+    // The longest record that fits the store (older records are shorter;
+    // fromExt reads the payload length from the record).
+    uint32_t recLen = kExtSize;
+    for (uint32_t len = kExtSize; len >= 7; --len)
+        if (nv.size() >= kExtOffset + len && nv.read(kExtOffset, ext, len)) {
+            if (fromExt(ext, len)) recLen = 5 + ext[4] + 1;
+            break;
+        }
+    // OT fork scenes: after the record (an older fork record was shorter).
     std::memset(scenes, 0, sizeof(scenes));
     uint8_t sc[kScenesSize];
-    if (nv.size() >= kScenesOffset + kScenesSize && nv.read(kScenesOffset, sc, kScenesSize)) fromScenes(sc, kScenesSize);
+    const uint32_t scAt = recLen < kExtSize ? kOldScenesOffset : kScenesOffset;
+    if (nv.size() >= scAt + kScenesSize && nv.read(scAt, sc, kScenesSize)) fromScenes(sc, kScenesSize);
     return true;
 }
 
@@ -330,7 +384,10 @@ bool Config::save(INvStore& nv) {
     if (nv.size() < kExtOffset + kExtSize) return true;
     uint8_t ext[kExtSize];
     bool writeExt = true;
-    if (cpuMeter == 0 && synthVoices == kDefaultSynthVoices && sliceDetector == 0 && uiTheme < kThemeCount &&
+    const Config d;
+    if (cpuMeter == d.cpuMeter && synthVoices == d.synthVoices && streamMode == d.streamMode &&
+        streamThreshold == d.streamThreshold && exportRate == d.exportRate && themeFile[0] == 0 &&
+        std::memcmp(extKeep, d.extKeep, sizeof(extKeep)) == 0 && sliceDetector == 0 && uiTheme < kThemeCount &&
         bbReseed == 0 && sliceThru == 0 && uiFont < 2 && scaleLock == 0 && screenSaver == 0 && levelMeter == 0 &&
         reverbModel == 0 && delayModel == 0 && satDrive == 0 && satMixInv == 0 && satToneInv == 0 &&
         limCeiling == 0 && limLink == 0 && satColor == 0 && !anyScene()) {
@@ -365,15 +422,23 @@ bool Config::load(IStorage& fs) {
     if (buf[4] == kFileV2) {
         if (len != kImageSize || avail < kImageSize) return false;
         if (!fromImage(buf + 8)) return false;
-        cpuMeter = 0;
-        synthVoices = kDefaultSynthVoices;
+        const Config d;
+        cpuMeter = d.cpuMeter;
+        synthVoices = d.synthVoices;
+        streamMode = d.streamMode;
+        streamThreshold = d.streamThreshold;
+        exportRate = d.exportRate;
+        themeFile[0] = 0;
+        std::memcpy(extKeep, d.extKeep, sizeof(extKeep));
         sliceDetector = 0;
         bbReseed = 0;
         sliceThru = 0;
         scaleLock = screenSaver = levelMeter = reverbModel = delayModel = 0;
-        fromExt(buf + 8 + kImageSize, avail - kImageSize);
+        const uint8_t* ext = buf + 8 + kImageSize;
+        uint32_t recLen = kExtSize;
+        if (fromExt(ext, avail - kImageSize)) recLen = 5 + ext[4] + 1;
         std::memset(scenes, 0, sizeof(scenes));
-        if (avail >= kImageSize + kExtSize + kScenesSize) fromScenes(buf + 8 + kImageSize + kExtSize, kScenesSize);
+        if (avail >= kImageSize + recLen + kScenesSize) fromScenes(ext + recLen, kScenesSize);
         return true;
     }
     if (buf[4] != kFileV1) return false;

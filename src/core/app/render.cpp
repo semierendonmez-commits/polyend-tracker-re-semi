@@ -227,6 +227,10 @@ int App::exportSamples() {
 bool App::exportRunning(void* ctx) {
     App& a = *static_cast<App*>(ctx);
     ExportJob& j = a.job_;
+    // SD streaming: top every ring up before each offline block (no deadline),
+    // so an export of streamed instruments never underruns.
+    if (a.stream_.on && a.hal_.streamReader)
+        audio::streamServiceTick(a.stream_.rings, audio::kVoices, *a.hal_.streamReader, 64, nullptr, 0, &a.stream_.stats);
     if (!j.started) {
         // Start inside the render loop: beginOffline() has reset the voices.
         j.started = true;
@@ -284,7 +288,8 @@ bool App::exportAudio(ExportKind kind, const char* path, const SelRect* sel, boo
                                                   : kExportingSelection;
     ui.progress(g_renderTitle, 0);
     const uint32_t maxBlocks = uint32_t(uint64_t(kMaxSeconds) * 44100 / kBlock);
-    const int32_t n = engine.exportWav(fs(), path, stems, maxBlocks, &App::exportRunning, this);
+    const int32_t n = engine.exportWav(fs(), path, stems, maxBlocks, &App::exportRunning, this,
+                                       /*resampleTo44100=*/cfg.exportRate != 0);   // Config > Export sample rate
     seq.stop();
     seq.setRendering(false);
     allVoicesOff();

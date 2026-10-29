@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "app/app.h"
+#include "app/storage_stream_reader.h"
 #include "hal_api.h"
 
 // In-memory storage with real directories (listDir reports both files and
@@ -22,6 +23,20 @@ class FakeStorage : public ot::IStorage {
 public:
     std::map<std::string, std::vector<uint8_t>> files;
     std::set<std::string> dirs;
+    // Directory order. Default: folders first, then files, each sorted. With
+    // creationOrder set, listDir reports the entries in the order they were
+    // created (mkdir, open for writing, addFile), like a FAT card; entries
+    // put into `files` / `dirs` directly follow in the default order.
+    bool creationOrder = false;
+    std::vector<std::string> created;
+    std::set<std::string> createdSet;
+    void noteCreated(const std::string& p) {
+        if (createdSet.insert(p).second) created.push_back(p);
+    }
+    void addFile(const std::string& p, std::vector<uint8_t> data) {
+        files[p] = std::move(data);
+        noteCreated(p);
+    }
     // USB Storage mode (FakeUsbStorage): the computer owns the card; every
     // access is refused and counted (the app must not make any).
     bool locked = false;
@@ -29,6 +44,45 @@ public:
     bool refuse() {
         if (locked) ++lockedAccess;
         return locked;
+    }
+    // Like the device (IStorage::kMaxPath): a longer path fails, never cut.
+    // Tests may fill files / dirs directly with longer paths (a computer can).
+    uint32_t maxPath = ot::IStorage::kMaxPath;
+    bool tooLong(const char* p) const { return maxPath && std::strlen(p) > maxPath; }
+    // Card size in bytes (0: unlimited): a write past it is short, reserve()
+    // refuses what does not fit; reserves logs every reserve() size.
+    // Like the device (f_expand opt 1), reserve() allocates: the file is
+    // `bytes` long at once, filled with stale card data (0xA5) until written;
+    // truncate() cuts it at the position. reserveFails: no contiguous run;
+    // reserveExtra: bytes laid out past the request.
+    uint64_t capacity = 0;
+    std::vector<uint32_t> reserves;
+    bool reserveFails = false;
+    uint32_t reserveExtra = 0;
+    uint64_t usedBytes() const {
+        uint64_t n = 0;
+        for (const auto& f : files) n += f.second.size();
+        return n;
+    }
+    bool reserve(Handle h, uint32_t bytes) override {
+        if (refuse() || !open_.count(h)) return false;
+        reserves.push_back(bytes);
+        if (reserveFails || (capacity && usedBytes() + bytes > capacity)) return false;
+        files[open_[h].path].assign(size_t(bytes) + reserveExtra, 0xA5);
+        return true;
+    }
+    bool truncate(Handle h) override {
+        if (refuse() || !open_.count(h)) return false;
+        auto& f = files[open_[h].path];
+        if (f.size() > open_[h].pos) f.resize(open_[h].pos);
+        return true;
+    }
+    int freeScans = 0;   // freeBytes() calls (the device scans the whole FAT the first time)
+    uint64_t freeBytes() override {
+        ++freeScans;
+        if (!capacity) return UINT64_MAX;
+        const uint64_t u = usedBytes();
+        return u >= capacity ? 0 : capacity - u;
     }
 
     static std::string parent(const std::string& p) {
@@ -39,14 +93,18 @@ public:
         std::string par = parent(p);
         return par.empty() || dirs.count(par);
     }
+    int opens = 0;   // open() calls (a test checks a screen makes none)
     Handle open(const char* path, OpenMode mode) override {
+        ++opens;
         if (refuse()) return -1;
+        if (tooLong(path)) return -1;
         std::string p(path);
         auto it = files.find(p);
         if (mode == kRead && it == files.end()) return -1;
         if (mode != kRead && !parentOk(p)) return -1;
         if (mode == kWrite) files[p].clear();
         if (mode == kReadWrite && it == files.end()) files[p];
+        if (mode != kRead) noteCreated(p);
         Handle h = next_++;
         open_[h] = {p, 0};
         return h;
@@ -72,6 +130,10 @@ public:
         auto o = open_.find(h);
         if (o == open_.end()) return -1;
         auto& f = files[o->second.path];
+        if (capacity && o->second.pos + len > f.size()) {   // card full: as much as fits
+            const uint64_t grow = o->second.pos + len - f.size(), room = freeBytes();
+            if (grow > room) len = uint32_t(len - (grow - room));
+        }
         if (f.size() < o->second.pos + len) f.resize(o->second.pos + len);
         if (len) std::memcpy(f.data() + o->second.pos, src, len);
         o->second.pos += len;
@@ -93,16 +155,21 @@ public:
         refuse();
         open_.erase(h);
     }
-    bool exists(const char* path) override { return !refuse() && (files.count(path) || dirs.count(path)); }
+    bool exists(const char* path) override {
+        return !refuse() && !tooLong(path) && (files.count(path) || dirs.count(path));
+    }
     bool mkdir(const char* path) override {
         if (refuse()) return false;
+        if (tooLong(path)) return false;
         if (files.count(path)) return false;
         if (!parentOk(path)) return false;
         dirs.insert(path);
+        noteCreated(path);
         return true;
     }
     bool remove(const char* path) override {
         if (refuse()) return false;
+        if (tooLong(path)) return false;
         if (files.erase(path)) return true;
         std::string p(path);
         if (!dirs.count(p)) return false;
@@ -116,6 +183,7 @@ public:
     }
     bool rename(const char* from, const char* to) override {
         if (refuse()) return false;
+        if (tooLong(from) || tooLong(to)) return false;
         auto it = files.find(from);
         if (it == files.end()) return false;
         files[to] = it->second;
@@ -124,15 +192,26 @@ public:
     }
     int32_t listDir(const char* path, DirFn fn, void* ctx) override {
         if (refuse()) return -1;
+        if (tooLong(path)) return -1;
         std::string p(path);
         if (!p.empty() && !dirs.count(p)) return -1;
         std::string pre = p.empty() ? "" : p + "/";
         std::vector<std::pair<std::string, std::pair<bool, uint32_t>>> ents;
+        auto child = [&](const std::string& q) {
+            return q.compare(0, pre.size(), pre) == 0 && q.size() > pre.size() &&
+                   q.find('/', pre.size()) == std::string::npos;
+        };
+        std::set<std::string> done;
+        if (creationOrder)
+            for (auto& q : created) {
+                if (!child(q) || !done.insert(q).second) continue;
+                if (dirs.count(q)) ents.push_back({q.substr(pre.size()), {true, 0}});
+                else if (files.count(q)) ents.push_back({q.substr(pre.size()), {false, uint32_t(files[q].size())}});
+            }
         for (auto& d : dirs)
-            if (d.compare(0, pre.size(), pre) == 0 && d.size() > pre.size() && d.find('/', pre.size()) == std::string::npos)
-                ents.push_back({d.substr(pre.size()), {true, 0}});
+            if (!done.count(d) && child(d)) ents.push_back({d.substr(pre.size()), {true, 0}});
         for (auto& f : files)
-            if (f.first.compare(0, pre.size(), pre) == 0 && f.first.find('/', pre.size()) == std::string::npos)
+            if (!done.count(f.first) && child(f.first))
                 ents.push_back({f.first.substr(pre.size()), {false, uint32_t(f.second.size())}});
         int32_t n = 0;
         for (auto& e : ents) {
@@ -189,6 +268,13 @@ public:
     uint32_t faultCount = 0, measuredBytes = 0;
     uint32_t frameFaultCount() const override { return faultCount; }
     uint32_t measuredDlBytes() const override { return measuredBytes; }
+    // A swapped frame frameReady() has not reported yet (like the FT81x's
+    // dlPending_). faultNextFrames: that many of the next swapped frames
+    // fault, found by the frameReady() poll that ends them, as on the device.
+    // reportsPending = false: a driver without framePending() (2.0.0).
+    bool sent = false, sentFaults = false, reportsPending = true;
+    uint32_t faultNextFrames = 0, readyPolls = 0;
+    bool framePending() const override { return sent && reportsPending; }
     uint16_t width() const override { return 800; }
     uint16_t height() const override { return 480; }
     void dlStart() override {
@@ -221,6 +307,9 @@ public:
     void swap() override {
         last = cur;
         ++swaps;
+        sent = true;
+        sentFaults = faultNextFrames > 0;
+        if (sentFaults) --faultNextFrames;
         if (busy.on) {
             busy.frame = cur;
             busy.pending = true;
@@ -246,11 +335,20 @@ public:
     static constexpr uint64_t kVsyncUs = 18480;   // ft81xFrameMilliHz: 54.112 Hz
     std::vector<std::string> shown;
     bool frameReady() override {
-        if (!busy.on) return true;
-        ++busy.polls;
-        busyAccess();
-        busyTick();
-        return !busy.pending;
+        ++readyPolls;
+        bool ready = true;
+        if (busy.on) {
+            ++busy.polls;
+            busyAccess();
+            busyTick();
+            ready = !busy.pending;
+        }
+        if (ready && sent) {
+            sent = false;
+            if (sentFaults) ++faultCount;
+            sentFaults = false;
+        }
+        return ready;
     }
     const std::vector<std::string>& visible() {
         busyTick();
@@ -287,8 +385,13 @@ public:
     // Screenshot readback (off by default like the base IDisplay): pixel =
     // 0x00RRGGBB with R = x & 0xFF, G = y & 0xFF, B = 0x5A.
     bool readback = false;
+    // Optional time cost per readPixels call (the device capture blocks for
+    // seconds): advances *readbackClock by readbackMs.
+    uint32_t* readbackClock = nullptr;
+    uint32_t readbackMs = 0;
     bool readPixels(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint32_t* rgb) override {
         if (!readback) return false;
+        if (readbackClock) *readbackClock += readbackMs;
         for (uint16_t r = 0; r < h; ++r)
             for (uint16_t c = 0; c < w; ++c)
                 rgb[size_t(r) * w + c] = (uint32_t((x + c) & 0xFF) << 16) | (uint32_t((y + r) & 0xFF) << 8) | 0x5Au;
@@ -437,12 +540,19 @@ public:
         ++dspCalls;
     }
     // Run `blocks` audio callbacks; returns the peak absolute sample.
+    // FNV-1a over every output byte pumped so far (render-hash goldens).
+    uint64_t hash = 1469598103934665603ull;
     int pump(int blocks) {
         int16_t buf[256];
         int peak = 0;
         for (int i = 0; i < blocks && fn; ++i) {
             fn(buf, 128, ctx);
-            for (int k = 0; k < 256; ++k) peak = std::abs(buf[k]) > peak ? std::abs(buf[k]) : peak;
+            for (int k = 0; k < 256; ++k) {
+                peak = std::abs(buf[k]) > peak ? std::abs(buf[k]) : peak;
+                const uint16_t v = uint16_t(buf[k]);
+                hash = (hash ^ (v & 0xFF)) * 1099511628211ull;
+                hash = (hash ^ (v >> 8)) * 1099511628211ull;
+            }
         }
         return peak;
     }
@@ -451,6 +561,7 @@ public:
 // Whole-app harness.
 struct Harness {
     FakeStorage fs;
+    ot::StorageStreamReader streamReader{fs};   // SD streaming (host reader over the fake card)
     FakeUsbStorage usb{&fs};
     RecordingDisplay disp;
     ScriptInput input;
@@ -493,6 +604,7 @@ struct Harness {
         h.display = &disp;
         h.audio = &audio;
         h.storage = &fs;
+        h.streamReader = &streamReader;
         h.midi = &midi;
         h.input = &input;
         h.leds = &leds;

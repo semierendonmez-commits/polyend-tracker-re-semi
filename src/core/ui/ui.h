@@ -195,7 +195,6 @@ private:
     int kind_ = 0;
     int count_ = 0;
     int cursor_ = 0;
-    bool selAll_ = false;    // the whole name is selected (just opened)
     char title_[32] = {};
     ItemFn fn_ = nullptr;
     void* ctx_ = nullptr;
@@ -339,13 +338,24 @@ public:
     void ask(const char* title, const char* text, const char* l5, const char* l6, const char* l7, AskFn fn,
              void* ctx);
     bool askOpen() const { return askOpen_; }
+    const char* askText() const { return askText_; }   // tests
     // [I] Live resampling: arm / stop / cancel with a notice (Shift + Sample
     // Recorder anywhere, Record on the Resample screen).
     void resampleKey();
     void closeAsk() { askOpen_ = false; dirty(); }
     // Blocking-operation progress: draws a frame immediately.
     void progress(const char* title, int percent);
-    void progressDone() { progressOpen_ = false; dirty(); }
+    void progressDone() {
+        progressOpen_ = false;
+        progCancel_ = nullptr;
+        dirty();
+    }
+    // The open progress popup can be cancelled with Delete (SD streaming
+    // C14 import): fn(ctx) runs on the press. Cleared by progressDone().
+    void progressCancel(void (*fn)(void*), void* ctx) {
+        progCancel_ = fn;
+        progCancelCtx_ = ctx;
+    }
     // Background-operation progress (spec 05 §1.3 progress popup): updates
     // the popup without drawing; the main loop redraws it.
     void setProgress(const char* title, int percent);
@@ -402,12 +412,13 @@ public:
     // press until its release (the board powers off after a 1.5 s hold).
     bool powerPopupOpen() const { return powerOpen_; }
     // Power-off hold (spec 05 §1.5 state 5): the board powers off after
-    // 1500 ms (0x14984); the "Shutting down" popup shows the elapsed part of
-    // the hold as a progress bar, 0..100 % (0x149c0), redrawn every >= 30 ms.
+    // 1500 ms (0x14984); the "Shutting down" popup shows the remaining part
+    // of the hold as a progress bar, 100..0 % (the bar shrinks as on stock),
+    // redrawn every >= 30 ms.
     static constexpr uint32_t kPowerHoldMs = 1500;
     static constexpr uint32_t kPowerRedrawMs = 30;
     static int powerPercent(uint32_t elapsedMs) {
-        return elapsedMs >= kPowerHoldMs ? 100 : int(elapsedMs * 100u / kPowerHoldMs);
+        return elapsedMs >= kPowerHoldMs ? 0 : 100 - int(elapsedMs * 100u / kPowerHoldMs);
     }
     int powerPopupPercent() const { return powerOpen_ ? powerPercent(now_ - powerAt_) : 0; }
     // `/.develop` existed on the card at boot (spec 06 §7.2).
@@ -485,6 +496,7 @@ public:
     FragmentCache fragments;
 
 private:
+    void pollPendingFrame(uint32_t now);
     void dispatchButton(uint8_t id, uint8_t state);
     uint8_t resampleShown_ = 0;   // [I] resample state last noticed (Ui::update)
     void updateLeds();
@@ -526,6 +538,10 @@ private:
     uint32_t animAt_ = 0;   // OT fork: last animated-theme tick
     uint32_t lastRender_ = 0;
     bool dirty_ = true;
+    // List marquee (wg::marqueeRunning): the last frame scrolled a selected
+    // list item; the next frame is due wg::kMarqueeTickMs after it.
+    bool marqueeOn_ = false;
+    uint32_t marqueeAt_ = 0;
     bool stripUnder_ = false;             // this frame drew the bottom strip under the screen
     uint32_t stripUnderC_ = 0;            // its fill colour
     bool titleDrawn_ = false;             // this frame drew a title bar (hairline pending)
@@ -545,6 +561,8 @@ private:
     uint32_t hwFaultsSeen_ = 0, hwFaultFrames_ = 0, hwMeasSeen_ = 0, prevWords_ = 0;
     uint32_t scaleGen_ = 0, frameGen_ = 0;   // screen the scale / last frame belong to
     uint8_t dlScale_ = 64;                   // per screen: reset when it changes
+    static constexpr uint8_t kDlScaleMax = 128;   // 2.0: the tightest guard
+    bool faultLogged_ = false;               // this screen's fault is in the log
     uint32_t maxWords_ = 0, overBudget_ = 0, lowDetailFrames_ = 0, statOver0_ = 0, statLow0_ = 0;
     uint32_t overLogged_ = 0;             // modules whose first overflow was logged
     uint32_t dlFrameLimit_ = kDlFrameWords;
@@ -575,6 +593,8 @@ private:
 
     bool progressOpen_ = false;
     char progTitle_[40] = {};
+    void (*progCancel_)(void*) = nullptr;
+    void* progCancelCtx_ = nullptr;
     int progPct_ = 0;
     uint32_t bootDrawnAt_ = 0;            // boot splash frames (no screen yet)
     bool bootDrawn_ = false;

@@ -1,5 +1,6 @@
 // Pattern play-mode step tables C1..C20 (spec 12 §D, [BIN:0x9fdf0]).
 // Generated from the spec 12 §D listing; entry = {stepByte (1-based, 0 = step 1), rollSel}.
+#include "sdram_bss.h"
 #include "sequencer/seq_playmodes.h"
 
 namespace ot {
@@ -209,13 +210,17 @@ const uint8_t kPlayModeTables[kPlayModeTableCount][kPlayModeTableLen][2] = {
     },
 };
 // OT fork: BBCut tables (straight playback until the app builds them).
-uint8_t gBBPlayTables[kBBModeCount][kPlayModeTableLen][3];
+// The step tables live in the SDRAM (.sdram_bss, zeroed at boot, built by the
+// main loop): the sequencer reads one entry per track step, a handful of
+// uncached reads per block, while the SRAM keeps the stack headroom 2.2.3's
+// SD streaming needs.
+OT_SDRAM_BSS uint8_t gBBPlayTables[kBBModeCount][kPlayModeTableLen][3];
 bool gBBPlayTablesReady = false;
 volatile uint32_t gTiltSeed = 0x1F123BB5u;
 volatile uint8_t gBBRollMode = 0;
-uint8_t gGenoTables[16][kPlayModeTableLen];
+OT_SDRAM_BSS uint8_t gGenoTables[16][kPlayModeTableLen];
 volatile bool gGenoReady[16] = {};
-int8_t gModeXpose[16][kPlayModeTableLen];
+OT_SDRAM_BSS int8_t gModeXpose[16][kPlayModeTableLen];
 
 namespace {
 uint32_t hash32(uint32_t x) {

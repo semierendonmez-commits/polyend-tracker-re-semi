@@ -109,6 +109,22 @@ struct Config {
     static constexpr uint8_t kDelayModels = 3;    // Stock, Tape, Lo-fi (fork)
     static constexpr uint8_t kDefaultSynthVoices = 4;
     static constexpr uint8_t kMaxSynthVoices = 8;
+    // 2.x SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md §2.6): Config > General
+    // "Stream from card" Off / Auto / All and its threshold. Extension record
+    // bytes 3 and 4.
+    uint8_t streamMode = 0;        // 0 Off, 1 Auto, 2 All
+    uint8_t streamThreshold = 1;   // index into kStreamThresholdSec {5, 10, 20, 30} s (default 10 s)
+    // [I] 2.x Config > General "Export sample rate": 1 = 44.1 kHz (the render
+    // converted, 44100 in the header; default), 0 = the device rate with
+    // 44117 in the header, as stock (spec 04 §6.1). Extension record byte 6.
+    uint8_t exportRate = 1;
+    // [I] 2.x theme files (ui/theme_file.h): basename of the chosen
+    // Themes/<name>.txt, empty = a stock theme. While it is set, `theme`
+    // holds the file's base. Extension record bytes 7..27 (record v5).
+    char themeFile[21] = {};
+    // Extension record byte 5: an option of later 2.x builds this one does
+    // not know yet; read and written back unchanged (its default).
+    uint8_t extKeep[1] = {0};
 
     // --- the stock config image --------------------------------------------
     static constexpr uint32_t kImageSize = 0xF4;   // spec 05 §5.4 version word 0xf4
@@ -128,11 +144,24 @@ struct Config {
     // ignores it: "OTX" magic, version, payload length, payload, 8-bit sum of
     // the payload. A missing or bad record leaves the defaults.
     static constexpr uint32_t kExtOffset = kImageSize;
-    static constexpr uint8_t kExtVersion = 1;
-    static constexpr uint32_t kExtPayload = 24;   // cpuMeter .. scaleLock (8), screenSaver .. delayModel (4), dynamics (5), 7 reserved
+    // Record v6 (semi fork): the upstream v5 payload first, unchanged, so an
+    // upstream image reads its own fields from it -- cpuMeter, synthVoices,
+    // streamMode, streamThreshold, extKeep[1], exportRate, themeFile[21] --
+    // then the fork's 22 bytes (kForkExtOffset): sliceDetector, uiTheme,
+    // bbReseed, sliceThru, uiFont, scaleLock, screenSaver, levelMeter,
+    // reverbModel, delayModel, satDrive, satMixInv, satToneInv, limCeiling,
+    // limLink, satColor, 6 reserved. The semi fork's older record (v1 with a
+    // 24-byte payload) had the fork bytes at payload offset 2: still read.
+    static constexpr uint8_t kExtVersion = 6;
+    static constexpr uint32_t kUpstreamExtPayload = 6 + 21;
+    static constexpr uint32_t kForkExtBytes = 22;
+    static constexpr uint32_t kExtPayload = kUpstreamExtPayload + kForkExtBytes;
+    // Where the semi.1..semi.6 scenes record sat (after the 24-byte v1 record).
+    static constexpr uint32_t kOldScenesOffset = kImageSize + 5 + 24 + 1;
     static constexpr uint32_t kExtSize = 5 + kExtPayload + 1;
     void toExt(uint8_t* out) const;                          // kExtSize bytes
     bool fromExt(const uint8_t* in, uint32_t len);           // false: none / bad (fields unchanged)
+    void forkFromExt(const uint8_t* f, uint32_t n);          // OT fork bytes of the record
 
     // --- OT fork Perform scenes (SETBOOK), record "OTS" after the extension
     // record: 8 scenes of the 12 Perform columns (type, row, value) and the

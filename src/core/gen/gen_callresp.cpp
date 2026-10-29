@@ -641,7 +641,7 @@ int noteToDegree(int note, int root, const uint8_t* deg, int n) {
 void toMono(const CStep* ph, int n, int root, const uint8_t* deg, int nd, MonoStep* out, int octShift = 0) {
     for (int i = 0; i < n; ++i) {
         out[i].active = ph[i].active;
-        out[i].note = degreeNote(root, deg, nd, ph[i].degree + octShift * nd);
+        out[i].note = int16_t(degreeNote(root, deg, nd, ph[i].degree + octShift * nd));
         out[i].accent = ph[i].accent;
         out[i].slide = ph[i].slide && i + 1 < n && ph[i + 1].active;
         out[i].gate = ph[i].tie ? 1.1f : ph[i].gate;

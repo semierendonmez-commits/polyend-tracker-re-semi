@@ -67,7 +67,6 @@ struct State {
     int16_t grX = 0, grY = 0, grD = 0;
     int16_t loopLock[kTrackCount] = {};
     // M / TM / R play modes: per-track state kept across loops.
-    uint8_t mbSrc[kTrackCount][seq::kPlayModeTableLen] = {};
     bool mbValid[kTrackCount] = {};
     uint16_t tmReg[kTrackCount] = {};
     int8_t rlDeg[kTrackCount][seq::kPlayModeTableLen] = {};
@@ -151,12 +150,15 @@ void buildMarbles(App& a, State& st, int t, int level) {
     int nn = 0;
     for (int j = 0; j < len; ++j)
         if (tr.steps[j].note >= 0) notes[nn++] = uint8_t(j);
+    // The track's table itself holds each position's source step (kept across
+    // loops; a length change pulls stale sources back in range).
+    uint8_t* src = seq::gGenoTables[t];
     for (int k = 0; k < len && k < seq::kPlayModeTableLen; ++k) {
-        if (!st.mbValid[t]) st.mbSrc[t][k] = uint8_t(k);
-        else if (!rng.coin(lock)) st.mbSrc[t][k] = nn && rng.coin(0.75f) ? notes[rng.below(nn)] : uint8_t(rng.below(len));
+        if (!st.mbValid[t] || src[k] >= len) src[k] = uint8_t(k);
+        else if (!rng.coin(lock)) src[k] = nn && rng.coin(0.75f) ? notes[rng.below(nn)] : uint8_t(rng.below(len));
     }
     st.mbValid[t] = true;
-    for (int k = 0; k < seq::kPlayModeTableLen; ++k) seq::gGenoTables[t][k] = st.mbSrc[t][k % len];
+    for (int k = len; k < seq::kPlayModeTableLen; ++k) src[k] = src[k % len];
     seq::gGenoReady[t] = true;
 }
 

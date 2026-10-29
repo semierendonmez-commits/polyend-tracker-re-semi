@@ -175,6 +175,36 @@ TEST(record_edits_apply_live) {
     (void)s;
 }
 
+TEST(macro_edit_takes_over_from_fx_override) {
+    // User report: after an FX CC a set M1 during playback, M1 stayed yellow
+    // and turning it did nothing until Stop. A hand edit (encoder, Up/Down,
+    // Delete) now releases that macro's override.
+    Harness h;
+    App& a = *h.app;
+    openSlot(h, 1);
+    h.tap(btn::InstrParams);   // Synth Macros 2/2
+    audio::SynthBank& bank = a.engine.synth();
+    const uint8_t page0 = a.synthSlot(1).macros[0];
+    bank.macroFx(1, 0, 100);
+    bank.macroFx(1, 1, 100);
+    CHECK(bank.slotView(1).overridden[0]);
+    h.tap(btn::F1);
+    h.enc(3);
+    CHECK_EQ(int(a.synthSlot(1).macros[0]), int(page0) + 3);
+    CHECK(!bank.slotView(1).overridden[0]);
+    CHECK_EQ(int(bank.slotView(1).macro[0]), int(page0) + 3);
+    CHECK(bank.slotView(1).overridden[1]);   // only the edited macro
+    bank.auditionOn(1, 60);
+    h.audio.pump(1);
+    bank.auditionOff();
+    h.audio.pump(1);
+    CHECK(!bank.slotView(1).overridden[0]);
+    // Delete on an overridden macro: back to its default, override gone.
+    h.tap(btn::F2);
+    h.tap(btn::Delete);
+    CHECK(!bank.slotView(1).overridden[1]);
+}
+
 TEST(model_change_loads_init) {
     Harness h;
     App& a = *h.app;
@@ -1476,4 +1506,74 @@ TEST(wtfm_ratio_shows_its_value) {
     // FM 0..10 reads 0..1000 %.
     synthui::formatValue(kSynthEngineWtfm, 11, 10.0f, t, sizeof t);
     CHECK_STR(t, "1000 %");
+}
+
+// Stereo S3: Width is the last row of the Voice section (ACD, FAT, VAP, WTFM),
+// FAT Stereo the last row of FAT's Osc section. The rows edit, show and reset
+// like any other; macros cannot target them; PERC has neither.
+TEST(width_and_stereo_rows) {
+    Harness h;
+    App& a = *h.app;
+    SynthScreen& s = synth(a);
+    for (SynthModel m : {SynthModel::ACD, SynthModel::FAT, SynthModel::VAP, SynthModel::WTFM}) {
+        openSlot(h, 1, m);
+        const int32_t eng = synthEngineId(m);
+        const int wi = audio::synthWidthParam(eng);
+        const synthui::Section* sec = nullptr;
+        const int n = synthui::sections(eng, &sec);
+        int voice = -1;
+        for (int i = 0; i < n; ++i)
+            if (sec[i].macro < 0 && std::strcmp(sec[i].name, "Voice") == 0) voice = i;
+        CHECK(voice >= 0);
+        if (voice < 0) continue;
+        CHECK_EQ(int(sec[voice].params[sec[voice].count - 1]), wi);
+        h.tap(btn::F8);   // Edit view
+        s.section = voice;
+        s.row = sec[voice].count - 1;
+        CHECK(frameHas(h, "Width"));
+        CHECK(frameHas(h, "0 %"));
+        h.enc(25);
+        CHECK(audio::synthParamGet(a.synthPatch(1), wi) > 0.2f);
+        CHECK(a.synthPatchDirty(1));
+        h.tap(btn::Delete);   // back to the Init value: absent (mono)
+        CHECK(audio::synthParamGet(a.synthPatch(1), wi) == 0.0f);
+        CHECK(!(wi - audio::synthParamCount(eng) < a.synthPatch(1).extCount &&
+                a.synthPatch(1).ext[wi - audio::synthParamCount(eng)].present));
+        // Macro target list: Mini parameters only.
+        for (int k = 1; k < synthui::targetChoices(eng); ++k)
+            CHECK(synthui::targetChoice(eng, k) < audio::synthParamCount(eng));
+        CHECK_EQ(synthui::targetChoiceIndex(eng, wi), 0);
+    }
+    // FAT Stereo: last row of Osc.
+    openSlot(h, 1, SynthModel::FAT);
+    const synthui::Section* sec = nullptr;
+    const int n = synthui::sections(kSynthEngineFat, &sec);
+    CHECK(n > 0 && std::strcmp(sec[0].name, "Osc") == 0);
+    CHECK_EQ(int(sec[0].params[sec[0].count - 1]), audio::synthFatStereoParam());
+    char label[32];
+    synthui::paramFullName(kSynthEngineFat, audio::synthFatStereoParam(), label, sizeof label);
+    CHECK_STR(label, "Osc Stereo");
+    // PERC: no Width row anywhere.
+    const int np = synthui::sections(kSynthEnginePerc, &sec);
+    for (int i = 0; i < np; ++i)
+        for (int r = 0; r < sec[i].count; ++r) CHECK(sec[i].params[r] < audio::synthParamCount(kSynthEnginePerc));
+}
+
+// A macro name with a control byte (a device report: "Cutoff\r" from a patch
+// made elsewhere drew "Cutoff" with a stray glyph) is shown without it; the
+// patch keeps its bytes.
+TEST(macro_names_hide_control_bytes) {
+    Harness h;
+    App& a = *h.app;
+    openSlot(h, 1);
+    PatchMacro& m = a.synthPatch(1).macros[0];
+    std::snprintf(m.name, sizeof(m.name), "Cutoff\r");
+    m.nameLen = 7;
+    h.tap(btn::InstrParams);   // Synth Macros 2/2
+    CHECK(frameHas(h, "Cutoff"));
+    CHECK(frameHas(h, "M1 Cutoff"));
+    bool raw = false;
+    for (const std::string& l : h.disp.last) raw |= l.find('\r') != std::string::npos;
+    CHECK(!raw);
+    CHECK_EQ(int(a.synthPatch(1).macros[0].nameLen), 7);   // stored as read
 }

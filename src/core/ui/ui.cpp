@@ -580,8 +580,7 @@ bool Ui::encoderOnList() const {
 }
 #endif
 
-// OT fork: a fork palette (uiTheme 3+) wins over the stock theme byte.
-const Theme& Ui::th() const { return theme(app.cfg.uiTheme >= kThemeCount ? app.cfg.uiTheme : app.cfg.theme); }
+const Theme& Ui::th() const { return app.activeTheme(); }
 
 void Ui::start() {
     if (!screenOwner_) screenOwner_ = createScreens(*this, app, screens_);
@@ -634,6 +633,19 @@ void Ui::setUsbStorageMode(bool on) {
 }
 
 void Ui::switchTo(int module, int opt) {
+    // [I] Issue #52 (stock 1.9.2, checked on a Tracker): from the Pattern
+    // screen with Rec off, Instrument Params, Sample Playback and Sample
+    // Editor open the instrument of the step under the cursor and make it the
+    // current instrument. A step without a note (empty, OFF, CUT, FADE) keeps
+    // the current one.
+    if (active_ == kModPattern && !app.editMode &&
+        (module == kModInstrument || module == kModPlayback || module == kModEditor)) {
+        if (const auto* p = static_cast<const PatternScreen*>(screen(kModPattern))) {
+            const Step& st = app.pattern().tracks[p->track < 0 ? 0 : (p->track >= kTrackCount ? kTrackCount - 1 : p->track)]
+                                 .steps[p->step < 0 ? 0 : (p->step >= kStepCount ? kStepCount - 1 : p->step)];
+            if (st.note >= 0) app.setCurrentInstrument(st.instrument);
+        }
+    }
     // 2.x: Instrument Params on a synth step / synth instrument opens the
     // synth slot page (Tracker Mini manual p.146).
     if (module == kModInstrument) {
@@ -858,6 +870,12 @@ void Ui::handle(const InputEvent& ev, uint32_t now) {
 
 void Ui::dispatchButton(uint8_t id, uint8_t state) {
     Screen* s = current();
+    if (progressOpen_ && progCancel_ && id == btn::Delete && state == kPress) {
+        void (*fn)(void*) = progCancel_;
+        progCancel_ = nullptr;
+        fn(progCancelCtx_);
+        return;
+    }
     if (!s || progressOpen_) return;
     // Up / Down while Master is held act on its hold state like the Jog
     // (manual p.16; MANUAL_AUDIT_2026-10-23 #3).
@@ -874,7 +892,11 @@ void Ui::dispatchButton(uint8_t id, uint8_t state) {
         if (state == kPress && shift()) {
             render();   // the shown frame is current
             char p[48];
-            notify(app.screenshot(p, sizeof(p)) ? p : "Screenshot failed");
+            const bool shot = app.screenshot(p, sizeof(p));
+            // The capture blocks for ~2.6 s on the device: start the notice
+            // time after it, not at the key press, or it expires unseen.
+            now_ = app.millis();
+            notify(shot ? p : "Screenshot failed");
         } else if (state == kPress) {
             // spec 05 §1.5 state 5: popup at the press; the board powers off
             // after the 1.5 s hold, a release before that cancels it.
@@ -1056,7 +1078,7 @@ void Ui::update(uint32_t now) {
     }
 #endif
     // OT fork: animated themes move their colours ~8 times a second.
-    if (themeAnimated(app.cfg.uiTheme) && now - animAt_ >= themeTickMs(app.cfg.uiTheme)) {
+    if (!app.customThemeActive() && themeAnimated(app.cfg.uiTheme) && now - animAt_ >= themeTickMs(app.cfg.uiTheme)) {
         animAt_ = now;
         themeTick(app.cfg.uiTheme, now);
         dirty();
@@ -1114,6 +1136,9 @@ void Ui::update(uint32_t now) {
         powerDrawn_ = now;
         dirty();
     }
+    // List marquee (spec 20 §1.6): redraw one tick later while a selected
+    // item wider than its column scrolls.
+    if (marqueeOn_ && now - marqueeAt_ >= wg::kMarqueeTickMs) dirty();
     if (usb.active() && !factory.active()) {
         // The storage page covers the screen and the CPU cell: only its own
         // state (the computer's view of the drive) redraws it.
@@ -1169,8 +1194,32 @@ void Ui::dirty() {
     dirtyAtUs_ = app.micros();
 }
 
+// A frame is out and nothing is dirty: keep polling the display (at most
+// once per kReadyPollMs) until it reports the frame's outcome. A fault is
+// only found by that poll; without it a static screen never redraws the
+// lost frame and the display looks frozen (#71: the MIDI instrument page).
+// The fault itself is handled by render() (low detail, tighter guard).
+// Once this screen is already in low detail at the tightest guard, a fault
+// is not redrawn: the estimate is off by more than kDlScaleMax allows and
+// every redraw would fault again. The next real change redraws.
+void Ui::pollPendingFrame(uint32_t now) {
+    if (!display_->framePending()) return;
+    if (readyRetry_ && int32_t(now - readyRetryAt_) < 0) return;
+    const bool ready = display_->frameReady();
+    readyRetry_ = !ready;
+    readyRetryAt_ = now + kReadyPollMs;
+    if (display_->frameFaultCount() == hwFaultsSeen_) return;
+    const bool exhausted = scaleGen_ == gen_ && dlScale_ >= kDlScaleMax && lowDetail_ &&
+                           lowDetailGen_ == gen_ && lowDetailOverlays_ == overlayBits();
+    if (!exhausted) dirty();
+}
+
 bool Ui::renderIfDirty(uint32_t now) {
-    if (!dirty_ || !display_) return false;
+    if (!display_) return false;
+    if (!dirty_) {
+        pollPendingFrame(now);
+        return false;
+    }
     if (now - lastRender_ < kMinFrameMs && frames_ > 0) return false;
     // Non-blocking swap: while the previous frame is still being consumed or
     // swapped in, try again on the next main-loop pass instead of spinning.
@@ -1271,6 +1320,7 @@ void Ui::render() {
     if (scaleGen_ != gen_) {
         scaleGen_ = gen_;
         dlScale_ = 64;
+        faultLogged_ = false;
     }
     const uint32_t hwFaults = display_->frameFaultCount();
     if (hwFaults != hwFaultsSeen_) {
@@ -1279,8 +1329,13 @@ void Ui::render() {
         lowDetail_ = true;
         lowDetailGen_ = gen_;
         lowDetailOverlays_ = ov;
-        dlScale_ = uint8_t(dlScale_ + 8 > 128 ? 128 : dlScale_ + 8);
-        if (platform.dlOverflow) platform.dlOverflow(current() ? current()->name() : "-", lastWords_, 0, true);
+        dlScale_ = uint8_t(dlScale_ + 8 > kDlScaleMax ? kDlScaleMax : dlScale_ + 8);
+        // One log entry per screen: a screen that keeps faulting must not
+        // fill the diagnostic log.
+        if (!faultLogged_ && platform.dlOverflow) {
+            faultLogged_ = true;
+            platform.dlOverflow(current() ? current()->name() : "-", lastWords_, 0, true);
+        }
     }
     const uint32_t meas = display_->measuredDlBytes();
     if (meas != hwMeasSeen_) {
@@ -1291,11 +1346,13 @@ void Ui::render() {
         const uint32_t d = lastWords_ > prevWords_ ? lastWords_ - prevWords_ : prevWords_ - lastWords_;
         if (lastWords_ >= 400 && d * 16 <= lastWords_ && mw > lastWords_) {
             const uint32_t sc = mw * 64 / lastWords_;
-            if (sc > dlScale_) dlScale_ = uint8_t(sc > 128 ? 128 : sc);
+            if (sc > dlScale_) dlScale_ = uint8_t(sc > kDlScaleMax ? kDlScaleMax : sc);
         }
     }
     g.setWordLimit(dlFrameLimit_ ? uint32_t(uint64_t(dlFrameLimit_) * 64 / dlScale_) : 0);
     g.setLowDetail(lowDetail_);
+    marqueeAt_ = app.millis();
+    wg::marqueeFrame(marqueeAt_);
     g.beginFrame(t.bg);
     Screen* s = current();
     if (factory.active()) s = nullptr;
@@ -1376,8 +1433,9 @@ void Ui::render() {
     usb.draw(g, t);   // full screen over the module and its popups
     if (askOpen_ && !usb.active()) wg::messagePopup(g, t, askTitle_, askText_, 150, 150);
     if (progressOpen_) wg::progressPopup(g, t, progTitle_, progPct_);
-    // "Shutting down" (stock string, STRINGS_DIFF) with the hold progress;
-    // the stock progress-popup style (spec 20 §3.7) [I: no stock shot].
+    // "Shutting down" (stock string, STRINGS_DIFF) with the remaining hold;
+    // the stock progress-popup style (spec 20 §3.7). The bar shrinks as on
+    // stock (device check).
     if (powerOpen_) wg::progressPopup(g, t, "Shutting down", powerPopupPercent());
     if (app.cfg.levelMeter && titleDrawn_ && !usbPage && !factory.active() && !kb.isOpen()) {
         // OT fork: master level meter in the title bar, L over R.
@@ -1404,6 +1462,7 @@ void Ui::render() {
 }
 
 void Ui::finishFrame(Gfx& g, const char* screenName) {
+    marqueeOn_ = wg::marqueeRunning();
     // RAM_DL words including appended fragments; the command-FIFO upload.
     prevWords_ = frameGen_ == gen_ ? lastWords_ : 0;   // pairs only frames of one screen
     frameGen_ = gen_;

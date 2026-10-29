@@ -1,13 +1,13 @@
-# OpenTracker, semi fork (2.2.1-semi)
+# OpenTracker, semi fork (2.2.3-semi)
 
 A fork of [sandlbn/polyend-tracker-re](https://github.com/sandlbn/polyend-tracker-re)
-(OpenTracker 2.2.1) for the original Polyend Tracker, with generators and tools
+(OpenTracker 2.2.3, merged from 2.2.1) for the original Polyend Tracker, with generators and tools
 from the semi plug-in family (Acid, Call & Response, Breakbeat / BBCut,
 TURNAROUND, GENOTYPE / TILT, TRANSCODE / FRAMELOSS, CIPHER, NEXUSCLIP, DATASCREEN).
 
-Image: `PolyendTrackerOTs221.ptf` (24 characters, installs like the upstream
+Image: `PolyendTrackerOTs223.ptf` (24 characters, installs like the upstream
 image: copy to `/Firmware`, Config > Firmware update). Keep the stock
-`PolyendTracker_1.9.2.ptf` (and the upstream `PolyendTrackerOTv221.ptf`) in
+`PolyendTracker_1.9.2.ptf` (and the upstream `PolyendTrackerOTv223.ptf`) in
 `/Firmware` to go back.
 
 Everything a generator writes is ordinary steps and step FX, so a pattern made
@@ -342,7 +342,9 @@ effect's random parts are seeded the same for both channels of a stereo sample.
 
 ## Config
 
-- **General > Display theme**: 29 themes. Original, Monochrome, Anniversary,
+- **General > Display theme**: 29 built-in themes, then the theme files of the
+  card's `Themes` folder (2.2.3; **Export theme** saves the current one, a fork
+  palette too, as a file to edit). Original, Monochrome, Anniversary,
   then Early Cyber, Corporate, Amber CRT, Green Phosphor, Thermal, Workstation,
   Datamatic, Dubplate, Rave Flyer, Jungle, Ice, Sunset, Teletext, Vaporwave,
   Blueprint, Game Boy, Sepia, Hi Contrast, and two animated ones: **Cyber Pulse**
@@ -399,10 +401,10 @@ shown, and they share the whole screen.
 ## Building and checks
 
 The fork builds **without Games by default** (`OT_GAMES ?= 0`). Its flash
-budget is **800,000 B** (`tools/telemetry_check.py`; upstream 720,000). The
+budget is **860,000 B** (`tools/telemetry_check.py`; upstream 720,000). The
 hard limit is the stock 1.9.2 image extent, 0xD6460 = 877,664 B, which
 `tools/check_image.py` checks on every build: nothing may be written past it.
-The image is about 746 KB.
+The image is about 840 KB (2.2.3 alone is about 684 KB).
 
 ```
 make                                    # build/nogames/PolyendTrackerOTs221.ptf (VERSION 2.2.1)

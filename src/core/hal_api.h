@@ -194,6 +194,11 @@ public:
     // frame really used. 0 where unknown (host displays).
     virtual uint32_t frameFaultCount() const { return 0; }
     virtual uint32_t measuredDlBytes() const { return 0; }
+    // A swapped frame whose outcome frameReady() has not seen yet (FT81x:
+    // drawn or faulted). The UI keeps polling frameReady() while this is
+    // true, also when nothing is dirty: a fault is only found by that poll,
+    // and a static screen would otherwise never redraw the lost frame.
+    virtual bool framePending() const { return false; }
 
     // --- cached display-list fragments (spec 05 §3.3 stock scheme) --------
     // The stock firmware keeps each control's display list in RAM_G and
@@ -363,6 +368,28 @@ public:
     virtual bool remove(const char* path) = 0;   // file or empty directory
     virtual bool rename(const char* from, const char* to) = 0;
     virtual int32_t listDir(const char* path, DirFn fn, void* ctx) = 0; // entry count, <0 error
+    // SD streaming C14: a file just opened for writing (still empty) is about
+    // to grow to `bytes`: lay it out contiguously when the card can (FatFs
+    // f_expand; the device allocates the run at once, the file is then
+    // `bytes` long and the writes overwrite it from the start), false when
+    // it cannot hold it. Default: accepted.
+    virtual bool reserve(Handle h, uint32_t bytes) {
+        (void)h;
+        (void)bytes;
+        return true;
+    }
+    // Cuts a file open for writing at its current position (a reserved
+    // file the writes did not fill). Default: nothing to cut.
+    virtual bool truncate(Handle h) {
+        (void)h;
+        return true;
+    }
+    // Free space of the card in bytes; UINT64_MAX when unknown.
+    virtual uint64_t freeBytes() { return UINT64_MAX; }
+    // Longest path (without a leading '/') the card storage takes; a longer
+    // one fails instead of being cut (a cut path names another file or the
+    // folder itself, issue #55).
+    static constexpr uint32_t kMaxPath = 257;
 };
 
 // ---------------------------------------------------------------------------

@@ -69,8 +69,9 @@ void PlaybackScreen::start(int opt) {
         const Instrument& in = a.instruments[ci];
         // Appendix B §1.2: another instrument (or play mode) since the last
         // visit resets zoom and selection; selection = Play Mode.
-        if (ci != lastInstr_ || in.playMode != lastMode_ || view.len != a.bank.frames(ci)) {
-            view.reset(a.bank.frames(ci));
+        // A streamed instrument: the whole length (the bank holds its head).
+        if (ci != lastInstr_ || in.playMode != lastMode_ || view.len != a.bank.fullFrames(ci)) {
+            view.reset(a.bank.fullFrames(ci));
             view.centre = isSlice(in.playMode) && in.sliceCount ? in.slices[in.selectedSlice] : in.startPoint;
             sel = 6;
             more = false;
@@ -143,6 +144,21 @@ uint16_t PlaybackScreen::granularShownPosition() const {
     return in.granularPosition;
 }
 
+void PlaybackScreen::grainSpan(uint16_t* first, uint16_t* last) const {
+    const App& a = app_;
+    const uint8_t ci = a.currentInstrument();
+    *first = *last = 0;
+    if (ci >= kSampleInstrumentCount) return;
+    const Instrument& in = a.instruments[ci];
+    const uint16_t pos = granularShownPosition();
+    // The engine's grain (issue #92: cut at the edges, the span was shorter
+    // than the play head's travel).
+    int32_t f = 0, l = 0;
+    audio::grainSpanPoints(a.bank.fullFrames(ci), in.grainLength, pos, &f, &l);
+    *first = uint16_t(f);
+    *last = uint16_t(l);
+}
+
 int PlaybackScreen::wavetablePositionX() const {
     const App& a = app_;
     const uint8_t ci = a.currentInstrument();
@@ -164,7 +180,7 @@ int PlaybackScreen::playheadX() const {
     if (headTrack_ < 0 || headTrack_ >= audio::kVoices || ci >= kSampleInstrumentCount) return -1;
     if (a.engine.voice(headTrack_).instrument() != &a.instruments[ci]) return -1;
     const int32_t p = a.engine.voicePlayhead(headTrack_);
-    const uint32_t len = a.bank.frames(ci);
+    const uint32_t len = a.bank.fullFrames(ci);   // a streamed voice plays the whole length
     if (p < 0 || len == 0) return -1;
     const uint32_t m = uint32_t(uint64_t(uint32_t(p) < len ? uint32_t(p) : len) * 65535u / len);
     float v0, v1;
@@ -189,7 +205,7 @@ void PlaybackScreen::sliceDone() {
 
 uint8_t PlaybackScreen::zeroMask() const {
     const uint8_t ci = app_.currentInstrument();
-    if (ci >= kSampleInstrumentCount) return 0;
+    if (ci >= kSampleInstrumentCount || app_.streamed(ci)) return 0;   // streamed: data not resident
     const Instrument& in = app_.instruments[ci];
     const int16_t* d = app_.bank.left(ci);
     const uint32_t len = app_.bank.frames(ci);
@@ -216,7 +232,9 @@ void PlaybackScreen::refreshBar() {
     const uint8_t ci = a.currentInstrument();
     if (ci >= kSampleInstrumentCount) return;
     const Instrument& in = a.instruments[ci];
-    const float secs = float(a.bank.frames(ci)) / 44100.0f;
+    // Streamed: the markers span the whole sample (the engine maps them
+    // against it), not the resident head.
+    const float secs = float(a.bank.fullFrames(ci)) / 44100.0f;
     char v[24];
     auto t = [&](uint16_t m, const char* fmt) {
         std::snprintf(v, sizeof(v), fmt, double(secs * float(m) / 65535.0f));
@@ -287,7 +305,7 @@ void PlaybackScreen::setMode(int m) {
     const uint8_t ci = a.currentInstrument();
     Instrument& in = a.instruments[ci];
     in.playMode = uint8_t(clampi(m, 0, 7));
-    const uint32_t len = a.bank.frames(ci);
+    const uint32_t len = a.bank.fullFrames(ci);
     // Appendix B §1.3 side effects.
     if (in.playMode == uint8_t(PlayMode::Wavetable)) {
         in.sampleType = 1;
@@ -413,14 +431,15 @@ void PlaybackScreen::change(int d) {
         // §1.11
         if (sel == 1) in.granularPosition = uint16_t(clampi(in.granularPosition + d * 65, 0, 65535));
         else if (sel == 2) {
-            const int mx = int(a.bank.frames(ci) < 44100 ? a.bank.frames(ci) : 44100);
+            const uint32_t len = a.bank.fullFrames(ci);
+            const int mx = int(len < 44100 ? len : 44100);
             in.grainLength = uint16_t(clampi(in.grainLength + d * 11, 44, mx > 44 ? mx : 44));
         } else if (sel == 3) in.grainShape = uint8_t(clampi(in.grainShape + (d > 0 ? 1 : -1), 0, 2));
         else if (sel == 4) in.granularLoop = uint8_t(clampi(in.granularLoop + (d > 0 ? 1 : -1), 0, 2));
         else return;
     } else {
         // §1.12 wavetable
-        const uint32_t len = a.bank.frames(ci);
+        const uint32_t len = a.bank.fullFrames(ci);
         if (sel == 1) {
             const uint32_t wins = in.wavetableWindowSize ? len / in.wavetableWindowSize : 0;
             in.wavetableCurrentWindow = uint32_t(clampi(int(in.wavetableCurrentWindow) + d, 0, wins ? int(wins) - 1 : 0));
@@ -497,6 +516,10 @@ void PlaybackScreen::slicesAuto() {
     // arm the detector; it fills positions and the count incrementally.
     const uint8_t ci = app_.currentInstrument();
     if (ci >= kSampleInstrumentCount) return;
+    if (app_.streamed(ci)) {
+        ui_.notify("Streamed sample: load it into memory for this play mode", 3000);
+        return;
+    }
     Instrument& in = app_.instruments[ci];
     slicer.cancel();
     std::memset(in.slices, 0, sizeof(in.slices));
@@ -762,7 +785,8 @@ void PlaybackScreen::draw(Gfx& g) {
     const Theme& th = ui_.th();
     const uint8_t ci = a.currentInstrument();
     char sub[48];
-    if (ci < kSampleInstrumentCount) std::snprintf(sub, sizeof(sub), "%d. %s", ci + 1, a.instruments[ci].name);
+    if (ci < kSampleInstrumentCount)
+        std::snprintf(sub, sizeof(sub), "%d. %s%s", ci + 1, a.instruments[ci].name, a.streamed(ci) ? " (SD)" : "");
     else if (isSynthInstrument(ci)) synthui::slotLabel(a, synthSlotOf(ci), sub, sizeof(sub));
     else std::snprintf(sub, sizeof(sub), "MIDI instrument");
     ui_.drawTitle(g, "Sample Playback", sub);
@@ -772,6 +796,12 @@ void PlaybackScreen::draw(Gfx& g) {
     float v0, v1;
     view.window(&v0, &v1);
     const int mode = in.playMode & 7;
+    // SD streaming: only the head is in memory, so no wave; a caption in its
+    // place. The markers stay, over the whole length.
+    const bool streamed = a.streamed(ci);
+    auto streamCaption = [&](int h) {
+        g.text(kWaveX + kWaveW / 2, kWaveY + h / 2, kFontText, th.dim, "Streams from the card", IDisplay::kOptCenter);
+    };
     if (mode == int(PlayMode::Wavetable) && in.wavetableWindowSize && in.wavetableWindowCount) {
         // One window as the graph, its position on a bar below (manual
         // p.130-131; spec 05 appB §1.4d; MANUAL_AUDIT_2026-10-23 #12).
@@ -783,7 +813,8 @@ void PlaybackScreen::draw(Gfx& g) {
         const uint32_t cnt = off + size <= len ? size : (len > off ? len - off : 0);
         const int graphH = kWaveH - 30;
         waveCentre(g, th, kWaveX, kWaveW, kWaveY + graphH / 2);
-        if (cnt) drawWaveData(g, th, a.bank.left(ci) + off, cnt, 0.0f, 1.0f, kWaveX, kWaveY, kWaveW, graphH, th.slot(slot::kWave));
+        if (streamed) streamCaption(graphH);
+        else if (cnt) drawWaveData(g, th, a.bank.left(ci) + off, cnt, 0.0f, 1.0f, kWaveX, kWaveY, kWaveW, graphH, th.slot(slot::kWave));
         const int by = kWaveY + kWaveH - 14;
         g.fill(kWaveX + 10, by, kWaveW - 20, 1, th.slot(slot::kWave));
         const int mx = wavetablePositionX();
@@ -808,7 +839,10 @@ void PlaybackScreen::draw(Gfx& g) {
     // 109 + 1 + 109 split; Tracker+ draws stereo samples the same way).
     const bool st = a.bank.stereo(ci);
     if (rb >= kWaveX && ra < kWaveX + kWaveW) waveRegion(g, th, clampX(ra), clampX(rb), kWaveY, kWaveH);
-    if (st) {
+    if (streamed) {
+        waveCentre(g, th, kWaveX, kWaveW, kWaveY + kWaveH / 2);
+        streamCaption(kWaveH);
+    } else if (st) {
         constexpr int kLaneH = (kWaveH - 1) / 2;
         waveCentre(g, th, kWaveX, kWaveW, kWaveY + kLaneH / 2);
         waveCentre(g, th, kWaveX, kWaveW, kWaveY + kLaneH + 1 + kLaneH / 2);
@@ -847,10 +881,10 @@ void PlaybackScreen::draw(Gfx& g) {
         // line; the play head is red (manual p.135-136, MANUAL_AUDIT #28).
         // The position follows the preview voice (LFO / envelope).
         const uint16_t pos = granularShownPosition();
-        const uint32_t len = a.bank.frames(ci);
-        const uint32_t half = len ? uint32_t(uint64_t(in.grainLength) * 65535u / len / 2) : 0;
-        const int xa = markerX(uint16_t(pos > half ? pos - half : 0), v0, v1);
-        const int xb = markerX(uint16_t(pos + half < 65535u ? pos + half : 65535u), v0, v1);
+        uint16_t ga = 0, gb = 0;
+        grainSpan(&ga, &gb);
+        const int xa = markerX(ga, v0, v1);
+        const int xb = markerX(gb, v0, v1);
         if (xb >= kWaveX && xa < kWaveX + kWaveW) {
             g.alpha(70);
             g.fill(clampX(xa), kWaveY, clampX(xb) - clampX(xa) + 1, kWaveH, kGrainColour);

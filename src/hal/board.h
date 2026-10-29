@@ -168,8 +168,11 @@ constexpr uint32_t kSdramSdScratch    = kSdramBase + 0x00060000;   // SD direct 
 // the selftest's SD benchmark buffer (selftest.cpp), which is safe because
 // the selftest only runs when the app never started or has returned
 // (main.cpp), never alongside it.
-constexpr uint32_t kSdramBssBase      = kSdramBase + 0x00FD9000;
-constexpr uint32_t kSdramBssSize      = 0x00027000;
+// semi fork (2.2.3 merge): 159 KB from 3 KB lower, right above the app's
+// layout (app_main.cpp asserts it ends below), for the fork's play-mode
+// tables next to 2.2.3's SDRAM screens.
+constexpr uint32_t kSdramBssBase      = kSdramBase + 0x00FD8400;
+constexpr uint32_t kSdramBssSize      = 0x00027C00;
 static_assert(kSdramBssBase + kSdramBssSize <= kSdramBase + kSdramSize, ".sdram_bss past the SDRAM's top");
 
 // ---- input (spec 01 §7) ---------------------------------------------------------

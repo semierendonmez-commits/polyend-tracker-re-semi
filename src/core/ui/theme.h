@@ -111,6 +111,9 @@ struct Theme {
     uint32_t cursorCellText() const { return slot(slot::kGridCursorText); }
     // Bottom-bar underlines and strip separators are drawn: yes / yes / no.
     bool barLines() const { return flag(slot::kFlagBarLines); }
+    // Dark strip variant (Part 2 C5): half the strip colour on a theme whose
+    // panels fade (Original: 0a0a0a -> 050505), else the strip colour itself.
+    uint32_t darkStrip() const;
 };
 
 // 0 = Original, 1 = Monochrome, 2 = Anniversary (config "Display theme").
@@ -129,6 +132,9 @@ bool themeAnimated(uint8_t index);
 void themeTick(uint8_t index, uint32_t ms);
 // Redraw interval of an animated theme (ms): faster for the beat / glitch ones.
 uint32_t themeTickMs(uint8_t index);
+// The named-role view of any slot table (2.x theme files, ui/theme_file.h).
+// The fields are copied: rebuild the view after the slots change.
+Theme themeView(const char* name, const uint32_t* slots);
 
 // Display font sets (config "Display font", spec 20 §2.1): 0 Original
 // (default), 1 New. The active set lives in gfx (setFontSet / fontSet).

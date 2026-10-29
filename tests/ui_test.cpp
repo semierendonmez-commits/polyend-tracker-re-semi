@@ -374,7 +374,7 @@ TEST(config_apply_and_firmware_update) {
     h.tap(btn::Down);
     CHECK(c.category == 1);
     h.tap(btn::Right);
-    for (int i = 0; i < 5; ++i) h.tap(btn::Down);
+    for (int i = 0; i < 6; ++i) h.tap(btn::Down);   // after 2.x Export theme
     h.tap(btn::F8);
     CHECK(c.editing);
     h.tap(btn::Up);   // pattern(2) -> track(1)
@@ -427,7 +427,7 @@ TEST(export_pattern_wav) {
         if (v > peak) peak = v;
     }
     CHECK(peak > 1000);
-    CHECK(info.sampleRate == 44117);   // spec 04 §6.1
+    CHECK(info.sampleRate == 44100);   // [I] resampled (stock 44117, spec 04 §6.1)
     CHECK(!a.rendering());
 }
 
@@ -505,7 +505,7 @@ TEST(export_pattern_stems) {
         const auto& w = h.fs.files[p];
         CHECK(wavParseHeader(w.data(), w.size(), info));
         CHECK(info.channels == 2);
-        CHECK(info.sampleRate == 44117);   // spec 04 §6.1 header
+        CHECK(info.sampleRate == 44100);   // [I] resampled (stock 44117, spec 04 §6.1)
         CHECK(info.dataSize / 4 > 44100 * 3);
     }
     auto peakOf = [&](const char* n) {
@@ -733,5 +733,25 @@ TEST(output_unmuted_only_after_the_startup_load) {
     CHECK(!h.audio.outputOn());   // audio running, output still muted
     h.app->boot();
     h.run(20);
-    CHECK(h.audio.outputOn());    // unmuted once loaded
+    CHECK(!h.audio.outputOn());   // #63: not yet, the output settles first
+    h.run(400);
+    CHECK(!h.audio.outputOn());
+    h.run(200);
+    CHECK(h.audio.outputOn());    // unmuted 500 ms after the load
+}
+
+TEST(output_stays_on_through_later_project_loads) {
+    // #63: a click when "Opening project" appears and another when it
+    // finishes. Stock mutes pin 21 around the export render (spec 04 §6.1),
+    // not around project loads; after the start-up unmute the line stays high.
+    Harness h;
+    h.run(600);
+    CHECK(h.audio.outputOn());
+    const size_t n = h.audio.outputLog.size();
+    h.app->autosave();
+    CHECK(h.app->startLoadWorkspace());   // a later load (Open goes the same way)
+    for (int i = 0; i < 400 && h.app->jobBusy(); ++i) h.run(10);
+    CHECK(!h.app->jobBusy());
+    CHECK_EQ(h.audio.outputLog.size(), n);   // the mute line never toggled
+    CHECK(h.audio.outputOn());
 }

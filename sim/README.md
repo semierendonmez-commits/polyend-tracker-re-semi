@@ -38,7 +38,9 @@ Options:
 | `--wav OUT.wav` | headless: record the rendered audio |
 | `--instant-display` | show every frame at once (also `OT_SIM_BUSY=0`). Default: FT81x frame pacing -- a frame is uploaded, then shown at the next 54 Hz vsync, `frameReady()` false meanwhile |
 
-The workspace is autosaved to the SD folder when the window closes.
+The workspace is autosaved to the SD folder when the window closes. Symlinks
+inside that folder are refused and omitted from file listings, so card paths
+cannot follow them into other host directories.
 
 ## Front panel and key map
 
@@ -142,6 +144,12 @@ expect-playing              fail unless the sequencer is playing
 expect-sound N              fail if the output peak since the last
                             expect-sound / sound-reset is below N (0..32767)
 sound-reset                 restart the output peak
+expect-notice TEXT          fail unless notice TEXT was shown since the last
+                            expect-open-ok (it no longer counts there)
+config stream all|auto|off  Config > Stream from card, applied like the Config
+                            screen (autosave, Workspace reload)
+expect-streams N            fail unless exactly N instruments stream from the card
+expect-underruns N          fail if the stream underruns (all voices) exceed N
 ```
 
 Button names: `F1`..`F8`, the panel labels or `INSTRPARAMS PERFORMANCE FILE

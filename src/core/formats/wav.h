@@ -82,6 +82,21 @@ uint32_t wavResampledFrames(uint32_t srcFrames, uint32_t srcRate);
 // Decode one sample to int16 (spec 02 §8.1 "Sample decoding").
 int16_t wavDecodeSample(const uint8_t* p, uint16_t format, uint16_t bits);
 
+// One output sample of the 4-point cubic between p1 (mu = 0) and p2 (mu = 1):
+// truncation toward zero, then clamp (spec 07 Q8). Shared by the WAV import
+// (CubicResampler) and the export rate conversion (AudioEngine::exportWav),
+// so both interpolate the same way.
+inline int16_t cubicS16(float p0, float p1, float p2, float p3, float mu) {
+    const float a0 = p3 - p2 - p0 + p1;
+    const float a1 = p0 - p1 - a0;
+    const float a2 = p2 - p0;
+    const float y = ((a0 * mu + a1) * mu + a2) * mu + p1;
+    int32_t v = int32_t(y);
+    if (v > 32767) v = 32767;
+    if (v < -32768) v = -32768;
+    return int16_t(v);
+}
+
 // Streaming 4-point cubic resampler to 44.1 kHz (spec 02 §8.1). Source
 // samples outside [0, srcFrames) read as zero. Writes outputFrames() samples
 // to dst over the life of one conversion. The position arithmetic is single
@@ -96,6 +111,11 @@ public:
     void pushBlock(const int16_t* s, uint32_t n);
     // Treat all remaining source samples as zero and emit the rest.
     void finish();
+    // Windowed output (SD streaming C14a): the next output goes to win[0]
+    // (output k to win[k - produced()]). finishSome() emits at most max of
+    // the remaining outputs and returns how many.
+    void rebase(int16_t* win);
+    uint32_t finishSome(uint32_t max);
     uint32_t outputFrames() const { return uint32_t(outTotal_); }
     uint32_t produced() const { return uint32_t(outNext_); }
 
@@ -115,6 +135,7 @@ private:
     float curMu_ = 0.0f;        // t - floor(t)
     uint64_t curNeed_ = 0;      // source samples needed (received_ > curNeed_)
     int16_t* dst_ = nullptr;
+    uint64_t dstBase_ = 0;      // output index of dst_[0]
 };
 
 struct WavImportOptions {
@@ -168,6 +189,43 @@ private:
     uint32_t written_ = 0;     // direct path: output frames filled so far
     bool direct_ = false;      // 44.1 kHz: decode without the resampler
     bool directRead_ = false;  // ... and the raw bytes are the output samples
+};
+
+// SD streaming C14a: the import of one output channel in bounded windows
+// (a file larger than the sample memory is converted onto the card): the
+// same decode and resampler arithmetic as WavImporter, so the samples equal
+// the in-memory import's channel `channel` byte for byte. Each full window
+// (and the rest at finish()) goes to sink(ctx, samples, n), n <= winFrames.
+// One pass per output channel: feed the whole data chunk again for channel 1.
+class WavChunkConverter {
+public:
+    using Sink = void (*)(void* ctx, const int16_t* s, uint32_t n);
+    FmtStatus begin(const WavInfo& info, const WavImportOptions& opt, int channel, int16_t* win, uint32_t winFrames);
+    void feed(const uint8_t* bytes, size_t n, Sink sink, void* ctx);
+    // Pads a short data chunk with silence up to outputFrames().
+    void finish(Sink sink, void* ctx);
+    const WavImportPlan& plan() const { return plan_; }
+    uint32_t outputFrames() const { return plan_.outFrames; }
+    uint32_t produced() const { return uint32_t(done_ + fill_); }
+
+private:
+    void frames(const uint8_t* f, uint64_t count, Sink sink, void* ctx);
+    void flush(Sink sink, void* ctx);
+
+    WavInfo info_;
+    WavImportPlan plan_;
+    CubicResampler rs_;
+    int16_t* win_ = nullptr;
+    uint32_t winFrames_ = 0;
+    uint32_t fill_ = 0;        // samples in the window (direct path) / since the last rebase
+    uint64_t done_ = 0;        // samples handed to the sink
+    uint32_t chOff_ = 0;       // byte offset of the channel inside a frame
+    uint32_t bpf_ = 0;
+    uint8_t carry_[8] = {};
+    uint32_t carryLen_ = 0;
+    uint64_t frameIdx_ = 0;
+    uint32_t maxIn_ = 0;       // source frames per push that cannot overflow the window
+    bool direct_ = false;
 };
 
 struct WavImportResult {

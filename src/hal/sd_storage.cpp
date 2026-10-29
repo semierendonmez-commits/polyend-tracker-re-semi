@@ -119,10 +119,13 @@ void detachLinkMap(int file) {
 char gPath[FF_MAX_LFN + 4];
 
 // IStorage paths are relative to the card root; FatFs wants "/..." (no drive prefix needed).
+// nullptr for a path longer than IStorage::kMaxPath: cutting it would name
+// another file, or the folder itself (issue #55).
+static_assert(sizeof(gPath) - 2 == IStorage::kMaxPath, "kMaxPath is the path buffer");
 const char* fix(const char* p) {
     const char* s = (p[0] == '/') ? p + 1 : p;
     size_t n = strlen(s);
-    if (n + 2 > sizeof(gPath)) n = sizeof(gPath) - 2;
+    if (n + 2 > sizeof(gPath)) return nullptr;
     gPath[0] = '/';
     memcpy(gPath + 1, s, n);
     gPath[n + 1] = 0;
@@ -286,7 +289,8 @@ IStorage::Handle SdStorage::open(const char* path, OpenMode mode) {
     case kReadWrite: m = FA_READ | FA_WRITE | FA_OPEN_ALWAYS; break;
     default: return -1;
     }
-    if (f_open(&fil(slot), fix(path), m) != FR_OK) return -1;
+    const char* fp = fix(path);
+    if (!fp || f_open(&fil(slot), fp, m) != FR_OK) return -1;
     gUsed[slot] = true;
     if (mode == kRead) attachLinkMap(slot); else gClmtOf[slot] = -1;
     return slot;
@@ -305,6 +309,40 @@ int32_t SdStorage::write(Handle h, const void* src, uint32_t len) {
     maybeCheckDirectWrite(src, len);
     UINT bw = 0;
     return f_write(f, src, len, &bw) == FR_OK ? int32_t(bw) : -1;
+}
+
+bool SdStorage::reserve(Handle h, uint32_t bytes) {
+    FIL* f = fileFor(h);
+    if (!f || !mounted_ || storageMode_) return false;
+    if (bytes == 0) return true;
+    // opt 1: the contiguous run is allocated now and the file is `bytes`
+    // long (the writes overwrite it from the start; truncate() cuts what
+    // they leave); f_sync puts the chain in the directory entry so the
+    // stream pre-check (fileExtents, its own FIL) maps it before the
+    // conversion. A cancelled import just removes the file. FR_DENIED: no
+    // contiguous run of that size, or the card is full.
+    const uint32_t t0 = micros();
+    const bool ok = f_expand(f, FSIZE_t(bytes), 1) == FR_OK && f_sync(f) == FR_OK;
+    diagLogf("sd: reserve %lu B %s in %lu us", static_cast<unsigned long>(bytes), ok ? "ok" : "refused",
+             static_cast<unsigned long>(micros() - t0));
+    return ok;
+}
+
+bool SdStorage::truncate(Handle h) {
+    FIL* f = fileFor(h);
+    return f && f_truncate(f) == FR_OK;
+}
+
+uint64_t SdStorage::freeBytes() {
+    if (!mounted_ || storageMode_) return 0;
+    DWORD clusters = 0;
+    FATFS* fs = nullptr;
+    // FF_FS_NOFSINFO: the first call after a mount scans the whole FAT.
+    const uint32_t t0 = micros();
+    if (f_getfree("", &clusters, &fs) != FR_OK || !fs) return UINT64_MAX;
+    const uint32_t us = micros() - t0;
+    if (us >= 10000) diagLogf("sd: free space scan in %lu us", static_cast<unsigned long>(us));
+    return uint64_t(clusters) * uint64_t(fs->csize) * 512u;
 }
 
 bool SdStorage::seek(Handle h, uint32_t pos) {
@@ -328,6 +366,7 @@ void SdStorage::close(Handle h) {
 bool SdStorage::exists(const char* path) {
     if (!mounted_) return false;
     const char* p = fix(path);
+    if (!p) return false;
     if (p[1] == 0) return true;   // root
     FILINFO fi;
     return f_stat(p, &fi) == FR_OK;
@@ -335,20 +374,27 @@ bool SdStorage::exists(const char* path) {
 
 bool SdStorage::mkdir(const char* path) {
     if (!mounted_) return false;
-    FRESULT r = f_mkdir(fix(path));
+    const char* p = fix(path);
+    if (!p) return false;
+    FRESULT r = f_mkdir(p);
     return r == FR_OK || r == FR_EXIST;
 }
 
 bool SdStorage::remove(const char* path) {
-    return mounted_ && f_unlink(fix(path)) == FR_OK;
+    if (!mounted_) return false;
+    const char* p = fix(path);
+    return p && f_unlink(p) == FR_OK;
 }
 
 bool SdStorage::rename(const char* from, const char* to) {
     if (!mounted_) return false;
     static char fromBuf[FF_MAX_LFN + 4];
-    strncpy(fromBuf, fix(from), sizeof(fromBuf) - 1);
+    const char* pf = fix(from);
+    if (!pf) return false;
+    strncpy(fromBuf, pf, sizeof(fromBuf) - 1);
     fromBuf[sizeof(fromBuf) - 1] = 0;
-    return f_rename(fromBuf, fix(to)) == FR_OK;
+    const char* pt = fix(to);
+    return pt && f_rename(fromBuf, pt) == FR_OK;
 }
 
 bool SdStorage::benchmark(uint8_t* buf, uint32_t bufLen, uint32_t totalBytes, Bench& r) {
@@ -526,7 +572,8 @@ bool SdStorage::streamProbe(uint8_t* buf, uint32_t bufLen, uint32_t fileBytes, P
 int32_t SdStorage::listDir(const char* path, DirFn fn, void* ctx) {
     if (!mounted_) return -1;
     DIR d;
-    if (f_opendir(&d, fix(path)) != FR_OK) return -1;
+    const char* p = fix(path);
+    if (!p || f_opendir(&d, p) != FR_OK) return -1;
     int32_t n = 0;
     FILINFO fi;
     while (f_readdir(&d, &fi) == FR_OK && fi.fname[0]) {
@@ -536,6 +583,44 @@ int32_t SdStorage::listDir(const char* path, DirFn fn, void* ctx) {
     }
     f_closedir(&d);
     return n;
+}
+
+bool SdStorage::fileExtents(const char* path, audio::StreamExtent* out, int cap, int* count, uint32_t* fileSize) {
+    if (!mounted_ || storageMode_ || !gFs.fs_type || cap <= 0) return false;
+    FIL f;
+    if (f_open(&f, path, FA_READ | FA_OPEN_EXISTING) != FR_OK) return false;
+    // CLMT: size, then (clusters, start) pairs; room for cap extents (FatFs
+    // pairs before merging can exceed the merged count: give it 2 x cap).
+    DWORD clmt[2 + 4 * audio::kStreamMaxExtents];
+    clmt[0] = DWORD(sizeof clmt / sizeof clmt[0]);
+    f.cltbl = clmt;
+    const bool mapped = f_lseek(&f, CREATE_LINKMAP) == FR_OK;
+    const uint32_t size = uint32_t(f_size(&f));
+    f.cltbl = nullptr;
+    f_close(&f);
+    if (!mapped) return false;
+    uint32_t c32[sizeof clmt / sizeof clmt[0]];
+    for (size_t i = 0; i < sizeof clmt / sizeof clmt[0]; ++i) c32[i] = uint32_t(clmt[i]);
+    const int n = audio::clmtToExtents(c32, uint32_t(gFs.database), uint32_t(gFs.csize), out, cap);
+    if (n <= 0) return false;
+    *count = n;
+    if (fileSize) *fileSize = size;
+    return true;
+}
+
+bool SdStorage::readSectors(uint32_t lba, uint8_t* dst, uint32_t count) {
+    if (!mounted_ || storageMode_) return false;
+    return sdhc::readBlocks(lba, dst, count);
+}
+
+bool SdStorage::readBytesAt(const char* path, uint32_t off, uint8_t* dst512) {
+    if (!mounted_ || storageMode_) return false;
+    FIL f;
+    if (f_open(&f, path, FA_READ | FA_OPEN_EXISTING) != FR_OK) return false;
+    UINT br = 0;
+    const bool ok = f_lseek(&f, off) == FR_OK && f_read(&f, dst512, 512, &br) == FR_OK && br == 512;
+    f_close(&f);
+    return ok;
 }
 
 }  // namespace hal

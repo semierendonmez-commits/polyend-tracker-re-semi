@@ -132,16 +132,19 @@ int degreeNote(int root, const uint8_t* deg, int n, int d);
 
 // One monophonic phrase step (Acid, Call & Response).
 struct MonoStep {
+    // 20 bytes: the live Acid slots keep 4 x 128 of them in the SDRAM. The
+    // Acid draws are 16-bit fractions (q / 65536 in [0, 1)).
+    float gate = 0.5f;             // fraction of a step; >= 1 sustains
+    int16_t note = 60;
+    uint16_t thr = 0;              // Acid: plays while thr < the density probability
+    uint16_t accThr = 65535, slideThr = 65535;   // Acid: accent / slide while below the amount (live Perform FX)
     bool active = false;
-    int note = 60;
     bool accent = false;
     bool slide = false;            // glide into the next note (legato)
-    float gate = 0.5f;             // fraction of a step; >= 1 sustains
-    float thr = 0;                 // Acid: plays while thr < the density probability
     bool slideWant = false;        // Acid: slides when the next step plays too
-    float accThr = 1, slideThr = 1;  // Acid: accent / slide while below the amount (live Perform FX)
     uint8_t rep = 255, pitch = 0, oct = 255;   // Acid: the step's repeat / pitch / octave draws (TB-3PO)
 };
+static_assert(sizeof(MonoStep) == 20, "MonoStep: packed for the live Acid slots");
 // Writes steps s0.. of track t: note, instrument and the FX (Glide on the
 // note slid into, Volume 100 on accents, Gate when shorter than a step).
 // Inactive steps are cleared. normalVol > 0 writes Volume on normal notes too.
