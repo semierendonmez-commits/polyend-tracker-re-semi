@@ -101,7 +101,10 @@ struct Config {
     // OT fork, byte 22: master colour after the saturation (Airwindows
     // style): 0 off, 1 ToTape, 2 Console, 3 Density, 4 PurestDrive.
     uint8_t satColor = 0;
-    uint8_t extReserved[6] = {};
+    // OT fork, fork byte 16: Perform CC out (0 off, 1 on): learned Perform
+    // columns send their value as CC on MIDI out when it changes.
+    uint8_t perfCcOut = 0;
+    uint8_t extReserved[5] = {};
     static constexpr uint8_t kSatColors = 5;
     static constexpr uint8_t kBBLocked = 5;
     static constexpr uint8_t kScreenSaverMax = 4;
@@ -171,6 +174,17 @@ struct Config {
     static constexpr uint32_t kScenesOffset = kExtOffset + kExtSize;
     static constexpr uint32_t kScenesSize = 5 + kScenes * kSceneBytes + 1;   // "OTS", version, count, data, sum
     uint8_t scenes[kScenes][kSceneBytes] = {};
+    // --- OT fork MIDI learn (Performance), record "OTM" after the scenes:
+    // 12 Perform columns, then 8 scenes; per entry the channel (0 none,
+    // 1..16) and the number (a CC 0..127, or 0x80 | note).
+    static constexpr int kMidiMaps = 20;
+    static constexpr int kMidiMapScene0 = 12;
+    static constexpr uint32_t kMidiMapOffset = kScenesOffset + kScenesSize;
+    static constexpr uint32_t kMidiMapSize = 5 + kMidiMaps * 2 + 1;   // "OTM", version, count, data, sum
+    uint8_t perfMidi[kMidiMaps][2] = {};
+    bool anyMidiMap() const;
+    void toMidiMap(uint8_t* out) const;                       // kMidiMapSize bytes
+    bool fromMidiMap(const uint8_t* in, uint32_t len);        // false: none / bad (cleared)
     bool anyScene() const;
     void toScenes(uint8_t* out) const;                        // kScenesSize bytes
     bool fromScenes(const uint8_t* in, uint32_t len);

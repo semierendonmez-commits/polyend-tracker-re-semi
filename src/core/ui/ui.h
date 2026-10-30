@@ -378,6 +378,8 @@ public:
     void drawTitle(Gfx& g, const char* title, const char* right = nullptr);
     void drawTitle(Gfx& g, const char* title, const char* right, bool status);
     const Theme& th() const;
+    // OT fork Trigger theme: a track's column light, 255 just after a note, 0 when off.
+    uint8_t trigFlash(int t) const { return t >= 0 && t < 16 ? trigFlash_[t] : 0; }
 
     // Popup headers (VISUAL_DIFF Part 2 §7.2). While one is open drawTitle
     // omits the status group, and render() draws the white header band
@@ -529,6 +531,8 @@ private:
     // OT fork title level meter (Config > Level meter): smoothed peaks in px.
     uint32_t meterAt_ = 0;
     float reactLv_ = 0.0f;   // OT fork Reactor theme: master level without the title meter
+    uint16_t trigSeen_[16] = {};   // OT fork Trigger theme: Sequencer::triggerCount last seen
+    uint8_t trigFlash_[16] = {};   // its column light: 255 at a note, then fading
     float meterLv_[2] = {};
     uint8_t meterPx_[2] = {}, meterClip_ = 0;
     bool saverOn_ = false;

@@ -657,7 +657,14 @@ struct Headless {
                     else if (a1 == "reverbModel") c.reverbModel = v;
                     else if (a1 == "delayModel") c.delayModel = v;
                     else if (a1 == "sliceThru") c.sliceThru = v;
-                    else {
+                    else if (a1 == "perfCcOut") c.perfCcOut = v;
+                    else if (a1.rfind("midimap", 0) == 0 && std::atoi(a1.c_str() + 7) < ot::Config::kMidiMaps) {
+                        // midimapN NUMBER: Performance MIDI learn entry N (0..11 columns,
+                        // 12.. scenes) on channel 1; NUMBER = CC, 128 + note for a key.
+                        const int i = std::atoi(a1.c_str() + 7), n = std::atoi(a2.c_str());
+                        c.perfMidi[i][0] = n < 0 ? 0 : 1;
+                        c.perfMidi[i][1] = uint8_t(n < 0 ? 0 : n);
+                    } else {
                         std::fprintf(stderr, "script:%d: unknown cfg '%s'\n", line, a1.c_str());
                         return false;
                     }

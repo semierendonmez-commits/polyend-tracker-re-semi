@@ -179,6 +179,26 @@ filters, sends, position, direction, LFO speeds, Step Repeater as Roll, Bit
 Depth, Overdrive) is written into **FX 2**. One undo step; REC shows in the
 title.
 
+**MIDI learn.** **Shift + Fx2** turns learn mode on (the title says MIDI
+LEARN). Press a column's pad to pick it, or **Fx1 + F1..F8** to pick a scene,
+then move a control or press a key on any MIDI channel: the picked target takes
+it (a control already used elsewhere moves over). Each column shows its learned
+control under the header (`CC21`, `N36`; the picked one in red). **Delete**
+clears the picked target; Shift + Fx2 again leaves learn mode.
+
+- Learned controls work while the Performance screen is open (like the stock
+  CCs).
+- A learned **CC** sets its column like the stock CC 51..62 do (the whole value
+  range, applied every 50 ms), on any column and channel, without Config > CC in.
+- A learned **key** (note on) recalls its scene; a learned CC recalls a scene
+  when it goes from below 64 to 64 or more (a button sending 127 / 0).
+- Up to 12 column controls and 8 scene keys, kept in the config (a record of its
+  own after the scenes, in the EEPROM and in the config file).
+- **Config > MIDI > Perform CC out** (Off / On): every learned column sends its
+  value back as its CC (on its channel, to the MIDI outputs of Config > MIDI out)
+  when it changes on the Tracker: pads, scenes, morphs. A value that came from
+  the controller is not sent back.
+
 ### Play modes (Performance, Pattern Play Mode)
 
 - **B1..B10**: one mode per BBCut procedure (same order as the Proc list). They
@@ -342,7 +362,7 @@ effect's random parts are seeded the same for both channels of a stereo sample.
 
 ## Config
 
-- **General > Display theme**: 32 built-in themes, then the theme files of the
+- **General > Display theme**: 33 built-in themes, then the theme files of the
   card's `Themes` folder (2.2.3; **Export theme** saves the current one, a fork
   palette too, as a file to edit). Original, Monochrome, Anniversary,
   then Early Cyber, Corporate, Amber CRT, Green Phosphor, Thermal, Workstation,
@@ -363,6 +383,19 @@ effect's random parts are seeded the same for both channels of a stereo sample.
   text and the column colours duck into the page with the sidechain envelope of
   Master 5/5, or with the beat when no sidechain has targets). They update every
   40 ms and stay still while nothing plays.
+- **Trigger** (the last built-in theme): a dark page whose Pattern columns flash
+  in the accent colour when their track starts a note (from the pattern, play
+  modes, rolls and arps, Track Link, pads and MIDI input) and fade in about
+  0.15 s. The colours themselves stay still.
+- **General > Edit theme**: edits the active theme on the device. The current
+  theme (a built-in one, a fork palette or a card file) is copied; the left list
+  holds the 42 roles of the theme file format, the middle shows the role's colour
+  with R / G / B bars, the right a small preview. F1 / F2 or Up / Down pick the
+  role, F3 / F4 / F5 or Left / Right the channel, the encoder changes it (Shift:
+  steps of 8); the whole UI shows the change at once. **F8 Save** opens the
+  keyboard with the name (`<theme> edit` for a built-in one) and writes
+  `Themes/<name>.txt`, replacing a file of that name, and makes it the display
+  theme. **F7 Cancel**, or leaving Config, goes back to the theme from before.
 - **Theme pack** (`themes/*.txt`, for the card's `Themes` folder): Iznik, Test
   Card, Acetate, Pirate FM, Oscilloscope, Risograph, Bauhaus, Bioluminescence,
   Hazard, Mars Rover, Aurora, Concrete, Soundsystem, made by
@@ -377,8 +410,9 @@ effect's random parts are seeded the same for both channels of a stereo sample.
   end instead of stopping at the next slice (good with BBCut and long chops).
 - **General > Scale lock / Screen saver / Level meter / Reverb model / Delay
   model / Master colour**: see above.
-- All of these live in the OpenTracker config extension record (24 bytes);
-  the Perform scenes in a record of their own after it.
+- All of these live in the OpenTracker config extension record (the fork's 22
+  bytes after upstream's); the Perform scenes and the MIDI learn map in records
+  of their own after it.
 
 ## Mixer, Song, Pattern
 

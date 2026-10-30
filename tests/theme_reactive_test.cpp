@@ -79,3 +79,48 @@ TEST(beat_theme_moves_while_playing) {
     CHECK_EQ(int(stopped.size()), 1);   // still while nothing plays
     CHECK(playing.size() >= 3);         // flashes on the beats
 }
+
+TEST(trigger_theme_lights_the_playing_columns) {
+    Harness h;
+    App& a = *h.app;
+    const int trig = indexOf("Trigger");
+    CHECK(trig > indexOf("Pump"));
+    CHECK(themeTriggerFlash(uint8_t(trig)));
+    CHECK(!themeTriggerFlash(uint8_t(indexOf("Beat"))));
+    a.cfg.uiTheme = uint8_t(trig);
+    a.cfg.theme = themeBase(a.cfg.uiTheme);
+    // Notes on every step of track 3 only.
+    Pattern& p = *a.seq.currentPattern();
+    for (int s = 0; s < 16; ++s) p.tracks[2].steps[s].note = 48;
+    h.run(100);
+    const uint32_t accent0 = a.ui.th().accent;
+    CHECK_EQ(int(a.ui.trigFlash(2)), 0);
+    const uint16_t n0 = a.seq.triggerCount(2);
+    a.togglePlay(false);
+    int lit2 = 0, lit5 = 0;
+    for (int i = 0; i < 80; ++i) {
+        h.audio.pump(4);
+        h.run(5);
+        lit2 += a.ui.trigFlash(2) > 0;
+        lit5 += a.ui.trigFlash(5) > 0;
+    }
+    a.togglePlay(false);
+    std::printf("  frames lit: track 3 %d, track 6 %d, notes %d\n", lit2, lit5, int(uint16_t(a.seq.triggerCount(2) - n0)));
+    CHECK(uint16_t(a.seq.triggerCount(2) - n0) >= 2);
+    CHECK(lit2 > 0);
+    CHECK_EQ(lit5, 0);
+    CHECK_EQ(a.ui.th().accent, accent0);   // the palette stays still
+    // The light fades out once nothing plays.
+    h.run(600);
+    CHECK_EQ(int(a.ui.trigFlash(2)), 0);
+    // A pad preview lights its track too.
+    auto total = [&] {
+        uint32_t n = 0;
+        for (int t = 0; t < 16; ++t) n += a.seq.triggerCount(t);
+        return n;
+    };
+    const uint32_t c = total();
+    h.pad(30);
+    h.run(45);
+    CHECK(total() != c);
+}

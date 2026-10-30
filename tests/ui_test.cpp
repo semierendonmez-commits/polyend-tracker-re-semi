@@ -374,7 +374,7 @@ TEST(config_apply_and_firmware_update) {
     h.tap(btn::Down);
     CHECK(c.category == 1);
     h.tap(btn::Right);
-    for (int i = 0; i < 6; ++i) h.tap(btn::Down);   // after 2.x Export theme
+    for (int i = 0; i < 7; ++i) h.tap(btn::Down);   // after 2.x Export theme and Edit theme
     h.tap(btn::F8);
     CHECK(c.editing);
     h.tap(btn::Up);   // pattern(2) -> track(1)

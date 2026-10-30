@@ -211,7 +211,8 @@ void Config::toExt(uint8_t* out) const {
     f[13] = limCeiling;
     f[14] = limLink;
     f[15] = satColor;
-    for (int i = 0; i < 6; ++i) f[16 + i] = extReserved[i];
+    f[16] = perfCcOut;
+    for (int i = 0; i < 5; ++i) f[17 + i] = extReserved[i];
     uint8_t sum = 0;
     for (uint32_t i = 0; i < kExtPayload; ++i) sum = uint8_t(sum + out[5 + i]);
     out[5 + kExtPayload] = sum;
@@ -237,7 +238,8 @@ void Config::forkFromExt(const uint8_t* f, uint32_t n) {
     limCeiling = (n >= 14 && f[13] <= 12) ? f[13] : 0;
     limLink = (n >= 15 && f[14] <= 1) ? f[14] : 0;
     satColor = (n >= 16 && f[15] < kSatColors) ? f[15] : 0;
-    for (uint32_t i = 0; i < 6; ++i) extReserved[i] = n >= 17 + i ? f[16 + i] : 0;
+    perfCcOut = (n >= 17 && f[16] <= 1) ? f[16] : 0;
+    for (uint32_t i = 0; i < 5; ++i) extReserved[i] = n >= 18 + i ? f[17 + i] : 0;
 }
 
 bool Config::fromExt(const uint8_t* in, uint32_t len) {
@@ -266,6 +268,37 @@ bool Config::fromExt(const uint8_t* in, uint32_t len) {
         if (!themeNameValid(themeFile)) std::memset(themeFile, 0, sizeof(themeFile));
     }
     forkFromExt(in + 5 + kUpstreamExtPayload, n > kUpstreamExtPayload ? n - kUpstreamExtPayload : 0);
+    return true;
+}
+
+bool Config::anyMidiMap() const {
+    for (const auto& m : perfMidi)
+        if (m[0]) return true;
+    return false;
+}
+
+void Config::toMidiMap(uint8_t* out) const {
+    out[0] = 'O';
+    out[1] = 'T';
+    out[2] = 'M';
+    out[3] = 1;
+    out[4] = uint8_t(kMidiMaps);
+    std::memcpy(out + 5, perfMidi, sizeof(perfMidi));
+    uint8_t sum = 0;
+    for (uint32_t i = 0; i < sizeof(perfMidi); ++i) sum = uint8_t(sum + out[5 + i]);
+    out[5 + sizeof(perfMidi)] = sum;
+}
+
+bool Config::fromMidiMap(const uint8_t* in, uint32_t len) {
+    std::memset(perfMidi, 0, sizeof(perfMidi));
+    if (len < kMidiMapSize || in[0] != 'O' || in[1] != 'T' || in[2] != 'M' || in[3] != 1 || in[4] != kMidiMaps)
+        return false;
+    uint8_t sum = 0;
+    for (uint32_t i = 0; i < sizeof(perfMidi); ++i) sum = uint8_t(sum + in[5 + i]);
+    if (sum != in[5 + sizeof(perfMidi)]) return false;
+    std::memcpy(perfMidi, in + 5, sizeof(perfMidi));
+    for (auto& m : perfMidi)
+        if (m[0] > 16) m[0] = 0;
     return true;
 }
 
@@ -327,8 +360,10 @@ bool Config::fromImage(const uint8_t* img) {
     c.limCeiling = limCeiling;
     c.limLink = limLink;
     c.satColor = satColor;
+    c.perfCcOut = perfCcOut;
     std::memcpy(c.extReserved, extReserved, sizeof(extReserved));
     std::memcpy(c.scenes, scenes, sizeof(scenes));
+    std::memcpy(c.perfMidi, perfMidi, sizeof(perfMidi));
     c.uiTheme = c.theme;     // the stock theme; an extension record may name a fork palette
     c.streamMode = streamMode;
     c.streamThreshold = streamThreshold;
@@ -371,6 +406,9 @@ bool Config::load(INvStore& nv) {
     uint8_t sc[kScenesSize];
     const uint32_t scAt = recLen < kExtSize ? kOldScenesOffset : kScenesOffset;
     if (nv.size() >= scAt + kScenesSize && nv.read(scAt, sc, kScenesSize)) fromScenes(sc, kScenesSize);
+    uint8_t mm[kMidiMapSize];
+    std::memset(perfMidi, 0, sizeof(perfMidi));
+    if (nv.size() >= kMidiMapOffset + kMidiMapSize && nv.read(kMidiMapOffset, mm, kMidiMapSize)) fromMidiMap(mm, kMidiMapSize);
     return true;
 }
 
@@ -390,7 +428,7 @@ bool Config::save(INvStore& nv) {
         std::memcmp(extKeep, d.extKeep, sizeof(extKeep)) == 0 && sliceDetector == 0 && uiTheme < kThemeCount &&
         bbReseed == 0 && sliceThru == 0 && uiFont < 2 && scaleLock == 0 && screenSaver == 0 && levelMeter == 0 &&
         reverbModel == 0 && delayModel == 0 && satDrive == 0 && satMixInv == 0 && satToneInv == 0 &&
-        limCeiling == 0 && limLink == 0 && satColor == 0 && !anyScene()) {
+        limCeiling == 0 && limLink == 0 && satColor == 0 && perfCcOut == 0 && !anyScene()) {
         Config probe;
         writeExt = nv.read(kExtOffset, ext, kExtSize) && probe.fromExt(ext, kExtSize);
     }
@@ -406,13 +444,21 @@ bool Config::save(INvStore& nv) {
             nv.write(kScenesOffset, sc, kScenesSize);
         }
     }
+    if (nv.size() >= kMidiMapOffset + kMidiMapSize) {   // MIDI learn: once there is a mapping
+        uint8_t mm[kMidiMapSize];
+        Config probe;
+        if (anyMidiMap() || (nv.read(kMidiMapOffset, mm, kMidiMapSize) && probe.fromMidiMap(mm, kMidiMapSize))) {
+            toMidiMap(mm);
+            nv.write(kMidiMapOffset, mm, kMidiMapSize);
+        }
+    }
     return true;
 }
 
 bool Config::load(IStorage& fs) {
     IStorage::Handle h = fs.open(kConfigPath, IStorage::kRead);
     if (h < 0) return false;
-    uint8_t buf[8 + kImageSize + kExtSize + kScenesSize + sizeof(Config)] = {};
+    uint8_t buf[8 + kImageSize + kExtSize + kScenesSize + kMidiMapSize + sizeof(Config)] = {};
     int32_t n = 0, r;
     while (n < int32_t(sizeof(buf)) && (r = fs.read(h, buf + n, uint32_t(sizeof(buf) - n))) > 0) n += r;
     fs.close(h);
@@ -439,6 +485,9 @@ bool Config::load(IStorage& fs) {
         if (fromExt(ext, avail - kImageSize)) recLen = 5 + ext[4] + 1;
         std::memset(scenes, 0, sizeof(scenes));
         if (avail >= kImageSize + recLen + kScenesSize) fromScenes(ext + recLen, kScenesSize);
+        std::memset(perfMidi, 0, sizeof(perfMidi));
+        if (avail >= kImageSize + recLen + kScenesSize + kMidiMapSize)
+            fromMidiMap(ext + recLen + kScenesSize, kMidiMapSize);
         return true;
     }
     if (buf[4] != kFileV1) return false;
@@ -458,7 +507,7 @@ bool Config::save(IStorage& fs) {
     font = uiFont >= 2 ? 0 : uiFont;
     toImage();
     fs.mkdir(kConfigDir);
-    uint8_t buf[8 + kImageSize + kExtSize + kScenesSize] = {};
+    uint8_t buf[8 + kImageSize + kExtSize + kScenesSize + kMidiMapSize] = {};
     std::memcpy(buf, kFileMagic, 4);
     buf[4] = kFileV2;
     buf[5] = uint8_t(kImageSize);
@@ -466,6 +515,7 @@ bool Config::save(IStorage& fs) {
     std::memcpy(buf + 8, image, kImageSize);
     toExt(buf + 8 + kImageSize);
     toScenes(buf + 8 + kImageSize + kExtSize);
+    toMidiMap(buf + 8 + kImageSize + kExtSize + kScenesSize);
     if (fs.exists(kConfigPath)) fs.remove(kConfigPath);
     IStorage::Handle h = fs.open(kConfigPath, IStorage::kWrite);
     if (h < 0) return false;

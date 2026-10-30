@@ -339,6 +339,16 @@ public:
     // refused in USB Storage mode.
     enum class ThemeExport : uint8_t { kOk = 0, kExists, kUnavailable, kFailed };
     ThemeExport exportTheme();
+    // OT fork theme editor (Config > General > Edit theme): the active theme
+    // is copied into the custom table and shown from it while its roles are
+    // edited; save writes Themes/<name>.txt (replacing it) and makes it the
+    // active theme file, cancel brings the previous theme back.
+    bool beginThemeEdit();
+    uint32_t themeEditGet(int role) const;
+    void themeEditSet(int role, uint32_t rgb);
+    ThemeExport saveThemeEdit(const char* name);
+    void cancelThemeEdit();
+    bool themeEditing() const { return themeEditing_; }
     void setUsbStorage(IUsbStorage* u) { hal_.usbStorage = u; }
 
     // ---- 2.x USB Storage mode (Tracker Mini manual §13.10) ----------------
@@ -665,6 +675,11 @@ private:
     void loopUsbStorage(uint32_t now);   // loop() while the computer owns the card
     void midiByte(MidiPortId port, uint8_t b);
     void handleMidiMessage(uint8_t st, uint8_t d1, uint8_t d2);
+
+public:
+    void sendMidiCc(uint8_t channel, uint8_t cc, uint8_t value);   // OT fork (MIDI learn CC out)
+
+private:
     // Project job internals (project_io.cpp).
     bool jobUnit(uint32_t& cost);
     void jobEnd();
@@ -794,6 +809,8 @@ private:
     Theme themeView_{};
     char themeName_[21] = {};
     bool themeActive_ = false;
+    bool themeEditing_ = false;
+    char themeEditPrev_[21] = {};   // the theme file active before the edit ("" = a built-in theme)
     bool usbActive_ = false;   // USB Storage mode: the computer owns the card
     bool wasPlaying_ = false;
     // [I] Resample bar tracking (audio context, App::preBlock).

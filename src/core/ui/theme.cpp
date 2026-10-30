@@ -221,6 +221,8 @@ const Palette kPalettes[kThemeTotal - kThemeCount] = {
     {"Beat", 0, 0x07070A, 0xE0E0E8, 0xFF2A55, 0x2AFFA0, 0x2AFFA0, 0xFFE14A, 0xFF5AA0, 0x4AC8FF, 0xFF8A3D, 0x4AC8FF, 9},
     {"Reactor", 0, 0x02060C, 0xD8E8F0, 0x00C8FF, 0x5AFFB0, 0x5AE0FF, 0xFFD24A, 0xFF7A5A, 0x9AB8FF, 0xFF8A3D, 0x00C8FF, 10},
     {"Pump", 0, 0x050210, 0xF0E8FF, 0xC04CFF, 0x4CFFD2, 0x4CFFD2, 0xFFE04C, 0xFF4CA0, 0x4CB8FF, 0xFF9A4C, 0x4CB8FF, 11},
+    // Trigger: the pattern columns light up as their tracks play notes.
+    {"Trigger", 0, 0x050508, 0xE8E8F0, 0xFF2E63, 0x08F7FE, 0x08F7FE, 0xF5D300, 0xFF2E63, 0x9D4EDD, 0xFF8A3D, 0x08F7FE, 12},
 };
 
 // Animation phase of the active animated theme (themeTick), 0..255.
@@ -379,6 +381,10 @@ void themeInputs(uint8_t beatEnv, uint8_t barEnv, uint8_t level, uint8_t duck) {
     gBarEnv = barEnv;
     gLevel = level;
     gDuck = duck;
+}
+
+bool themeTriggerFlash(uint8_t index) {
+    return index >= kThemeCount && index < kThemeTotal && kPalettes[index - kThemeCount].anim == 12;
 }
 
 bool themeReactive(uint8_t index) {

@@ -322,6 +322,85 @@ void PerformanceScreen::applyAll(bool revertEverything) {
     q.setPerfGlobalLength(globalLen);
     live::setBBPerf(bbA, bbB, bbRolls, bbRecut);
     live::setGridsPerf(grX, grY, grD);
+    ccOut();
+}
+
+// ---------------------------------------------------------------------------
+// OT fork MIDI learn: Shift + Fx2 toggles it; a column pad (or Fx1 + F1..F8
+// for a scene) picks the target and the next control change or note is
+// learned. Learned controls drive their column like CC 51-62 (any CC, any
+// channel), learned scene keys recall the scene (a note, or a CC rising
+// past 64). Config > MIDI > Perform CC out echoes column values as CC.
+
+namespace {
+// A column value as 0..127 (the inverse of perf::ccToValue).
+uint8_t toCc(uint8_t ty, int value) {
+    const perf::FxDesc& d = perf::fx(ty);
+    int v = ty && d.max > d.min ? ((value - d.min) * 127 + (d.max - d.min) / 2) / (d.max - d.min) : 0;
+    return uint8_t(v < 0 ? 0 : (v > 127 ? 127 : v));
+}
+void midiName(const uint8_t* m, char* out, int cap) {
+    if (!m[0]) std::snprintf(out, size_t(cap), "-");
+    else if (m[1] & 0x80) std::snprintf(out, size_t(cap), "N%d", m[1] & 127);
+    else std::snprintf(out, size_t(cap), "CC%d", m[1]);
+}
+}  // namespace
+
+bool PerformanceScreen::perfMidi(uint8_t status, uint8_t d1, uint8_t d2) {
+    App& a = app_;
+    const uint8_t type = status & 0xF0, ch = uint8_t((status & 15) + 1);
+    const bool note = type == 0x90 || type == 0x80;
+    const bool noteOn = type == 0x90 && d2 > 0;
+    if (learn && learnTarget >= 0 && (type == 0xB0 || noteOn)) {
+        uint8_t* m = a.cfg.perfMidi[learnTarget];
+        // One control per target: the same control elsewhere is moved here.
+        for (auto& o : a.cfg.perfMidi)
+            if (o[0] == ch && o[1] == uint8_t(note ? (0x80 | d1) : d1)) o[0] = o[1] = 0;
+        m[0] = ch;
+        m[1] = uint8_t(note ? (0x80 | (d1 & 127)) : (d1 & 127));
+        char nm[12], msg[48];
+        midiName(m, nm, sizeof(nm));
+        if (learnTarget < Config::kMidiMapScene0) std::snprintf(msg, sizeof(msg), "%s ch %d -> column %d", nm, ch, learnTarget + 1);
+        else std::snprintf(msg, sizeof(msg), "%s ch %d -> scene %d", nm, ch, learnTarget - Config::kMidiMapScene0 + 1);
+        ui_.notify(msg);
+        learnTarget = -1;
+        a.markConfigDirty();
+        ui_.dirty();
+        return true;
+    }
+    if (learn && type == 0xB0) return true;   // learn mode: controls only teach
+    bool used = false;
+    for (int i = 0; i < Config::kMidiMaps; ++i) {
+        const uint8_t* m = a.cfg.perfMidi[i];
+        if (!m[0] || m[0] != ch) continue;
+        if (note ? m[1] != (0x80 | d1) : m[1] != d1) continue;
+        used = true;
+        if (i < Config::kMidiMapScene0) {
+            const uint8_t v = note ? uint8_t(noteOn ? d2 : 0) : d2;
+            if (src.valid()) ccOutLast_[i] = toCc(src.type(i), perf::ccToValue(src.type(i), v));   // no echo
+            perfSlotCc(uint8_t(i), v);
+        } else {
+            const int sc = i - Config::kMidiMapScene0;
+            const bool high = note ? noteOn : d2 >= 64;
+            if (high && (note || !sceneCcHigh_[sc])) recallScene(sc);
+            if (!note) sceneCcHigh_[sc] = high;
+        }
+    }
+    if (used) ui_.dirty();
+    return used;
+}
+
+void PerformanceScreen::ccOut() {
+    App& a = app_;
+    if (!a.cfg.perfCcOut || !src.valid()) return;
+    for (int s = 0; s < perf::kSlots; ++s) {
+        const uint8_t* m = a.cfg.perfMidi[s];
+        if (!m[0] || (m[1] & 0x80)) continue;
+        const uint8_t v = toCc(src.type(s), cur[s]);
+        if (v == ccOutLast_[s]) continue;
+        ccOutLast_[s] = v;
+        a.sendMidiCc(uint8_t(m[0] - 1), m[1], v);
+    }
 }
 
 // Other slots with the same FX type, or an excluded filter type, go to row 0
@@ -350,6 +429,11 @@ void PerformanceScreen::onPad(uint8_t pad, uint8_t state) {
     }
     const int c = pad % 12, r = pad / 12;
     if (c >= perf::kSlots || r >= perf::kRows || !src.valid()) return;
+    if (learn) {   // OT fork MIDI learn: the pad picks the column
+        if (state == kPress) learnTarget = c;
+        ui_.dirty();
+        return;
+    }
     if (state == kPress) {
         liveValid[c] = false;
         const uint8_t row = uint8_t(src.type(c) ? r : 0);
@@ -535,6 +619,23 @@ void PerformanceScreen::onButton(uint8_t id, uint8_t state) {
             return;
         }
     }
+    // OT fork MIDI learn: Shift + Fx2 toggles it.
+    if (id == btn::Fx2 && state == kPress && ui_.shift()) {
+        learn = !learn;
+        learnTarget = -1;
+        ui_.notify(learn ? "MIDI learn: a column pad or Fx1 + F key, then a control" : "MIDI learn off");
+        ui_.dirty();
+        return;
+    }
+    if (learn && id == btn::Delete && state == kPress) {   // clears the picked target's control
+        if (learnTarget >= 0) {
+            app_.cfg.perfMidi[learnTarget][0] = app_.cfg.perfMidi[learnTarget][1] = 0;
+            app_.markConfigDirty();
+            ui_.notify("MIDI control cleared");
+        }
+        ui_.dirty();
+        return;
+    }
     // OT fork scenes: Fx1 / Fx2 held turn F1..F8 into scene keys.
     if (id == btn::Fx1 || id == btn::Fx2) {
         ui_.dirty();
@@ -542,7 +643,8 @@ void PerformanceScreen::onButton(uint8_t id, uint8_t state) {
     }
     if (sceneKeys() && btn::isFKey(id)) {
         if (state == kPress) {
-            if (ui_.isDown(btn::Fx2)) storeScene(id);
+            if (learn) learnTarget = Config::kMidiMapScene0 + id;   // OT fork MIDI learn: a scene key
+            else if (ui_.isDown(btn::Fx2)) storeScene(id);
             else recallScene(id);
         }
         ui_.dirty();
@@ -780,7 +882,12 @@ void PerformanceScreen::draw(Gfx& g) {
     // 2.x bank B: right-hand text "Tracks 9-16" (M1 plan spec gap 5).
     const char* right = bank ? (edit ? "EDIT  Tracks 9-16" : "Tracks 9-16") : (edit ? "EDIT" : nullptr);
     char rbuf[40];
-    if (sceneKeys() || rec_ || morphing_) {   // OT fork: scenes / recording
+    if (learn) {   // OT fork MIDI learn
+        if (learnTarget < 0) std::snprintf(rbuf, sizeof(rbuf), "MIDI LEARN: pick");
+        else if (learnTarget < Config::kMidiMapScene0) std::snprintf(rbuf, sizeof(rbuf), "LEARN col %d: send CC/key", learnTarget + 1);
+        else std::snprintf(rbuf, sizeof(rbuf), "LEARN scene %d: CC/key", learnTarget - Config::kMidiMapScene0 + 1);
+        right = rbuf;
+    } else if (sceneKeys() || rec_ || morphing_) {   // OT fork: scenes / recording
         static const char* const kMorph[6] = {"Morph off", "Morph 1/4", "Morph 1/2", "Morph 1 bar", "Morph 2 bars",
                                               "Morph 4 bars"};
         std::snprintf(rbuf, sizeof(rbuf), "%s%s%s", rec_ ? "REC  " : "", sceneKeys() || morphing_ ? kMorph[morphIdx_] : "",
@@ -931,6 +1038,15 @@ void PerformanceScreen::draw(Gfx& g) {
         if (!queued || blinkOn_ || ui_.shift()) g.text(cx, wg::kLabelY2, kFont2, vc, l.bottom, IDisplay::kOptCenter);
     }
     drawScenes(g);   // OT fork: Fx1 / Fx2 held
+    if (learn) {   // OT fork MIDI learn: each column's control, the target framed
+        for (int c = 0; c < perf::kSlots; ++c) {
+            const int x = 11 + 65 * c;
+            char nm[12];
+            midiName(app_.cfg.perfMidi[c], nm, sizeof(nm));
+            g.fill(x, 72, 63, 18, c == learnTarget ? th.accent : th.panel2);
+            g.text(x + 31, 81, kFont1, c == learnTarget ? th.bg : th.text, nm, IDisplay::kOptCenter);
+        }
+    }
 }
 
 

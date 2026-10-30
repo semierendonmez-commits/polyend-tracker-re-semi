@@ -15,7 +15,32 @@ Image: `PolyendTrackerOTs223.ptf` (installs like the upstream image, see Install
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
-### Latest update (2.2.3-semi.2): themes that follow the music, a theme pack
+### Latest update (2.2.3-semi.3): MIDI learn, a theme editor on the device, Trigger theme
+
+| **Trigger: a column lights up when its track plays** | **Edit theme: every role, R / G / B with the encoder** |
+|---|---|
+| ![Trigger](screenshots/2.2.3-semi/theme-trigger.gif) | ![Edit theme](screenshots/2.2.3-semi/theme-editor.png) |
+
+![MIDI learn](screenshots/2.2.3-semi/midi-learn.png)
+
+- **MIDI learn on the Performance screen:** **Shift + Fx2** starts learn mode; press a column
+  pad (or **Fx1 + F1..F8** for a scene), then move a knob or hit a key on your controller. A
+  learned CC drives that column over its whole range while the Performance screen is open; a learned key or a CC going over 64
+  recalls the scene. Up to 12 columns and 8 scenes, any channel; the learned control shows
+  under each column (CC21, N36). Delete clears the picked one, Shift + Fx2 ends learn mode.
+  Kept in the config (EEPROM and card). The stock CC 51..62 keep working.
+- **Config > MIDI > Perform CC out:** sends the value of every learned column back out as its CC
+  when it changes (pads, scenes, morphs), so motor faders and LED rings follow. A control coming
+  in is not echoed back.
+- **Config > General > Edit theme:** edits the current theme on the Tracker. F1 / F2 (or Up /
+  Down) pick one of the 42 roles, F3 / F4 / F5 (or Left / Right) Red, Green, Blue, the encoder
+  changes it (Shift: steps of 8). The whole screen previews it at once. **F8 Save** names it and
+  writes `Themes/<name>.txt` (it becomes the display theme), **F7 Cancel** goes back.
+- **Trigger theme** (Config > Display theme, the last built-in one): every time a track starts a
+  note (pattern, play modes, rolls, Track Link, pads, MIDI), its column on the Pattern screen
+  flashes and fades in about 0.15 s.
+
+### Previous update (2.2.3-semi.2): themes that follow the music, a theme pack
 
 | **Reactor: the page heats up with the master level** | **Beat / Pump while playing (animated)** |
 |---|---|
@@ -32,7 +57,7 @@ and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**
 
 ![Theme pack](screenshots/2.2.3-semi/theme-pack.png)
 
-### Previous update (2.2.3-semi.1): on top of OpenTracker 2.2.3
+### Earlier update (2.2.3-semi.1): on top of OpenTracker 2.2.3
 
 Everything of the semi fork, now on the upstream 2.2.3 code (2.2.3-beta2, 51 upstream changes):
 

@@ -1080,7 +1080,19 @@ void Ui::update(uint32_t now) {
     // OT fork: animated themes move their colours ~8 times a second.
     if (!app.customThemeActive() && themeAnimated(app.cfg.uiTheme) && now - animAt_ >= themeTickMs(app.cfg.uiTheme)) {
         animAt_ = now;
-        if (themeReactive(app.cfg.uiTheme)) {
+        if (themeTriggerFlash(app.cfg.uiTheme)) {
+            // OT fork Trigger: a column lights at each note of its track and
+            // fades in about 0.15 s; the palette itself stays still.
+            bool lit = false;
+            for (int t = 0; t < 16; ++t) {
+                const uint16_t n = app.seq.triggerCount(t);
+                const uint8_t was = trigFlash_[t];
+                trigFlash_[t] = n != trigSeen_[t] ? 255 : uint8_t(was / 2u < 16u ? 0u : was / 2u);
+                trigSeen_[t] = n;
+                lit = lit || was || trigFlash_[t];
+            }
+            if (lit) dirty();
+        } else if (themeReactive(app.cfg.uiTheme)) {
             // OT fork Beat / Reactor / Pump: the beat and bar from the
             // sequencer's tick counter (576 ticks a step), the master level
             // (shared with the title meter), the deeper of the two sidechains.
@@ -1111,8 +1123,10 @@ void Ui::update(uint32_t now) {
             const int duck = sc ? int((e < 0.0f ? 0.0f : (e > 1.0f ? 1.0f : e)) * 255.0f) : int(beatEnv);
             themeInputs(uint8_t(beatEnv), uint8_t(barEnv), uint8_t(level), uint8_t(duck));
         }
-        themeTick(app.cfg.uiTheme, now);
-        dirty();
+        if (!themeTriggerFlash(app.cfg.uiTheme)) {
+            themeTick(app.cfg.uiTheme, now);
+            dirty();
+        }
     }
     // [I] Live resampling status: one notice per state change (armed,
     // armed and playing, recording, stopping), so other notices stay up;

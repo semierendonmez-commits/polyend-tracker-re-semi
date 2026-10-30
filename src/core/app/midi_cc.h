@@ -35,6 +35,15 @@ public:
     virtual ~PerformanceCcSink() = default;
     virtual void perfTrackPatternCc(uint8_t track, uint8_t value) { (void)track; (void)value; }
     virtual void perfSlotCc(uint8_t slot, uint8_t value) { (void)slot; (void)value; }
+    // OT fork MIDI learn: every channel message (CC, note on / off) while the
+    // Performance screen is shown, before the Config port / channel filters;
+    // true = used (learned, or a learned control / note).
+    virtual bool perfMidi(uint8_t status, uint8_t d1, uint8_t d2) {
+        (void)status;
+        (void)d1;
+        (void)d2;
+        return false;
+    }
     // Main-loop tick while another screen is shown: the Performance FX may
     // stay live there (spec 16 §A.15).
     virtual void perfBackground(uint32_t now) { (void)now; }

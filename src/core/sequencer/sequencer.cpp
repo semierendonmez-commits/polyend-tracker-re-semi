@@ -736,6 +736,7 @@ void Sequencer::triggerNote(int t, const NoteRec& rec0, bool chord, uint8_t chor
         tr.sounding = false;
         return;
     }
+    ++trigCount_[t];   // OT fork Trigger theme
     if (rec.instr < 48) {
         if (t >= kVoiceTracks) return;  // sample note-ons on tracks 9..12 are dropped
         if (sink_) {

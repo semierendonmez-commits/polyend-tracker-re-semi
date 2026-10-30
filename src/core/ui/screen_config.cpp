@@ -44,7 +44,7 @@ const char* const kThemes[] = {"Original",   "Monochrome", "Anniversary",    "Ea
                                "Green Phosphor", "Thermal", "Workstation", "Datamatic", "Dubplate",  "Rave Flyer",
                                "Jungle", "Ice", "Sunset", "Teletext", "Vaporwave", "Blueprint", "Game Boy",
                                "Sepia", "Hi Contrast", "Cyber Pulse", "Spectrum", "Acid House", "Plasma",
-                               "Colour Wheel", "Ember", "Night Drive", "Glitch", "Beat", "Reactor", "Pump"};
+                               "Colour Wheel", "Ember", "Night Drive", "Glitch", "Beat", "Reactor", "Pump", "Trigger"};
 static_assert(sizeof(kThemes) / sizeof(kThemes[0]) == kThemeTotal, "one label per theme");
 const char* const kSliceModes[] = {"Stock", "Breaks"};
 const char* const kBBReseed[] = {"New at stop", "Every loop", "Every 2 loops", "Every 4 loops", "Every 8 loops", "Locked"};
@@ -100,6 +100,7 @@ const Opt kGeneral[] = {
     {"Display theme", kEnum, kCfg, CF(uiTheme), 0, kThemeTotal, kThemes, 0},   // OT fork: 16 themes
     {"Display font", kEnum, kCfg, CF(uiFont), 0, 3, kFonts, 0},   // OT fork: + Pixel (Departure Mono)
     {"Export theme", kAction, kNone, 4, 0, 0, nullptr, 0},   // [I] 2.x theme files (a fork palette too)
+    {"Edit theme", kAction, kNone, 5, 0, 0, nullptr, 0},     // OT fork: on-device theme editor
     {"Pads brightness", kEnum, kCfg, CF(padsBrightness), 0, 3, kLowMedHigh, 0},
     {"Pads preview", kEnum, kCfg, CF(padsPreview), 0, 3, kPreview, 0},
     {"Recording options", kEnum, kCfg, CF(recordingOptions), 0, 4, kRecOpts, 0},
@@ -135,6 +136,7 @@ const Opt kMidi[] = {
     {"CC in channel", kEnum, kCfg, CF(ccInChannel), 0, 17, kChannels, 0},
     {"Middle C", kEnum, kCfg, CF(middleC), 0, 4, kMiddleC, 0},
     {"Clock sync correction", kEnum, kCfg, CF(clockCorrection), 0, 13, kClockSync, 0},   // spec 15 §2.3: enum
+    {"Perform CC out", kEnum, kCfg, CF(perfCcOut), 0, 2, kSliceThru, 0},   // OT fork (Off / On)
 };
 // 2.x USB (Tracker Mini manual §3 Config options: USB > Storage, USB > Audio;
 // §13.10). [I] The Mini row is "Storage" with Enter; OpenTracker's row is
@@ -279,6 +281,28 @@ bool fwFn(const IStorage::DirEntry& e, void* c) {
 char (*const gThemeList)[kThemeNameMax + 1] = reinterpret_cast<char (*)[kThemeNameMax + 1]>(g_browserLists);
 int gThemeCount = 0;
 bool gThemeMode = false;
+// OT fork theme editor (Edit theme): the role list, R / G / B of the role.
+bool gEditMode = false;
+int gEditRole = 0, gEditChan = 0;
+void themeItem(void*, int i, char* out, int cap) { std::snprintf(out, size_t(cap), "%s", themeRole(i).name); }
+void themeSaved(void* ctx, bool ok, const char* text) {
+    if (!ok) return;   // back to the editor
+    App& a = *static_cast<App*>(ctx);
+    char msg[64];
+    if (!themeNameValid(text)) {
+        a.ui.notify("Name: letters, digits, spaces (no / \\ :)");
+        return;
+    }
+    switch (a.saveThemeEdit(text)) {
+        case App::ThemeExport::kOk:
+            std::snprintf(msg, sizeof(msg), "Saved %s/%s.txt", kThemesDir, text);
+            gEditMode = false;
+            break;
+        case App::ThemeExport::kUnavailable: std::snprintf(msg, sizeof(msg), "Not available in USB Storage mode"); break;
+        default: std::snprintf(msg, sizeof(msg), "Cannot write %s/%s.txt", kThemesDir, text); break;
+    }
+    a.ui.notify(msg);
+}
 static_assert(kThemeListMax * (kThemeNameMax + 1) <= kBrowserListBytes, "Theme list");
 // OT fork: the Display theme row is uiTheme (stock three + the fork palettes).
 bool isThemeOpt(const Opt& o) { return o.store == kCfg && o.off == offsetof(Config, uiTheme); }
@@ -335,6 +359,8 @@ static int optIndex(App& a, const Opt& o) {
 void ConfigScreen::start(int opt) {
     (void)opt;
     editing = false;
+    if (gEditMode || app_.themeEditing()) app_.cancelThemeEdit();   // OT fork theme editor
+    gEditMode = false;
     gFwMode = false;
     gThemeMode = false;
     gLicMode = false;
@@ -402,6 +428,10 @@ void ConfigScreen::onPad(uint8_t pad, uint8_t state) {
 }
 
 void ConfigScreen::stop() {
+    if (gEditMode) {   // OT fork theme editor: leaving the screen cancels it
+        app_.cancelThemeEdit();
+        gEditMode = false;
+    }
     // spec 06 §7: stop forces a config save.
     app_.requestConfigSave(true);
     editing = false;
@@ -411,6 +441,20 @@ void ConfigScreen::stop() {
 void ConfigScreen::refreshBar() {
     BottomBar& b = ui_.bar;
     b.clear();
+    if (gEditMode) {   // OT fork theme editor
+        const uint32_t c = app_.themeEditGet(gEditRole);
+        char v[3][8];
+        for (int k = 0; k < 3; ++k) std::snprintf(v[k], sizeof(v[k]), "%d", int((c >> (16 - 8 * k)) & 255));
+        b.set(0, "Role", "Prev");
+        b.set(1, "Role", "Next");
+        b.set(2, "Red", v[0]);
+        b.set(3, "Green", v[1]);
+        b.set(4, "Blue", v[2]);
+        b.highlight(2 + gEditChan, true);
+        b.set(6, "Cancel");
+        b.set(7, "Save");
+        return;
+    }
     if (gLicMode) {   // spec 06 §7.5: F1..F7 unbound, F8 Close
         b.set(7, "Close");
         return;
@@ -513,6 +557,13 @@ void ConfigScreen::enter() {
             default: std::snprintf(msg, sizeof(msg), "Cannot write %s/%s.txt", kThemesDir, name); break;
         }
         ui_.notify(msg);
+    } else if (o.off == 5) {   // OT fork Edit theme
+        if (a.beginThemeEdit()) {
+            gEditMode = true;
+            gEditRole = gEditChan = 0;
+        } else {
+            ui_.notify("Not available in USB Storage mode");
+        }
     } else {
         gLicMode = true;
     }
@@ -608,6 +659,27 @@ void ConfigScreen::apply() {
 
 void ConfigScreen::onButton(uint8_t id, uint8_t state) {
     if (state != kPress) return;
+    if (gEditMode) {   // OT fork theme editor
+        switch (id) {
+            case btn::F1: case btn::Up: gEditRole = clampi(gEditRole - 1, 0, kThemeRoleCount - 1); break;
+            case btn::F2: case btn::Down: gEditRole = clampi(gEditRole + 1, 0, kThemeRoleCount - 1); break;
+            case btn::F3: case btn::F4: case btn::F5: gEditChan = id - btn::F3; break;
+            case btn::Left: gEditChan = clampi(gEditChan - 1, 0, 2); break;
+            case btn::Right: gEditChan = clampi(gEditChan + 1, 0, 2); break;
+            case btn::F7:
+                app_.cancelThemeEdit();
+                gEditMode = false;
+                break;
+            case btn::F8:
+                ui_.kb.open("Theme name", app_.customThemeName(), kThemeNameMax, "Save", themeSaved, &app_);
+                break;
+            case btn::F6: break;
+            default: Screen::onButton(id, state); break;
+        }
+        if (ui_.active() == kModConfig) refreshBar();
+        ui_.dirty();
+        return;
+    }
     if (id == btn::SampleRecorder) {   // owned only while the recorder waits
         returnToRecorder();
         return;
@@ -687,6 +759,14 @@ bool ConfigScreen::encoderOnList() const {
 
 void ConfigScreen::onEncoder(int d) {
     d = clampi(d, -3, 3);   // spec 06 §7.4
+    if (gEditMode) {   // OT fork theme editor: the channel, x8 with Shift
+        const uint32_t c = app_.themeEditGet(gEditRole);
+        const int sh = 16 - 8 * gEditChan;
+        const int v = clampi(int((c >> sh) & 255) + d * (ui_.shift() ? 8 : 1), 0, 255);
+        app_.themeEditSet(gEditRole, (c & ~(0xFFu << sh)) | (uint32_t(v) << sh));
+        refreshBar();
+        return;
+    }
     if (gLicMode) return;
     if (editing) movePick(d);
     else if (focus == 0) moveCat(d);
@@ -716,6 +796,50 @@ int gOptTop = 0, gPickTop = 0;   // first visible rows (scrolling lists)
 void ConfigScreen::draw(Gfx& g) {
     App& a = app_;
     const Theme& th = ui_.th();
+    if (gEditMode) {   // OT fork theme editor
+        char t[48];
+        std::snprintf(t, sizeof(t), "Edit theme  %s", a.customThemeName());
+        ui_.drawTitle(g, t);
+        wg::ListView rv;
+        rv.count = kThemeRoleCount;
+        rv.sel = gEditRole;
+        rv.top = wg::listFollow(gEditRole, kThemeRoleCount, wg::listVisibleRows(rv.h), 0);
+        rv.selStyle = wg::ListSel::kWhite;
+        rv.item = themeItem;
+        wg::list(g, th, rv);
+        wg::panel(g, th, 201, wg::kPanelY, 398, wg::kPanelH);
+        const uint32_t c = a.themeEditGet(gEditRole);
+        // The swatch with a text-coloured frame, the role and its value.
+        g.fill(219, 47, 364, 124, th.text);
+        g.fill(221, 49, 360, 120, c);
+        char hex[32];
+        std::snprintf(hex, sizeof(hex), "%s  #%06lX", themeRole(gEditRole).name, static_cast<unsigned long>(c));
+        g.text(400, 190, kFont3, th.text, hex, IDisplay::kOptCenter);
+        static const uint32_t kChan[3] = {0xFF4040, 0x40E060, 0x4080FF};
+        static const char* const kName[3] = {"R", "G", "B"};
+        for (int k = 0; k < 3; ++k) {
+            const int y = 225 + 58 * k, v = int((c >> (16 - 8 * k)) & 255);
+            if (k == gEditChan) g.fill(244, y - 4, 312, 34, th.accent);
+            g.fill(248, y, 304, 26, th.panel2);
+            g.fill(248, y, 304 * v / 255, 26, kChan[k]);
+            g.text(230, y + 13, kFont3, th.text, kName[k], IDisplay::kOptCenter);
+            char n[8];
+            std::snprintf(n, sizeof(n), "%d", v);
+            g.text(575, y + 13, kFont2, th.text, n, IDisplay::kOptCenter);
+        }
+        // Right column: the theme as it now looks.
+        wg::panelColumn(g, th, 6, 2);
+        g.fill(611, 44, 177, 40, th.bg);
+        g.text(699, 64, kFont3, th.text, "Text", IDisplay::kOptCenter);
+        const uint32_t sw[6] = {th.accent, th.good, th.track[0], th.track[1], th.track[2], th.track[3]};
+        static const char* const kSw[6] = {"accent", "good", "note", "instr", "fx1", "fx2"};
+        for (int k = 0; k < 6; ++k) {
+            const int y = 98 + 46 * k;
+            g.fill(615, y, 34, 34, sw[k]);
+            g.text(660, y + 17, kFont1, th.text, kSw[k], IDisplay::kOptCenterY);
+        }
+        return;
+    }
     ui_.drawTitle(g, "Config");
     if (gLicMode) {
         // spec 06 §7.5 text box (0, 30, 780, 450). SPEC GAP: height kept to

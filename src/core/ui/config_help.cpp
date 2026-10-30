@@ -33,6 +33,10 @@ const char* const kGeneralHelp[] = {
     // [I] 2.x theme files.
     "Saves the current colour scheme (a fork palette too) as a text file in the Themes folder of the SD card, "
     "to edit on a computer and choose under Display theme. An existing file is never overwritten.",
+    // OT fork.
+    "Edits the current colour scheme here: Up / Down (F1 / F2) pick one of its colour roles, F3..F5 or Left / "
+    "Right the red, green or blue part, the encoder changes it (Shift: faster). The screen shows the result at "
+    "once. Save writes it to the Themes folder under a name and makes it the display theme; Cancel goes back.",
     "Sets how bright the pad lights are.",
     "Lights the pads of the notes on the current pattern line: on the cursor track only, on all tracks, or "
     "not at all.",
@@ -85,6 +89,9 @@ const char* const kMidiHelp[] = {
     nullptr,
     "Shifts the incoming MIDI clock by whole clock pulses (one pulse is a sixth of a step) to line the "
     "sequencer up with other gear.",
+    // OT fork.
+    "On: Performance columns learned to a MIDI control (Shift + Fx2 on the Performance screen) send their "
+    "value as that control change on MIDI out whenever it changes, for motor faders, LED rings or other gear.",
 };
 // [I] 2.x USB (Tracker Mini manual §3 Config options, §13.10).
 const char* const kUsbHelp[] = {

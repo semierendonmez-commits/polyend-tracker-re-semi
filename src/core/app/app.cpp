@@ -390,6 +390,7 @@ int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t v
     r.id = voiceId;
     r.instrument = instrument;
     r.note = uint8_t(note & 127);
+    seq.bumpTrigger(track);   // OT fork Trigger theme: pad / key previews light the column
     return track;
 }
 
@@ -559,6 +560,10 @@ void App::midiByte(MidiPortId port, uint8_t b) {
     const uint8_t need = (type == 0xC0 || type == 0xD0) ? 1 : 2;
     if (m.count < need) return;
     m.count = 0;
+    // OT fork MIDI learn (Performance): learned controls and scene notes.
+    if (ui.active() == kModPerformance && perfCc && (type == 0xB0 || type == 0x90 || type == 0x80) &&
+        perfCc->perfMidi(m.status, m.data[0], m.data[1]))
+        return;
     // Control Change: config "CC in" port mask and "CC in channel" (spec 12 §B.1).
     if (type == 0xB0) {
         if (midicc::portAccepted(cfg.ccIn, port == MidiPortId::kUsb) &&
@@ -661,6 +666,13 @@ uint8_t App::ccTargetInstrument() const {
     const uint8_t ci = currentInstrument();
     if (ci < kSampleInstrumentCount) return ci;
     return ccMapInstrument < kSampleInstrumentCount ? ccMapInstrument : 0;
+}
+
+// OT fork: one control change on MIDI out (Config MIDI out ports).
+void App::sendMidiCc(uint8_t channel, uint8_t cc, uint8_t value) {
+    if (!hal_.midi || !(cfg.midiOut & 3)) return;
+    const uint8_t msg[3] = {uint8_t(0xB0 | (channel & 15)), uint8_t(cc & 127), uint8_t(value & 127)};
+    routeMidi(*hal_.midi, uint8_t(cfg.midiOut & 3), msg, 3);
 }
 
 void App::handleControlChange(uint8_t cc, uint8_t value) {

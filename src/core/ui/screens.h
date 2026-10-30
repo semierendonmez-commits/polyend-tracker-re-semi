@@ -763,6 +763,7 @@ public:
     // MIDI CC 41-48 / 51-62 (spec 12 §B.2, §B.3); handled at the next update.
     void perfTrackPatternCc(uint8_t track, uint8_t value) override;
     void perfSlotCc(uint8_t slot, uint8_t value) override;
+    bool perfMidi(uint8_t status, uint8_t d1, uint8_t d2) override;   // OT fork MIDI learn
     void perfBackground(uint32_t now) override;
     void perfScreenKey(uint8_t id) override;
     void perfRevertKept() override;
@@ -793,6 +794,15 @@ private:
     void changeType(int d);
     void setType(int c, uint8_t ty);
     bool fxPick_ = false;   // OT fork: Shift + encoder FX chooser open (edit mode)
+public:
+    // OT fork MIDI learn (Shift + Fx2): a column pad or Fx1 + F key picks the
+    // target, the next control / note is learned (Config::perfMidi).
+    bool learn = false;
+    int learnTarget = -1;   // 0..11 columns, 12..19 scenes
+private:
+    void ccOut();
+    uint8_t ccOutLast_[12] = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
+    bool sceneCcHigh_[8] = {};
     // OT fork scenes (SETBOOK): Fx1 + F1..F8 recalls a scene (with a morph of
     // the number FX over morphIdx_ bars), Fx2 + F1..F8 stores it. Perform
     // recording (BLACKBOX): Insert writes the playing Perform FX into FX 2.

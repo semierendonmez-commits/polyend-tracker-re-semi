@@ -72,6 +72,10 @@ public:
     // OT fork track links (one per track; audio context, like the engine settings).
     void setLinks(const TrackLink* links);
     const TrackLink& link(int t) const { return links_[t]; }
+    // OT fork: notes started per track (sequencer, links, live pads; the app
+    // adds its previews), for the Trigger theme. Wraps.
+    uint16_t triggerCount(int t) const { return t >= 0 && t < kTracks ? trigCount_[t] : 0; }
+    void bumpTrigger(int t) { if (t >= 0 && t < kTracks) ++trigCount_[t]; }
     void seedRandom(uint32_t s) { rng_.seed(s); }
     uint32_t randomState() const { return rng_.state(); }
 
@@ -346,6 +350,7 @@ private:
     uint8_t linkDepth_ = 0;                   // > 0 while a link plays (no chains)
     int8_t silentTrack_ = -1;                 // a muted source: steps run, it stays silent
     uint32_t linkRng_ = 0x2545F491u;
+    volatile uint16_t trigCount_[kTrackCount] = {};
     const MidiInstrument midiInstr(uint8_t instr) const;
 
     // MIDI out helpers (spec 03 §4.1, §4.4).

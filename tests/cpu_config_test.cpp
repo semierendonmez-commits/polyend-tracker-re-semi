@@ -116,7 +116,7 @@ TEST(cpu_config_info_lines) {
     CHECK_STR(t, "0");
     c.optionText(info, 3, t, sizeof t);
     CHECK_STR(t, "4/4");
-    c.optionText(1, 12, t, sizeof t);   // after 2.x Export theme
+    c.optionText(1, 13, t, sizeof t);   // after 2.x Export theme and Edit theme
     CHECK_STR(t, "Auto");
 }
 

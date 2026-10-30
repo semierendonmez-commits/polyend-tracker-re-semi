@@ -295,6 +295,20 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
             if (beat[r]) g.rectsAdd(1, bandTop(r), right - 2, pitch);
         g.rectsEnd();
     }
+    // OT fork Trigger theme: a column lights up when its track plays a note
+    // (the dashes and the cells draw over it).
+    if (themeTriggerFlash(a.cfg.uiTheme) && !a.customThemeActive()) {
+        for (int v = 0; v < nT; ++v) {
+            const int t = firstTrack + v;
+            const uint8_t f = t < kTrackCount ? ui_.trigFlash(t) : 0;
+            if (!f) continue;
+            g.alpha(uint8_t(f / 2u));
+            g.fill(trackX(v) + 1, band0, L.trackW - 2, gh - 1, th.accent);
+            g.alpha(f);
+            g.fill(trackX(v) + 1, band0, L.trackW - 2, 4, th.accent);   // a brighter lip at the top
+            g.alpha(255);
+        }
+    }
 
     // 3. Dashes. OT fork: L1 row masks (pixel exact) when the uploaded
     //    masks match this view; otherwise one tall rect per character cell of

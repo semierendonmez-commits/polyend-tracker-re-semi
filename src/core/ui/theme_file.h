@@ -61,6 +61,7 @@ int listThemeFiles(IStorage& fs, char (*names)[kThemeNameMax + 1], int max);
 // Writes Themes/<name>.txt: base line, every role as a comment, then the
 // slots that differ from the base. Never overwrites.
 enum class ThemeWrite : uint8_t { kOk = 0, kExists, kFailed };
-ThemeWrite writeThemeFile(IStorage& fs, const char* name, const uint32_t* slots, uint8_t base);
+// overwrite (OT fork theme editor): an existing file is replaced.
+ThemeWrite writeThemeFile(IStorage& fs, const char* name, const uint32_t* slots, uint8_t base, bool overwrite = false);
 
 }  // namespace ot

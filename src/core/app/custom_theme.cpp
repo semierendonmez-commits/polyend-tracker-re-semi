@@ -44,6 +44,54 @@ void App::restoreCustomTheme() {
     loadCustomTheme(name);
 }
 
+bool App::beginThemeEdit() {
+    if (usbActive_) return false;
+    if (themeActive_) std::snprintf(themeEditPrev_, sizeof(themeEditPrev_), "%s", themeName_);
+    else themeEditPrev_[0] = 0;
+    const uint32_t* from = activeTheme().slots;
+    if (from != g_customSlots) std::memcpy(g_customSlots, from, sizeof(g_customSlots));
+    if (!themeActive_) {
+        // A built-in theme: the file name to suggest ("Ember edit").
+        std::snprintf(themeName_, sizeof(themeName_), "%.15s edit", activeTheme().name);
+        cfg.theme = themeBase(cfg.uiTheme);
+    }
+    themeView_ = themeView(themeName_, g_customSlots);
+    themeActive_ = true;
+    themeEditing_ = true;
+    ui.dirty();
+    return true;
+}
+
+uint32_t App::themeEditGet(int role) const {
+    if (role < 0 || role >= kThemeRoleCount) return 0;
+    return g_customSlots[themeRole(role).slots[0]] & 0xFFFFFFu;
+}
+
+void App::themeEditSet(int role, uint32_t rgb) {
+    if (!themeEditing_ || role < 0 || role >= kThemeRoleCount) return;
+    const ThemeRole& r = themeRole(role);
+    for (int i = 0; i < r.count; ++i) g_customSlots[r.slots[i]] = rgb & 0xFFFFFFu;
+    themeView_ = themeView(themeName_, g_customSlots);
+    ui.dirty();
+}
+
+App::ThemeExport App::saveThemeEdit(const char* name) {
+    if (usbActive_ || !hal_.storage) return ThemeExport::kUnavailable;
+    const uint8_t base = cfg.theme < kThemeCount ? cfg.theme : 0;
+    if (writeThemeFile(fs(), name, g_customSlots, base, true) != ThemeWrite::kOk) return ThemeExport::kFailed;
+    themeEditing_ = false;
+    if (!loadCustomTheme(name)) return ThemeExport::kFailed;
+    markConfigDirty();
+    return ThemeExport::kOk;
+}
+
+void App::cancelThemeEdit() {
+    if (!themeEditing_) return;
+    themeEditing_ = false;
+    if (themeEditPrev_[0] && loadCustomTheme(themeEditPrev_)) return;
+    clearCustomTheme();
+}
+
 App::ThemeExport App::exportTheme() {
     if (usbActive_ || !hal_.storage) return ThemeExport::kUnavailable;
     const uint32_t* slots = activeTheme().slots;   // OT fork: a fork palette exports too

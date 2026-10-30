@@ -384,11 +384,14 @@ int listThemeFiles(IStorage& fs, char (*names)[kThemeNameMax + 1], int max) {
     return x.n;
 }
 
-ThemeWrite writeThemeFile(IStorage& fs, const char* name, const uint32_t* slots, uint8_t base) {
+ThemeWrite writeThemeFile(IStorage& fs, const char* name, const uint32_t* slots, uint8_t base, bool overwrite) {
     if (!themeNameValid(name) || base >= kThemeCount) return ThemeWrite::kFailed;
     char path[48];
     themePath(path, sizeof(path), name);
-    if (fs.exists(path)) return ThemeWrite::kExists;
+    if (fs.exists(path)) {
+        if (!overwrite) return ThemeWrite::kExists;
+        fs.remove(path);
+    }
     fs.mkdir(kThemesDir);
     const IStorage::Handle h = fs.open(path, IStorage::kWrite);
     if (h < 0) return ThemeWrite::kFailed;
