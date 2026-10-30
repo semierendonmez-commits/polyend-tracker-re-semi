@@ -20,7 +20,7 @@ namespace perf {
 constexpr int kSlots = 12;
 constexpr int kRows = 4;          // stored rows 0..3 (0 = off)
 constexpr int kLiveRow = 4;       // MIDI-CC live value (spec 12 §B.2)
-constexpr int kFxCount = 37;      // 0 = empty, 1..21 stock, 22..29 OT fork generators, 30..31 WT FM, 32..35 Grids / Loop Lock
+constexpr int kFxCount = 39;      // 0 = empty, 1..21 stock, 22..29 OT fork generators, 30..31 WT FM, 32..35 Grids / Loop Lock, 36 DeRez, 37..38 Turing
 
 // FX ids (spec 12 §E.2).
 enum Fx : uint8_t {
@@ -36,6 +36,8 @@ enum Fx : uint8_t {
     kGridsX, kGridsY, kGridsDensity,   // OT fork live Grids tracks (global)
     kLoopLock,             // OT fork M / TM / R play modes: lock offset (global)
     kDeRez,                // OT fork sample-rate reduction (voice.h PerfOffsets::derez)
+    kTuring,               // OT fork Turing Machine knob per track (live_gen.h; 0 = off)
+    kTuringLength,         // OT fork Turing register length per track (0 = as generated)
 };
 
 // Value descriptor (spec 12 §E.1): min, max, label table, exclusive-with
@@ -57,6 +59,11 @@ void valueText(uint8_t id, int v, char* out, int cap);
 // CC 51..62 value -> slot value (spec 12 §B.2): min + (max - min) * v / 127,
 // truncating toward zero.
 int ccToValue(uint8_t id, uint8_t v);
+// OT fork: values not offered any more (Pattern Play Mode TM8 / TM16, now the
+// Turing FX); older sets that hold one still play it.
+bool valueHidden(uint8_t id, int v);
+// v + d for the encoder, past the hidden values, within min..max.
+int stepValue(uint8_t id, int v, int d);
 
 // Sample position / end offset in 1/65535 marker units (spec 12 §E.2 ids 9/10).
 int32_t startOffset(int v);

@@ -16,8 +16,12 @@
 //    again by something else, or when the pattern is left.
 //  * Grids: tracks written by Grids stay live (kGridsSlots): Perform "Grids
 //    X / Y / Density" redraw them at once, Chaos > 0 draws new chaos every loop.
-//  * Play modes M1..M3 / TM8 / TM16 / R1 / R2: per-track tables every loop
-//    (Marbles deja vu, Turing register, randLoops drift); Perform "Loop Lock".
+//  * Play modes M1..M3 / R1 / R2 (and the hidden TM8 / TM16 of older sets):
+//    per-track tables every loop (Marbles deja vu, Turing register, randLoops
+//    drift); Perform "Loop Lock".
+//  * Turing: tracks written by the Turing generator (kTuringSlots) run their
+//    register on every loop with Perform "Turing Machine" / "Turing Length";
+//    the knob on other tracks plays their steps in Turing order.
 #pragma once
 
 #include <cstdint>
@@ -33,6 +37,7 @@ namespace live {
 constexpr int kAcidSlots = 4;
 constexpr int kBBSlots = 2;
 constexpr int kGridsSlots = 2;
+constexpr int kTuringSlots = 4;
 
 // Main loop, every pass (App::loop).
 void service(App& a);
@@ -63,6 +68,13 @@ bool gridsActive(int track);
 void setGridsPerf(int x, int y, int density);
 // Perform "Loop Lock" (-100..100) for the M / TM / R play modes.
 void setLoopLock(int track, int v);   // Perform "Loop Lock" per track (-100..+100)
+// Turing: takes over the tracks the Turing generator just wrote; Perform
+// "Turing Machine" (knob, 0 = off) and "Turing Length" (0 = as generated) per
+// track. On a live Turing track the register runs on at every loop end while
+// either is on; on any other track the knob plays the steps in Turing order.
+void turing(App& a, const int16_t* v, const gen::Target& t, uint32_t rngSeed);
+bool turingActive(int track);
+void setTuringPerf(int track, int knob, int len);
 void stopAll();
 
 }  // namespace live

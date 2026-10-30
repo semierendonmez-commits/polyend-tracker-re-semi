@@ -18,6 +18,9 @@
 //               counting voice), in groups of five
 //   Grids       Mutable Instruments Grids drum map (X / Y, densities, chaos)
 //   Marbles     Marbles-style T / X random sequence with deja vu
+//   Turing      Turing Machine shift register (Music Thing Modular): a loop
+//               of Length steps, locked or slowly changing; live with the
+//               Perform FX "Turing Machine" / "Turing Length"
 #pragma once
 
 #include <cstdint>
@@ -55,6 +58,7 @@ enum Kind : uint8_t {
     kStation,
     kGrids,
     kMarbles,
+    kTuring,
     kKindCount
 };
 
@@ -188,6 +192,19 @@ int gridsRender(const int16_t* v, const GridsOffsets& o, uint32_t seed, Pattern&
                 const GridsVoice* voice);
 // Marbles X -> note: Steps mode 0 chromatic, 1 scale, 2 triad, 3 root + fifth, 4 root.
 int marblesNote(float x, int mode, const Target& t, int rangeOct);
+// Turing Machine (gen_turing.cpp). Parameters: Length (1..16), Lock
+// (-100..+100), Density, Range, Steps, Seed, Gate, Velocity, Rate, Glide.
+// Lock -> the chance a bit is flipped: +100 never, 0 half, -100 always.
+float turingFlip(int lock);
+// One clock: bit len-1 comes back into bit 0 (flipped with `flip`).
+uint16_t turingClock(uint16_t reg, int len, float flip, Rng& rng);
+// A fresh register for parameters v, already run for 16 clocks.
+uint16_t turingSeedRegister(const int16_t* v, Rng& rng);
+// Clears steps s0..s0+n-1 of `track` and writes the register's notes there,
+// clocking `reg` once per step (every second step at Rate 1/8). Returns the
+// number of notes. lock / len override v[1] / v[0] (the live Perform FX).
+int turingRender(const int16_t* v, int lock, int len, uint16_t& reg, Rng& rng, const Target& t, int track, int s0,
+                 int n);
 // Range of BBCut procedure `proc`'s A (which 0) / B (1) parameter.
 bool bbProcRange(int proc, int which, int16_t& min, int16_t& max, int16_t& def);
 

@@ -296,6 +296,7 @@ void PatternScreen::genApply() {
     if (genKind == gen::kAcid) live::acid(a, genVals[genKind], t, res.rngSeed);   // live density / Mutate
     if (genKind == gen::kBBCut) live::bbcut(a, genVals[genKind], t, res.rngSeed);   // live Mutate
     if (genKind == gen::kGrids) live::grids(a, genVals[genKind], t, res.rngSeed);   // live X / Y / Density
+    if (genKind == gen::kTuring) live::turing(a, genVals[genKind], t, res.rngSeed);   // live Turing knob / length
     a.patternEdited();
     genOpen = false;
     ui_.notify(res.msg);
@@ -504,7 +505,7 @@ void PatternScreen::drawGen(Gfx& g) {
     }
     drawGenPreview(g, wg::columnX(7), kTop, wg::columnW(), kListH);
     if ((genKind == gen::kAcid && live::acidActive(track)) || (genKind == gen::kBBCut && live::bbcutActive(track)) ||
-        (genKind == gen::kGrids && live::gridsActive(track)))
+        (genKind == gen::kGrids && live::gridsActive(track)) || (genKind == gen::kTuring && live::turingActive(track)))
         g.text(wg::columnX(7) + 48, kTop + kListH - 12, kFont2, th.accent, "LIVE", IDisplay::kOptCenter);
     wg::focusFrame(g, th, wg::columnX(genField), kTop, wg::columnX(genField) + wg::columnW(), kTop + kListH);
 }

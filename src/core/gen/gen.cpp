@@ -37,6 +37,7 @@ const char* const kGrParts[4] = {"Kit 3 trk", "Kick", "Snare", "Hats"};
 const char* const kMbSteps[5] = {"Chromatic", "Scale", "Triad", "Root+5th", "Root"};
 const char* const kMbModel[4] = {"Coin", "Clusters", "Drums", "2 tracks"};
 const char* const kMbRate[2] = {"1/16", "1/8"};
+const char* const kTmGate[3] = {"Full", "Half", "Short"};
 const char* const kStSource[4] = {"RDS name", "PI code", "Frequency", "All"};
 const char* const kStMode[2] = {"Notes", "Slices"};
 const char* const kStRate[3] = {"1/16", "1/8", "1/4"};
@@ -138,6 +139,19 @@ const KindDesc gKinds[kKindCount] = {
       {"Jitter", 0, 100, 0, nullptr, "Random Micro-move on the notes"},
       {"Rate", 0, 1, 0, kMbRate, "A draw every step, or every second step"},
       NONE}},
+    {"Turing", "Turing Machine: a looping shift register (Music Thing)",
+     {{"Length", 1, 16, 8, nullptr, "Loop length in steps (register bits). Live: Perform FX Turing Length"},
+      {"Lock", -100, 100, 80, nullptr,
+       "+100 a locked loop, 0 random, -100 locked at twice the length, inverted. Live: Perform FX Turing Machine"},
+      {"Density", 0, 100, 70, nullptr, "Share of the steps that play (from the register, so it loops too)"},
+      {"Range", 0, 2, 1, kOctLabels, "Pitch range above the root"},
+      {"Steps", 0, 4, 1, kMbSteps, "Quantizer: chromatic, the project scale, its triad, root and fifth, root only"},
+      SEED,
+      {"Gate", 0, 2, 0, kTmGate, "Note length: the whole step, half (Gate 50), short (Gate 20)"},
+      {"Velocity", 0, 100, 0, nullptr, "Volume from the register: 0 all full, 100 a wide spread"},
+      {"Rate", 0, 1, 0, kMbRate, "A clock every step, or every second step"},
+      {"Glide", 0, 100, 0, nullptr, "Chance of a Glide between two notes in a row"},
+      NONE, NONE}},
 };
 #undef NONE
 #undef SEED
@@ -261,6 +275,7 @@ Result generate(int k, const int16_t* params, Target& t) {
         case kStation: genStation(v, t, rng, r); break;
         case kGrids: genGrids(v, t, rng, r); break;
         case kMarbles: genMarbles(v, t, rng, r); break;
+        case kTuring: genTuring(v, t, rng, r); break;
         default: std::snprintf(r.msg, sizeof(r.msg), "Unknown generator"); break;
     }
     return r;

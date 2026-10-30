@@ -15,7 +15,26 @@ Image: `PolyendTrackerOTs223.ptf` (installs like the upstream image, see Install
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
-### Latest update (2.2.3-semi.3): MIDI learn, a theme editor on the device, Trigger theme
+### Latest update (2.2.3-semi.4): Turing Machine generator, fixes from user reports
+
+![Generate: Turing](screenshots/2.2.3-semi/gen-turing.png)
+
+- **Generate: Turing** (Pattern, page 3, F3): the Music Thing Turing Machine writes the notes.
+  Length 1..16, Lock (+100 a locked loop, 0 random, -100 twice the length inverted), Density,
+  Range, Steps (scale quantizer), Gate, Velocity, Rate, Glide. The written tracks stay live.
+- **Perform FX Turing Machine / Turing Length** (its own columns now, not in Pattern Play
+  Mode): the knob runs the register on from loop to loop on generated tracks; on any other
+  track it plays the track's own steps in Turing order, over Pattern Play Mode. TM8 / TM16 are
+  gone from the Play Mode list (older sets still play them).
+- **Fix: Paulstretch froze the device** (200 / 400 ms windows): the FFT's twiddle table was
+  too short for 8192 / 16384 points, and the work took minutes. Now about 4x less work (two
+  windows per FFT, half-window hop) and the progress popup counts up while it runs.
+- **Fix: themes listed twice as "._<name>"**: the hidden files macOS writes on a FAT card are
+  skipped. Copy the theme `.txt` files into the card's `Themes` folder (not a subfolder).
+- **Fix: pads on an empty FX cell**: in edit mode a pad alone now picks the effect, by the same
+  map as Fx + pad (top right = Roll); it wrote a value with no effect before.
+
+### Previous update (2.2.3-semi.3): MIDI learn, a theme editor on the device, Trigger theme
 
 | **Trigger: a column lights up when its track plays** | **Edit theme: every role, R / G / B with the encoder** |
 |---|---|
@@ -40,7 +59,7 @@ and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**
   note (pattern, play modes, rolls, Track Link, pads, MIDI), its column on the Pattern screen
   flashes and fades in about 0.15 s.
 
-### Previous update (2.2.3-semi.2): themes that follow the music, a theme pack
+### Earlier update (2.2.3-semi.2): themes that follow the music, a theme pack
 
 | **Reactor: the page heats up with the master level** | **Beat / Pump while playing (animated)** |
 |---|---|

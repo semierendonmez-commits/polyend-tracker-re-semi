@@ -13,6 +13,7 @@
 #include "app/app.h"
 #include "app/live_gen.h"
 #include "app/perf_presets.h"
+#include "sequencer/seq_playmodes.h"
 #include "ui/screens.h"
 
 namespace ot {
@@ -67,8 +68,8 @@ const char* fxPickDesc(void*, int i) {
         "Speed of the granular / wavetable position LFO.",
         "Repeats the current step at the chosen rate (stutter).",
         "Order the tracks play their steps: C1..C20 stock tables, B1..B10 BBCut cuts, T1..T4 TILT pinball, "
-        "G1..G3 Genotype variations, M1..M3 Marbles deja vu, TM8 / TM16 Turing Machine, R1 / R2 notes that "
-        "drift by scale degrees (randLoops).",
+        "G1..G3 Genotype variations, M1..M3 Marbles deja vu, R1 / R2 notes that drift by scale degrees "
+        "(randLoops). The Turing Machine is a Perform FX of its own now.",
         "Shortens the pattern for every track (loop a part).",
         "Bit depth reduction on the samples.",
         "Overdrive on the samples.",
@@ -88,9 +89,13 @@ const char* fxPickDesc(void*, int i) {
         "Live Grids tracks: moves the map position X (the drum pattern changes at once).",
         "Live Grids tracks: moves the map position Y.",
         "Live Grids tracks: more or fewer hits on all three parts.",
-        "M1..M3, TM8 / TM16, R1 / R2 on the tracks it is on: +100 locks the loop. TM: -50 random, -100 a locked "
-        "loop of twice the length, inverted (the Turing Machine knob).",
+        "M1..M3, R1 / R2 on the tracks it is on: +100 locks the loop, lower values let it change more.",
         "Sample-rate reduction on the tracks' samples (sample and hold): 0 off, 100 a few hundred Hz.",
+        "The Turing Machine knob: +100 a locked loop, near 0 random, -100 a locked loop of twice the length, "
+        "inverted. Tracks written by the Turing generator run on from loop to loop; other tracks play their own "
+        "steps in Turing Machine order (over Pattern Play Mode).",
+        "Turing Machine loop length (register bits) on the tracks it is on: Gen keeps the generator's Length "
+        "(8 on other tracks). On generator tracks it alone also keeps the register running.",
     };
     return i >= 0 && i < perf::kFxCount ? kHelp[i] : "";
 }
@@ -250,7 +255,7 @@ void PerformanceScreen::applyAll(bool revertEverything) {
         int8_t repeat = -1, velOff = 0, transpose = 0;
         bool transposeOn = false;
         uint8_t playMode = 0;
-        int acidDens = 0, acidAcc = 0, acidSlide = 0, acidMut = 0, loopLock = 0;
+        int acidDens = 0, acidAcc = 0, acidSlide = 0, acidMut = 0, loopLock = 0, tmKnob = 0, tmLen = 0;
         const bool on = fxOn[t] && !revertEverything;
         for (int s = 0; s < perf::kSlots && !revertEverything; ++s) {
             const uint8_t ty = src.valid() ? src.type(s) : 0;
@@ -307,9 +312,14 @@ void PerformanceScreen::applyAll(bool revertEverything) {
                 case perf::kFmSource: p.fmSrc = int8_t(v); break;
                 case perf::kDeRez: p.derez = int16_t(v); break;
                 case perf::kLoopLock: loopLock = v; break;
+                case perf::kTuring: tmKnob = v; break;
+                case perf::kTuringLength: tmLen = v; break;
                 default: break;
             }
         }
+        // OT fork: the Turing Machine knob on a track that is not a Turing
+        // generator line plays its steps in Turing order (over Play Mode).
+        if (tmKnob && !live::turingActive(t)) playMode = seq::kPlayFirstTuring;
         if (t < kMidiTrackStart) a.engine.setPerf(t, p);
         q.setPerfRepeat(t, repeat);
         q.setPerfPlayMode(t, playMode);
@@ -318,6 +328,7 @@ void PerformanceScreen::applyAll(bool revertEverything) {
         live::setAcidDensityOffset(t, acidDens);
         live::setAcidPerf(t, acidAcc, acidSlide, acidMut);
         live::setLoopLock(t, loopLock);
+        live::setTuringPerf(t, tmKnob, tmLen);
     }
     q.setPerfGlobalLength(globalLen);
     live::setBBPerf(bbA, bbB, bbRolls, bbRecut);
@@ -544,7 +555,7 @@ void PerformanceScreen::onEncoder(int d) {
         const uint8_t ty = src.type(c);
         if (!held_[c] || ty == 0) continue;
         const perf::FxDesc& f = perf::fx(ty);
-        cur[c] = int16_t(clampi(cur[c] + d, f.min, f.max));
+        cur[c] = int16_t(clampi(perf::stepValue(ty, cur[c], d), f.min, f.max));
         const int row = src.row(c);
         // Stored only in edit mode on rows 1..3; never into the live row
         // (spec 12 §B.2: stock writes out of the slot there).

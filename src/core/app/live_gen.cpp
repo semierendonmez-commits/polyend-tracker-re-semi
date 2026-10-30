@@ -60,8 +60,26 @@ struct GridsSlot {
     uint32_t hash = 0;
 };
 
+// A track written by the Turing generator: the register runs on at each loop
+// end while Perform "Turing Machine" / "Turing Length" is on the track.
+struct TuringSlot {
+    bool used = false;
+    uint8_t track = 0, pattern = 0;
+    uint8_t instrument = 0;
+    int16_t s0 = 0, n = 0, lastStep = -1;
+    int16_t v[gen::kParams] = {};
+    int16_t rootNote = 36;
+    uint16_t scaleMask = 0;
+    uint16_t reg = 1;
+    uint32_t rng = 1;
+    uint32_t hash = 0;
+};
+
 struct State {
     AcidSlot acid[kAcidSlots];
+    TuringSlot turing[kTuringSlots];
+    int8_t tmKnob[kTrackCount] = {};   // Perform "Turing Machine" (0 = off)
+    uint8_t tmLen[kTrackCount] = {};   // Perform "Turing Length" (0 = as generated)
     BBSlot bb[kBBSlots];
     GridsSlot grids[kGridsSlots];
     int16_t grX = 0, grY = 0, grD = 0;
@@ -119,6 +137,19 @@ uint32_t hashRange(const Pattern& p, int t0, int t1, int s0, int n) {
 uint32_t hashSteps(const Pattern& p, const AcidSlot& s) { return hashRange(p, s.track, s.track, s.s0, s.n); }
 uint32_t hashSteps(const Pattern& p, const BBSlot& s) { return hashRange(p, s.t0, s.t1, s.s0, s.n); }
 uint32_t hashSteps(const Pattern& p, const GridsSlot& s) { return hashRange(p, s.t0, s.t0 + s.nt - 1, s.s0, s.n); }
+uint32_t hashSteps(const Pattern& p, const TuringSlot& s) { return hashRange(p, s.track, s.track, s.s0, s.n); }
+
+gen::Target targetOf(App& a, const TuringSlot& s) {
+    gen::Target t;
+    t.pat = &a.pattern();
+    t.t0 = t.t1 = s.track;
+    t.s0 = s.s0;
+    t.s1 = s.s0 + s.n - 1;
+    t.instrument = s.instrument;
+    t.rootNote = s.rootNote;
+    t.scaleMask = s.scaleMask;
+    return t;
+}
 
 void renderGrids(App& a, State& st, GridsSlot& s) {
     gen::GridsOffsets o;
@@ -167,6 +198,10 @@ void buildMarbles(App& a, State& st, int t, int level) {
 // Turing Machine knob: 0 a slow change (5 % per step), +100 locked (the
 // register just rotates: an 8 / 16 step loop), -50 random, -100 always
 // flipped (a locked loop of twice the length, the second half inverted).
+// OT fork: Perform "Turing Machine" on a track that is not a Turing generator
+// line plays it in this order too (whatever Pattern Play Mode says): the knob
+// is the Turing Machine's (+100 locked, 0 random, -100 inverted, twice the
+// length), "Turing Length" the register (8 when not set).
 void buildTuring(App& a, State& st, int t, int bits) {
     const Track& tr = a.pattern().tracks[t];
     const int len = tr.length();
@@ -174,7 +209,11 @@ void buildTuring(App& a, State& st, int t, int bits) {
     gen::Rng rng(st.genoSeed | 1u);
     if (!st.tmReg[t]) st.tmReg[t] = uint16_t(rng.next() | 1u);
     const float L = float(st.loopLock[t]) / 100.0f;
-    const float flip = L >= 0.0f ? 0.05f * (1.0f - L) : 0.05f - L * 0.95f;
+    float flip = L >= 0.0f ? 0.05f * (1.0f - L) : 0.05f - L * 0.95f;
+    if (st.tmKnob[t]) {
+        flip = gen::turingFlip(st.tmKnob[t]);
+        bits = st.tmLen[t] ? st.tmLen[t] : 8;
+    }
     const uint16_t mask = uint16_t((1u << bits) - 1u);
     uint16_t r = st.tmReg[t];
     for (int k = 0; k < len && k < seq::kPlayModeTableLen; ++k) {
@@ -483,7 +522,83 @@ void service(App& a) {
             edited = true;
         }
     }
+    for (TuringSlot& s : st.turing) {
+        if (!s.used || a.patternNumber() != s.pattern) continue;
+        if (hashSteps(a.pattern(), s) != s.hash) {   // edited by hand: hands off
+            s.used = false;
+            continue;
+        }
+        if (!playing) {
+            s.lastStep = -1;
+            continue;
+        }
+        const int now = a.seq.step(s.track);
+        const int knob = st.tmKnob[s.track], tl = st.tmLen[s.track];
+        if (s.lastStep >= 0 && now < s.lastStep && (knob || tl)) {
+            // The loop end: the register runs on for the next pass.
+            gen::Rng rng(s.rng);
+            const gen::Target tt = targetOf(a, s);
+            gen::turingRender(s.v, knob ? knob : s.v[1], tl ? tl : s.v[0], s.reg, rng, tt, s.track, s.s0, s.n);
+            s.rng = rng.s;
+            const uint32_t h = hashSteps(a.pattern(), s);
+            if (h != s.hash) edited = true;
+            s.hash = h;
+        }
+        s.lastStep = int16_t(now);
+    }
     if (edited) a.patternEdited();
+}
+
+void turing(App& a, const int16_t* v, const gen::Target& t, uint32_t rngSeed) {
+    State& st = gState.get();
+    // The same register and draws the generate used (same seed, same order).
+    gen::Rng rng(rngSeed);
+    const int n = t.s1 - t.s0 + 1;
+    for (int tr = t.t0; tr <= t.t1; ++tr) {
+        uint16_t reg = gen::turingSeedRegister(v, rng);
+        gen::Target tt = t;
+        tt.t0 = tt.t1 = tr;
+        gen::turingRender(v, v[1], v[0], reg, rng, tt, tr, t.s0, n);
+        TuringSlot* slot = nullptr;
+        for (TuringSlot& s : st.turing)
+            if (s.used && s.track == tr) slot = &s;
+        if (!slot)
+            for (TuringSlot& s : st.turing)
+                if (!s.used) {
+                    slot = &s;
+                    break;
+                }
+        if (!slot) {
+            for (int i = 0; i + 1 < kTuringSlots; ++i) st.turing[i] = st.turing[i + 1];
+            slot = &st.turing[kTuringSlots - 1];
+        }
+        *slot = TuringSlot{};
+        slot->used = true;
+        slot->track = uint8_t(tr);
+        slot->pattern = uint8_t(a.patternNumber());
+        slot->instrument = t.instrument;
+        slot->s0 = int16_t(t.s0);
+        slot->n = int16_t(n);
+        for (int i = 0; i < gen::kParams; ++i) slot->v[i] = v[i];
+        slot->rootNote = int16_t(t.rootNote);
+        slot->scaleMask = t.scaleMask;
+        slot->reg = reg;
+        slot->rng = (rng.s ^ (uint32_t(tr) * 2654435761u)) | 1u;   // its own draws from here on
+        slot->hash = hashSteps(a.pattern(), *slot);
+    }
+}
+
+bool turingActive(int track) {
+    for (const TuringSlot& s : gState.get().turing)
+        if (s.used && s.track == track) return true;
+    return false;
+}
+
+void setTuringPerf(int track, int knob, int len) {
+    if (track < 0 || track >= kTrackCount) return;
+    State& st = gState.get();
+    st.tmKnob[track] = int8_t(knob < -100 ? -100 : (knob > 100 ? 100 : knob));
+    st.tmLen[track] = uint8_t(len < 0 ? 0 : (len > 16 ? 16 : len));
 }
 
 void acid(App& a, const int16_t* v, const gen::Target& t, uint32_t rngSeed) {
@@ -581,6 +696,8 @@ void release(int track) {
         if (s.used && track >= s.t0 && track <= s.t1) s.used = false;
     for (GridsSlot& s : gState.get().grids)
         if (s.used && track >= s.t0 && track < s.t0 + s.nt) s.used = false;
+    for (TuringSlot& s : gState.get().turing)
+        if (s.used && s.track == track) s.used = false;
 }
 
 bool acidActive(int track) {
@@ -664,6 +781,7 @@ void stopAll() {
     for (AcidSlot& s : gState.get().acid) s.used = false;
     for (BBSlot& s : gState.get().bb) s.used = false;
     for (GridsSlot& s : gState.get().grids) s.used = false;
+    for (TuringSlot& s : gState.get().turing) s.used = false;
 }
 
 }  // namespace live

@@ -24,6 +24,8 @@ const char* const kLength[] = {"---", "1", "2", "4", "8", "16", "32", "64", "128
 const char* const kBBRollLabels[] = {"---", "None", "Dense", "Fade"};
 const char* const kBBRecutLabels[] = {"---", "Now", "1 loop", "2 loops", "4 loops", "8 loops", "Locked"};
 const char* const kFmSrcLabels[] = {"Left", "Trk 1", "Trk 2", "Trk 3", "Trk 4", "Trk 5", "Trk 6", "Trk 7", "Trk 8"};
+const char* const kTmLenLabels[] = {"Gen", "1", "2",  "3",  "4",  "5",  "6",  "7", "8",
+                                    "9",   "10", "11", "12", "13", "14", "15", "16"};
 
 // spec 06 §3.2 / spec 12 §E.2 ranges; LP/HP/BP exclude each other (§E.1).
 // Names: stock 1.9.2 screen (owner photo 2026-10-23) for the first 12; the rest
@@ -47,7 +49,7 @@ const FxDesc kFx[kFxCount] = {
     {"Filter LFO Speed", -28, 28, nullptr, 0, 0, false},
     {"Grain/WT LFO Speed", -28, 28, nullptr, 0, 0, false},
     {"Step Repeater", 0, 15, kRepeater, 0, 0, false},
-    {"Pattern Play Mode", 0, 46, nullptr, 0, 0, false},   // labels: seq::playModeLabel; 23..32 OT BBCut, 33..36 TILT, 37..39 Genotype, 40..46 M / TM / R
+    {"Pattern Play Mode", 0, 46, nullptr, 0, 0, false},   // labels: seq::playModeLabel; 23..32 OT BBCut, 33..36 TILT, 37..39 Genotype, 40..46 M / (TM hidden) / R
     {"Pattern Length", 0, 8, kLength, 0, 0, true},
     {"Bit Depth", -12, 12, nullptr, 0, 0, false},
     {"Overdrive", -100, 100, nullptr, 0, 0, false},
@@ -66,6 +68,8 @@ const FxDesc kFx[kFxCount] = {
     {"Grids Density", -100, 100, nullptr, 0, 0, true},
     {"Loop Lock", -100, 100, nullptr, 0, 0, false},   // per track (the tracks it is on)
     {"DeRez", 0, 100, nullptr, 0, 0, false},
+    {"Turing Machine", -100, 100, nullptr, 0, 0, false},   // per track: the knob (+100 locked, -100 inverted)
+    {"Turing Length", 0, 16, kTmLenLabels, 0, 0, false},   // per track: register bits (0 = as generated)
 };
 }  // namespace
 
@@ -87,7 +91,23 @@ void valueText(uint8_t id, int v, char* out, int cap) {
 int ccToValue(uint8_t id, uint8_t v) {
     const FxDesc& d = fx(id);
     const int x = v > 127 ? 127 : v;
-    return d.min + ((d.max - d.min) * x) / 127;
+    const int r = d.min + ((d.max - d.min) * x) / 127;
+    return valueHidden(id, r) ? stepValue(id, r, 1) : r;
+}
+
+bool valueHidden(uint8_t id, int v) {
+    return id == kPlayMode && v >= seq::kPlayFirstTuring && v < seq::kPlayFirstRandLoop;
+}
+
+int stepValue(uint8_t id, int v, int d) {
+    const FxDesc& f = fx(id);
+    int x = v + d;
+    const int dir = d >= 0 ? 1 : -1;
+    while (valueHidden(id, x) && x >= f.min && x <= f.max) x += dir;
+    if (x < f.min) x = f.min;
+    if (x > f.max) x = f.max;
+    if (valueHidden(id, x)) x = v;   // nothing visible that way
+    return x;
 }
 
 int32_t startOffset(int v) {

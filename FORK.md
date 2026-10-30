@@ -59,6 +59,7 @@ item or spread over the range), **F8** Generate, **Pattern** or **Rec** closes.
 | **Station** | a numbers-station line from the radio: RDS name, PI code, frequency read as digits, in groups of five | Source, Mode (Notes / Slices), Rate, Groups, Repeat, Seed | |
 | **Grids** | Mutable Instruments Grids' drum map: kick, snare and hats from a point between 25 patterns | X, Y, Kick, Snare, Hats (densities), Seed | Chaos, Accent (Volume 70 under the accent level), Res (1/16, 1/32), Parts (kit on three tracks, or one part) |
 | **Marbles** | random notes with deja vu (after Mutable Marbles): a T generator for which steps play, an X generator for the pitch | Density, Deja vu, Length, Spread, Bias, Seed | Steps (Chromatic, Scale, Triad, Root+5th, Root), Range, T model (Coin, Clusters, Drums, 2 tracks), Jitter, Rate |
+| **Turing** | the Music Thing Turing Machine: a looping shift register writes the notes; live with the Perform FX Turing Machine / Turing Length | Length (1..16), Lock (-100..+100), Density, Range, Steps, Seed | Gate (Full / Half / Short), Velocity, Rate (1/16, 1/8), Glide |
 
 **Grids.** The map is the original's (25 nodes of 3 x 32 levels, GPL-3.0):
 X / Y blend the four nodes around the point, a part fires where its level is
@@ -74,6 +75,19 @@ their pitches) instead of new ones: 100 is a locked loop of Length, 0 always
 new. Spread 0 plays one pitch (the Bias), the middle a bell around it, the top
 the two extremes. 2 tracks: every step plays on one of the two tracks, the
 first with the Density's probability (Marbles' complementary T outputs).
+
+**Turing.** A 16-bit shift register clocked once per step (or every second
+step at Rate 1/8). The bit at Length - 1 comes back into the first bit,
+flipped with a chance set by **Lock**: +100 never (a locked loop of Length
+steps that repeats), 0 half the time (random), -100 always (a locked loop of
+twice the length, the second half inverted). The register's low byte is the
+pitch, quantized by Steps over Range; other bits of the register give which
+steps play (Density), the Velocity spread and the Glides, so a locked loop
+repeats all of them. On several tracks each gets its own register. The
+written tracks stay **live**: with the Perform FX **Turing Machine** on them
+the register runs on at every loop end with that knob (Lock), **Turing
+Length** changes its length; without them the written notes stay as they are.
+A hand edit on the track ends it.
 
 **Genotype Drummer** (after Noise86's MarkovDrummer): the selected tracks'
 hits as one state per step (which tracks play), learnt as a Markov chain on
@@ -162,7 +176,9 @@ the FX does); releasing Shift (or pushing the encoder) puts it in the column.
 | WT FM Source | Left, Trk 1..8 | the modulator: the track to the left or a chosen track |
 | Grids X / Grids Y | -100..+100 | live Grids kits: moves the map point (redrawn at once) |
 | Grids Density | -100..+100 | live Grids kits: more / fewer hits on all three parts |
-| Loop Lock | -100..+100 | per track: M1..M3, TM8 / TM16, R1 / R2: + locks the loop, - lets it change more; TM: the Turing Machine knob |
+| Loop Lock | -100..+100 | per track: M1..M3, R1 / R2: + locks the loop, - lets it change more |
+| Turing Machine | -100..+100 | per track, the Turing Machine knob: +100 locked, near 0 random, -100 locked at twice the length, inverted. Tracks written by the Turing generator run on from loop to loop; any other track plays its own steps in Turing order (over Pattern Play Mode) |
+| Turing Length | Gen, 1..16 | per track: the register length (Gen: the generator's Length, 8 on other tracks) |
 | DeRez | 0..100 | sample-rate reduction (sample and hold) on the tracks' samples, after Airwindows DeRez |
 
 **Scenes** (SETBOOK): hold **Fx2** and press **F1..F8** to store the Perform
@@ -216,11 +232,11 @@ clears the picked target; Shift + Fx2 again leaves learn mode.
 - **M1..M3 (Marbles deja vu)**: every step position keeps the step it plays
   with the lock probability (85 / 60 / 30 %), else draws a new one (mostly a
   step with a note): a loop that slowly rewrites itself.
-- **TM8 / TM16 (Turing Machine)**: an 8 / 16-bit shift register; its low byte
-  picks the step, the bit coming back in may flip. **Loop Lock** on the track
-  is the Turing Machine knob: 0 changes slowly (5 % per step), **+100 locks
-  it** (an 8 / 16 step loop that repeats), -50 is random, -100 a locked loop
-  of twice the length with the second half inverted.
+- **Turing Machine** is not a play mode any more (2.2.3-semi.4): it has its own
+  Perform FX, **Turing Machine** and **Turing Length** (above), and a generator.
+  The knob on a track plays its steps in Turing order whatever Pattern Play
+  Mode says. TM8 / TM16 are no longer offered here; a set that holds them still
+  plays them.
 - **R1 / R2 (randLoops, after SickoCV)**: the track plays forward, but every
   note drifts by scale degrees: each loop a note moves one degree up or down
   with 1 - lock (R1 slow, R2 faster), kept within +-4 degrees of the original.
@@ -271,7 +287,7 @@ followed at once.
 | **Clipper** (NEXUSCLIP) | Curve (Hard, Smooth, Crisp, Classic, Pro, Tube, Tape), Drive, Knee, Match (normalise to 0 dBFS first), Ceiling, Mix |
 
 | **Tuner** | (none) YIN pitch detection on the selection: note, cents, Hz; **Write** sets Tune / Finetune so the unity note plays the nearest C |
-| **Paulstretch** | Stretch x2..x32, Window (50 / 100 / 200 / 400 ms): magnitudes kept, phases randomised (Paul Nasca's algorithm) |
+| **Paulstretch** | Stretch x2..x32, Window (50 / 100 / 200 / 400 ms): magnitudes kept, phases randomised (Paul Nasca's algorithm). Two windows per FFT, half-window hop; the progress popup counts up while it works (a few seconds of input at x8 takes a while) |
 | **Granular** | Length (x0.25..x8), Grain (10-500 ms), Density (grains/s), Spray (position randomness), Pitch (random +-semitones per grain), Reverse (%) (after Ourednik's Argotlunar) |
 | **Strand** | Segment (min length), Shuffle, Repeat, Reverse, Length: the selection cut at rising zero crossings and rebuilt (after Leviathan's Strand; no clicks) |
 
