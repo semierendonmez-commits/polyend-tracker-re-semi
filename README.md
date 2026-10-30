@@ -62,7 +62,7 @@ and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**
 Everything of the semi fork, now on the upstream 2.2.3 code (2.2.3-beta2, 51 upstream changes):
 
 - **From upstream 2.2.3:** SD streaming (long samples play from the card, Config > Stream from
-  card), USB audio streaming, stereo synths (Width) for every engine, theme files on the card
+  card; a sample too big for the memory is imported onto the card and streamed), stereo synths (Width) for every engine, theme files on the card
   (`/Themes/*.txt`, Config > Export theme) and the Halloween theme file, exports at 44.1 kHz,
   MIDI pitch bend on live notes, eight synthwave PERC kits, Sample Editor effects up to 60x
   faster, the stack guard, the CPU meter levels and many fixes (SD card, Sample Loader,
