@@ -75,6 +75,61 @@ TEST(paulstretch_stretches_and_keeps_level) {
     CHECK_EQ(sfx::process(sfx::kPaulstretch, p, d.data(), uint32_t(d.size()), out.data(), m), m);
 }
 
+// User report (2.2.3-semi.2): Paulstretch on an amen break with the 200 ms
+// window stuck the device. The FFT's twiddle table held 12 stages (4096
+// points), so 8192 / 16384 read past it; and the work took minutes.
+TEST(paulstretch_large_windows) {
+    // The FFT round trip at every window size.
+    for (int n : {2048, 4096, 8192, 16384}) {
+        std::vector<float> re(static_cast<size_t>(n)), im(static_cast<size_t>(n), 0.0f), x(static_cast<size_t>(n));
+        for (int i = 0; i < n; ++i) re[size_t(i)] = x[size_t(i)] = std::sin(0.013f * float(i)) + 0.3f * std::cos(0.5f * float(i));
+        sfx::fftInPlace(re.data(), im.data(), n, false);
+        // A bin of the 0.5 rad/sample cosine is where it should be.
+        const int k = int(0.5f * float(n) / 6.2831853f + 0.5f);
+        CHECK(std::sqrt(re[size_t(k)] * re[size_t(k)] + im[size_t(k)] * im[size_t(k)]) > 0.1f * float(n));
+        sfx::fftInPlace(re.data(), im.data(), n, true);
+        float err = 0.0f;
+        for (int i = 0; i < n; ++i) err = std::fmax(err, std::fabs(re[size_t(i)] / float(n) - x[size_t(i)]));
+        if (err > 1e-3f) std::printf("  fft %d: error %g\n", n, double(err));
+        CHECK(err < 1e-3f);
+    }
+    // A 2 s break-like signal (noise bursts), 200 and 400 ms windows: level
+    // kept, no silence, progress reported up to 100.
+    std::vector<int16_t> d(88200);
+    uint32_t r = 7;
+    for (size_t i = 0; i < d.size(); ++i) {
+        r = r * 1664525u + 1013904223u;
+        const float env = std::exp(-float(i % 4410) / 2000.0f);   // a hit every 100 ms
+        d[i] = int16_t(float(int32_t(r >> 16) - 32768) * 0.5f * env);
+    }
+    std::vector<float> scratch(4 * 16384 + 8192);
+    for (int w : {2, 3}) {
+        float p[sfx::kMaxParams];
+        sfx::defaults(sfx::kPaulstretch, p);
+        p[0] = 8;
+        p[1] = float(w);
+        const uint32_t m = sfx::outputFrames(sfx::kPaulstretch, p, uint32_t(d.size()));
+        std::vector<int16_t> out(m);
+        int last = -1, calls = 0;
+        struct P { int* last; int* calls; } pc{&last, &calls};
+        sfx::setProgress([](void* c, int pct) { auto* q = static_cast<P*>(c); *q->last = pct; ++*q->calls; }, &pc);
+        sfx::setScratch(scratch.data(), uint32_t(scratch.size()));
+        CHECK_EQ(sfx::process(sfx::kPaulstretch, p, d.data(), uint32_t(d.size()), out.data(), m), m);
+        sfx::setScratch(nullptr, 0);
+        sfx::setProgress(nullptr, nullptr);
+        const double ri = rms(d.data(), d.size()), ro = rms(out.data() + m / 8, m * 3 / 4);
+        // The quietest 0.1 s block in the middle (no dropouts).
+        double minBlock = 1e9;
+        for (uint32_t b = m / 8; b + 4410 < m * 7 / 8; b += 4410) minBlock = std::fmin(minBlock, rms(out.data() + b, 4410));
+        std::printf("  window %d: rms in %.0f out %.0f, quietest block %.0f, progress %d (%d calls)\n", w, ri, ro, minBlock, last,
+                    calls);
+        CHECK(ro > 0.5 * ri && ro < 2.0 * ri);
+        CHECK(minBlock > 0.2 * ri);
+        CHECK_EQ(last, 100);
+        CHECK(calls > 5);
+    }
+}
+
 TEST(granular_and_strand_render) {
     auto d = tone(220.0f, 44100, 9000.0f);
     float p[sfx::kMaxParams];

@@ -106,3 +106,18 @@ TEST(theme_editor_cancel_restores) {
     CHECK(!a.themeEditing());
     CHECK_EQ(a.ui.th().bg, theme(5).bg);
 }
+
+// User report (2.2.3-semi.2): every theme of the pack listed twice, once as
+// "._<name>" (macOS AppleDouble files on the FAT card) that did nothing.
+TEST(theme_list_skips_hidden_files) {
+    Harness h;
+    uint32_t slots[kThemeSlotCount];
+    for (int i = 0; i < kThemeSlotCount; ++i) slots[i] = 0x202020u + uint32_t(i);
+    CHECK(writeThemeFile(h.fs, "Iznik", slots, 0) == ThemeWrite::kOk);
+    h.fs.files["Themes/._Iznik.txt"] = {0, 5, 22, 7, 0, 0};
+    h.fs.files["Themes/.DS_Store"] = {0, 0, 0, 1};
+    char names[8][kThemeNameMax + 1];
+    const int n = listThemeFiles(h.fs, names, 8);
+    CHECK_EQ(n, 1);
+    CHECK_STR(names[0], "Iznik");
+}

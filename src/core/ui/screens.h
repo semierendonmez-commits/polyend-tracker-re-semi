@@ -901,6 +901,13 @@ private:
     void paramDelta(int d);
     bool fits(uint32_t newFrames, uint32_t extraSamples);
     void lendScratch(int16_t* at, uint32_t samples);   // OT fork
+    // OT fork: the long effects report progress while they run (synchronous):
+    // the popup is redrawn every 100 ms or so.
+    void beginFxProgress(const char* title, uint32_t channels);
+    void fxProgressChannel(uint32_t c) { progCh_ = c; }
+    static void fxProgress(void* self, int percent);
+    const char* progTitle_ = "";
+    uint32_t progCh_ = 0, progChN_ = 1, progAt_ = 0;
     void tune();                                        // OT fork Tuner
     int tuneT_ = 0, tuneF_ = 0;
     void stopPreview();

@@ -354,11 +354,14 @@ void fft(float* re, float* im, int n, bool inverse) {
         }
     }
     // Stage twiddles, cached per size (double trigonometry is software on the M4F).
+    // OT fork: 16 stages (n up to 65536). It held 12, so the 8192 / 16384
+    // point Paulstretch windows read past the table (user report: 200 ms
+    // window, the device stuck processing).
     static int cachedN = 0;
-    static float cosT[12], sinT[12];
+    static float cosT[16], sinT[16];
     if (cachedN != n) {
         int st = 0;
-        for (int len = 2; len <= n && st < 12; len <<= 1, ++st) {
+        for (int len = 2; len <= n && st < 16; len <<= 1, ++st) {
             const double ang = -2.0 * 3.14159265358979323846 / double(len);
             cosT[st] = float(fm::cosD(ang));
             sinT[st] = float(fm::sinD(ang));

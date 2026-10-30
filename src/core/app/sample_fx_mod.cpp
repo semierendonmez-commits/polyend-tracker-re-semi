@@ -27,6 +27,11 @@ namespace {
 constexpr float kPi = 3.14159265358979f;
 float* gScratch = nullptr;
 uint32_t gScratchFloats = 0;
+void (*gProgressFn)(void*, int) = nullptr;
+void* gProgressCtx = nullptr;
+void reportProgress(uint64_t done, uint64_t total) {
+    if (gProgressFn && total) gProgressFn(gProgressCtx, int(done * 100u / total));
+}
 
 inline int16_t sat16f(float v) {
     if (!(v == v)) return 0;
@@ -105,6 +110,11 @@ void setScratch(float* p, uint32_t floats) {
     gScratchFloats = floats;
 }
 
+void setProgress(void (*fn)(void* ctx, int percent), void* ctx) {
+    gProgressFn = fn;
+    gProgressCtx = ctx;
+}
+
 uint32_t scratchFloats(int fx, const float* p) {
     (void)p;
     if (fx == kPaulstretch) return 4u * 16384u + 8192u;   // re, im, window, overlap (largest window)
@@ -166,58 +176,92 @@ uint32_t paulstretchFrames(const float* p, uint32_t n) {
     return m > 0x1E0000u ? 0x1E0000u : uint32_t(m);
 }
 
+// Two windows per FFT (OT fork, after a user report of minutes on the
+// device): frame A in the real part, frame B in the imaginary part; their
+// spectra separate by symmetry, get random phases, and go back in one
+// inverse FFT as A + iB (both real). Hop N / 2 as in Paul Nasca's original,
+// Hann analysis and sine (sqrt-Hann) synthesis windows: the synthesis
+// windows' squares sum to 1, so the decorrelated frames add up to an even
+// level. A random phase is a random point of the square, normalised: one
+// square root per bin and no trigonometry.
 uint32_t paulstretch(const float* p, const int16_t* in, uint32_t n, int16_t* out, uint32_t m) {
     const float stretch = p[0] < 1.0f ? 1.0f : p[0];
     static const int kN[4] = {2048, 4096, 8192, 16384};
     int N = kN[int(p[1]) & 3];
-    while (N > 1024 && (uint32_t(N) > n * 2 || 4u * uint32_t(N) + uint32_t(N / 2) > gScratchFloats)) N /= 2;
-    if (!gScratch || gScratchFloats < 4u * uint32_t(N) + uint32_t(N / 2)) {
+    auto need = [](int w) { return uint32_t(4 * w + w / 2); };   // re, im, window, overlap (1.5 N)
+    while (N > 1024 && (uint32_t(N) > n * 2 || need(N) > gScratchFloats)) N /= 2;
+    if (!gScratch || gScratchFloats < need(N)) {
         for (uint32_t i = 0; i < m; ++i) out[i] = i < n ? in[i] : 0;
         return m;
     }
     float* re = gScratch;
     float* im = re + N;
-    float* win = im + N;
-    float* acc = win + N;   // N + hop
-    const int hop = N / 4;
-    for (int i = 0; i < N; ++i) win[i] = 0.5f - 0.5f * std::cos(2.0f * kPi * float(i) / float(N));
+    float* win = im + N;   // sin(pi i / N): synthesis; its square (Hann) for the analysis
+    float* acc = win + N;  // 1.5 N: the pair's output, the second half carried over
+    const int hop = N / 2;
+    for (int i = 0; i < N; ++i) win[i] = std::sin(kPi * float(i) / float(N));
     std::memset(acc, 0, sizeof(float) * size_t(N + hop));
-    // OLA of Hann^2 at a quarter hop sums to 1.5.
-    const float gain = 1.0f / (float(N) * 1.5f);
+    // Random-phase frames keep the windowed input's energy spread over the
+    // frame: Hann^2 averages 3/8, so sqrt(8/3), and 1/N for the inverse FFT.
+    const float gain = 1.6329932f / float(N);
     Rng rng(0x5EED1234u);
+    const double inStep = double(hop) / double(stretch);
     uint32_t written = 0;
-    for (uint32_t frame = 0; written < m; ++frame) {
-        const double inPos = double(frame) * double(hop) / double(stretch) - double(N / 2);
+    for (uint32_t frame = 0; written < m; frame += 2) {
+        // Frames `frame` (A) and `frame + 1` (B), centred on their input point.
+        const int64_t a0 = int64_t(double(frame) * inStep) - N / 2;
+        const int64_t b0 = int64_t(double(frame + 1) * inStep) - N / 2;
         for (int i = 0; i < N; ++i) {
-            const int64_t k = int64_t(inPos) + i;
-            re[i] = (k >= 0 && k < int64_t(n) ? float(in[k]) : 0.0f) * win[i];
-            im[i] = 0.0f;
+            const float w = win[i] * win[i];
+            const int64_t ka = a0 + i, kb = b0 + i;
+            re[i] = (ka >= 0 && ka < int64_t(n) ? float(in[ka]) : 0.0f) * w;
+            im[i] = (kb >= 0 && kb < int64_t(n) ? float(in[kb]) : 0.0f) * w;
         }
         fftInPlace(re, im, N, false);
-        // Keep the magnitudes, random phases (conjugate symmetric).
-        for (int i = 1; i < N / 2; ++i) {
-            const float mag = std::sqrt(re[i] * re[i] + im[i] * im[i]);
-            const float ph = rng.uni() * 2.0f * kPi;
-            re[i] = mag * std::cos(ph);
-            im[i] = mag * std::sin(ph);
-            re[N - i] = re[i];
-            im[N - i] = -im[i];
+        // DC and Nyquist: real for both frames; dropped (no DC offset).
+        re[0] = im[0] = 0.0f;
+        re[N / 2] = im[N / 2] = 0.0f;
+        for (int k = 1; k < N / 2; ++k) {
+            const float zr = re[k], zi = im[k], wr = re[N - k], wi = im[N - k];
+            // A = (Z[k] + conj Z[N-k]) / 2, B = (Z[k] - conj Z[N-k]) / 2i.
+            const float ar = 0.5f * (zr + wr), ai = 0.5f * (zi - wi);
+            const float br = 0.5f * (zi + wi), bi = 0.5f * (wr - zr);
+            // New phases: random unit vectors, magnitudes kept.
+            float u = rng.uni() * 2.0f - 1.0f, v = rng.uni() * 2.0f - 1.0f;
+            float q = u * u + v * v;
+            if (q < 1e-6f) u = 1.0f, v = 0.0f, q = 1.0f;
+            const float sa = std::sqrt((ar * ar + ai * ai) / q);
+            const float yar = sa * u, yai = sa * v;
+            float u2 = rng.uni() * 2.0f - 1.0f, v2 = rng.uni() * 2.0f - 1.0f;
+            float q2 = u2 * u2 + v2 * v2;
+            if (q2 < 1e-6f) u2 = 1.0f, v2 = 0.0f, q2 = 1.0f;
+            const float sb = std::sqrt((br * br + bi * bi) / q2);
+            const float ybr = sb * u2, ybi = sb * v2;
+            // Z' = YA + i YB at k, conj(YA) + i conj(YB) at N - k.
+            re[k] = yar - ybi;
+            im[k] = yai + ybr;
+            re[N - k] = yar + ybi;
+            im[N - k] = ybr - yai;
         }
-        im[0] = im[N / 2] = 0.0f;
         fftInPlace(re, im, N, true);
-        for (int i = 0; i < N; ++i) acc[i] += re[i] * win[i] * gain;
-        // The first `hop` samples are complete: out (the first N/2 - hop of the
-        // very first frames are the lead-in before the selection start).
+        for (int i = 0; i < N; ++i) {
+            const float w = win[i] * gain;
+            acc[i] += re[i] * w;          // frame A at 0
+            acc[hop + i] += im[i] * w;    // frame B half a window later
+        }
+        // acc[0 .. N) is complete (the next pair starts N later): out. The
+        // output starts half a window in (the first frame is centred on 0).
         const int64_t outStart = int64_t(frame) * hop - N / 2;
-        for (int i = 0; i < hop; ++i) {
+        for (int i = 0; i < N; ++i) {
             const int64_t o = outStart + i;
             if (o >= 0 && o < int64_t(m)) {
                 out[o] = sat16f(acc[i]);
                 written = uint32_t(o + 1);
             }
         }
-        std::memmove(acc, acc + hop, sizeof(float) * size_t(N));
-        std::memset(acc + N, 0, sizeof(float) * size_t(hop));
+        std::memmove(acc, acc + N, sizeof(float) * size_t(hop));
+        std::memset(acc + hop, 0, sizeof(float) * size_t(N));
+        reportProgress(written, m);
         if (outStart > int64_t(m) + N) break;
     }
     for (uint32_t i = written; i < m; ++i) out[i] = 0;

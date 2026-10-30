@@ -284,7 +284,9 @@ struct ListCtx {
 };
 bool listFn(const IStorage::DirEntry& e, void* p) {
     ListCtx& x = *static_cast<ListCtx*>(p);
-    if (e.isDir) return true;
+    // Hidden files (OT fork): macOS writes a "._<name>" AppleDouble file next to
+    // every file it copies to a FAT card; it is not a theme.
+    if (e.isDir || e.name[0] == '.') return true;
     const size_t len = std::strlen(e.name);
     if (len < 5 || len - 4 > size_t(kThemeNameMax) || !sameCi(e.name + len - 4, ".txt")) return true;
     char base[kThemeNameMax + 1];

@@ -1274,7 +1274,11 @@ void PatternScreen::noteLastFx(int column, int orderIdx) {
 void PatternScreen::writeFxPad(const SelRect& r, int pad) {
     App& a = app_;
     const int slot = fxSlotForColumn(col);
-    if (ui_.isDown(col == 2 ? btn::Fx1 : btn::Fx2)) {
+    // OT fork (user report): on an empty FX cell a pad alone picks the effect
+    // too, by the same pad map as Fx + pad (top right = Roll); it used to
+    // write a value with no effect, so nothing showed.
+    const bool empty = a.pattern().tracks[r.t0].steps[r.s0].fx[slot].type == 0;
+    if (empty || ui_.isDown(col == 2 ? btn::Fx1 : btn::Fx2)) {
         const uint8_t type = kFxMenuOrder[pad < kFxCount ? pad : kFxCount - 1];
         pops::writeFxType(a.pattern(), r, col, type);
         noteLastFx(col, pad < kFxCount ? pad : kFxCount - 1);

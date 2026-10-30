@@ -35,6 +35,9 @@ float clipCurve(int curve, float x, float knee);   // tests
 // Scratch memory for the heavy offline effects (the editor lends free sample
 // memory before processing; nullptr = none: they fall back to a copy).
 void setScratch(float* p, uint32_t floats);
+// Progress of the long offline effects (Paulstretch): fn(ctx, 0..100) as they
+// go, so the editor can draw it (the work is synchronous). nullptr = none.
+void setProgress(void (*fn)(void* ctx, int percent), void* ctx);
 uint32_t scratchFloats(int fx, const float* p);   // floats an effect wants (0 = none)
 // YIN pitch of the selection: Hz and clarity 0..1; false when none found.
 bool detectPitch(const int16_t* in, uint32_t n, float* hz, float* clarity);

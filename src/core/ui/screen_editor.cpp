@@ -199,7 +199,9 @@ bool EditorScreen::apply() {
     int16_t* t = a.bank.tail();
     const int16_t* cur = a.bank.data(slot_);
     lendScratch(t + ch * newLen, scratch);
+    beginFxProgress("Applying", ch);
     for (uint32_t c = 0; c < ch; ++c) {
+        fxProgressChannel(c);
         const int16_t* src = cur + c * len;
         int16_t* dst = t + c * newLen;
         if (effect == sfx::kCrop) {
@@ -212,6 +214,7 @@ bool EditorScreen::apply() {
         ui_.progress("Applying", int((c + 1) * 100 / ch));
     }
     sfx::setScratch(nullptr, 0);
+    sfx::setProgress(nullptr, nullptr);
     if (!a.bank.replaceFromTail(slot_, newLen, stereo)) {
         ui_.progressDone();
         return false;
@@ -237,6 +240,22 @@ bool EditorScreen::apply() {
     page = 1;
     refreshBar();
     return true;
+}
+
+void EditorScreen::beginFxProgress(const char* title, uint32_t channels) {
+    progTitle_ = title;
+    progCh_ = 0;
+    progChN_ = channels ? channels : 1;
+    progAt_ = app_.millis();
+    sfx::setProgress(&EditorScreen::fxProgress, this);
+}
+
+void EditorScreen::fxProgress(void* self, int percent) {
+    auto* e = static_cast<EditorScreen*>(self);
+    const uint32_t now = e->app_.millis();
+    if (now - e->progAt_ < 100 && percent < 100) return;
+    e->progAt_ = now;
+    e->ui_.progress(e->progTitle_, int((e->progCh_ * 100u + uint32_t(percent)) / e->progChN_));
 }
 
 // OT fork: free sample memory after the buffers in use as float scratch.
@@ -325,8 +344,13 @@ bool EditorScreen::preview(int note) {
         ui_.progress("Processing", 0);
         const int16_t* cur = a.bank.data(slot_);
         lendScratch(out + ch * outSel, scratch);
-        for (uint32_t c = 0; c < ch; ++c) sfx::process(effect, params[effect], cur + c * len + s0, sel, out + c * outSel, outSel);
+        beginFxProgress("Processing", ch);
+        for (uint32_t c = 0; c < ch; ++c) {
+            fxProgressChannel(c);
+            sfx::process(effect, params[effect], cur + c * len + s0, sel, out + c * outSel, outSel);
+        }
         sfx::setScratch(nullptr, 0);
+        sfx::setProgress(nullptr, nullptr);
         ui_.progressDone();
         previewState = 1;
         prevS0_ = s0;
