@@ -1,0 +1,47 @@
+# Bioluminescence: The deep sea: a dark abyss lit by cyan, violet and lure magenta.
+# Semi fork theme pack (tools/themes/make_theme_pack.py), built on the Original theme.
+# Copy to the Themes folder of the card; Config > General > Display theme.
+base = original
+
+background = #01060D
+title_bg = #0B1017
+title_text = #9FD8E8
+text = #9FD8E8
+inverse_text = #01060D
+inverse_bg = #9FD8E8
+dim = #3A6070
+scroll_thumb = #486470
+scroll_track = #0E1219
+line2 = #060B12
+label_text = #3A6070
+label_text_off = #1B2E3A
+label_bg = #222E3D
+strip = #0B1017
+panel = #041222
+panel2 = #222E3D
+accent = #FF3DCB
+alert = #FF3D6E
+good = #3DFFE0
+yellow = #D8FF5A
+orange = #FF9A3D
+cyan = #3DFFE0
+note = #3DFFE0
+instrument = #8A6BFF
+fx1 = #FF3DCB
+fx2 = #2DE36A
+note_empty = #104442
+instrument_empty = #231F4A
+fx1_empty = #40143C
+fx2_empty = #0C3D24
+grid_header = #01060D
+grid_bg = #060B12
+grid_beat = #0E1219
+grid_muted = #181C23
+grid_cursor_row = #0A2A44
+grid_cursor_text = #9FD8E8
+grid_cursor_alt = #843488
+grid_lines = #06182B
+wave = #5AE8FF
+focus_fill = #283A44
+marker_grey = #3A6070
+marker_sel = #30454F

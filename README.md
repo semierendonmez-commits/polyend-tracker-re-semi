@@ -15,7 +15,24 @@ Image: `PolyendTrackerOTs223.ptf` (installs like the upstream image, see Install
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
-### Latest update (2.2.3-semi.1): on top of OpenTracker 2.2.3
+### Latest update (2.2.3-semi.2): themes that follow the music, a theme pack
+
+| **Reactor: the page heats up with the master level** | **Beat / Pump while playing (animated)** |
+|---|---|
+| ![Reactor](screenshots/2.2.3-semi/theme-reactor.png) | ![Pump](screenshots/2.2.3-semi/theme-pump.gif) |
+
+- **Three music-reactive themes** (Config > Display theme): **Beat** flashes the accent on
+  every beat of the song and the page on the downbeat; **Reactor** heats the page from deep
+  blue to red-hot with the master level; **Pump** ducks the whole page with the sidechain
+  (Master 5/5), or with the beat when no sidechain is set. Still while nothing plays.
+- **Theme pack** for the card (`themes/`, copy the files to the card's `Themes` folder):
+  Iznik, Test Card, Acetate, Pirate FM, Oscilloscope, Risograph, Bauhaus, Bioluminescence,
+  Hazard, Mars Rover, Aurora, Concrete, Soundsystem. Every role is set; light and dark ones.
+  They cost no flash. `tools/themes/make_theme_pack.py` builds them from a few colours each.
+
+![Theme pack](screenshots/2.2.3-semi/theme-pack.png)
+
+### Previous update (2.2.3-semi.1): on top of OpenTracker 2.2.3
 
 Everything of the semi fork, now on the upstream 2.2.3 code (2.2.3-beta2, 51 upstream changes):
 
@@ -33,7 +50,7 @@ Everything of the semi fork, now on the upstream 2.2.3 code (2.2.3-beta2, 51 ups
   so the stack keeps the headroom 2.2.3 needs for SD streaming (77 KiB, gate 75 KiB). The
   image is about 840 KB (fork gate 860 KB, hard limit 877 KB).
 
-### Previous update (2.2.1-semi.6)
+### Earlier update (2.2.1-semi.6)
 
 | **Track Link: a track plays live with another track's notes** | **Linked track: "<1" on its header** |
 |---|---|

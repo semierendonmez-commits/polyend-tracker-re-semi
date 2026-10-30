@@ -124,7 +124,7 @@ TEST(config_menu_lists_all_options_with_defaults) {
     };
     const Want general[] = {
         {"Radio region", 3, 0, 4, 0, 0},      {"Display brightness", 3, 0, 3, 0, 2},
-        {"Display theme", 3, 0, 29, 0, 0},    {"Display font", 3, 0, 3, 0, 0},   // OT fork: 29 themes, + Pixel font
+        {"Display theme", 3, 0, 32, 0, 0},    {"Display font", 3, 0, 3, 0, 0},   // OT fork: 32 themes, + Pixel font
         {"Export theme", 7, 2, 0, 0, -1},                                    // 2.x [I] theme files
         {"Pads brightness", 3, 0, 3, 0, 2},   {"Pads preview", 3, 0, 3, 0, 2},
         {"Recording options", 3, 0, 4, 0, 0}, {"Numbering mode", 3, 0, 3, 0, 1},

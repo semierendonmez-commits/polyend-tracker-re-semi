@@ -1,0 +1,47 @@
+# Iznik: Iznik tiles: cobalt, turquoise and bole red on glazed white.
+# Semi fork theme pack (tools/themes/make_theme_pack.py), built on the Monochrome theme.
+# Copy to the Themes folder of the card; Config > General > Display theme.
+base = monochrome
+
+background = #F5F1E8
+title_bg = #E1DED5
+title_text = #13234A
+text = #13234A
+inverse_text = #F5F1E8
+inverse_bg = #13234A
+dim = #7A7F92
+scroll_thumb = #8F94A1
+scroll_track = #E9E5DC
+line2 = #F0ECE3
+label_text = #7A7F92
+label_text_off = #BEBEC1
+label_bg = #CDC8BB
+strip = #EBE7DF
+panel = #E9E3D4
+panel2 = #CDC8BB
+accent = #C0302A
+alert = #C0302A
+good = #2E8B57
+yellow = #B8860B
+orange = #C8661E
+cyan = #138C8A
+note = #1C3F94
+instrument = #138C8A
+fx1 = #C0302A
+fx2 = #3C7A3E
+note_empty = #B4BCCF
+instrument_empty = #B1D3CC
+fx1_empty = #E5B7AF
+fx2_empty = #BECDB5
+grid_header = #13234A
+grid_bg = #F0ECE3
+grid_beat = #E6E3DA
+grid_muted = #D8D4CC
+grid_cursor_row = #1C3F94
+grid_cursor_text = #F5F1E8
+grid_cursor_alt = #6E385F
+grid_lines = #D8D0BE
+wave = #1C3F94
+focus_fill = #BCBEC0
+marker_grey = #7A7F92
+marker_sel = #B1B3B9

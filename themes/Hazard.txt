@@ -1,0 +1,47 @@
+# Hazard: Industrial: safety yellow and orange, signal blue, black rubber.
+# Semi fork theme pack (tools/themes/make_theme_pack.py), built on the Original theme.
+# Copy to the Themes folder of the card; Config > General > Display theme.
+base = original
+
+background = #0B0B0B
+title_bg = #151515
+title_text = #E6E6E6
+text = #E6E6E6
+inverse_text = #0B0B0B
+inverse_bg = #E6E6E6
+dim = #7A7A7A
+scroll_thumb = #6E6E6E
+scroll_track = #171717
+line2 = #101010
+label_text = #7A7A7A
+label_text_off = #3D3D3D
+label_bg = #313131
+strip = #151515
+panel = #151515
+panel2 = #313131
+accent = #FFC400
+alert = #FF2A00
+good = #00A3E0
+yellow = #FFC400
+orange = #FF6A00
+cyan = #00A3E0
+note = #FFC400
+instrument = #FF6A00
+fx1 = #00A3E0
+fx2 = #E6E6E6
+note_empty = #483908
+instrument_empty = #482308
+fx1_empty = #083140
+fx2_empty = #424242
+grid_header = #0B0B0B
+grid_bg = #101010
+grid_beat = #171717
+grid_muted = #212121
+grid_cursor_row = #3A2E00
+grid_cursor_text = #E6E6E6
+grid_cursor_alt = #9C7900
+grid_lines = #2A2A2A
+wave = #FFC400
+focus_fill = #424242
+marker_grey = #7A7A7A
+marker_sel = #4D4D4D

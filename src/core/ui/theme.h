@@ -121,7 +121,7 @@ constexpr uint8_t kThemeCount = 3;
 // OT fork: 3..kThemeTotal-1 are palettes derived from Original (or
 // Monochrome): the slot table is rebuilt in RAM by recolouring the base
 // theme, so a theme costs a few words of flash, not a 277-word table.
-constexpr uint8_t kThemeTotal = 29;
+constexpr uint8_t kThemeTotal = 32;
 const Theme& theme(uint8_t index);
 const char* themeName(uint8_t index);
 // The stock theme an OT theme is drawn from (what a stock firmware shows).
@@ -132,6 +132,11 @@ bool themeAnimated(uint8_t index);
 void themeTick(uint8_t index, uint32_t ms);
 // Redraw interval of an animated theme (ms): faster for the beat / glitch ones.
 uint32_t themeTickMs(uint8_t index);
+// OT fork music-reactive themes (Beat, Reactor, Pump): the Ui feeds the beat
+// and bar envelopes, the master level and the sidechain duck (0..255 each)
+// before each themeTick.
+void themeInputs(uint8_t beatEnv, uint8_t barEnv, uint8_t level, uint8_t duck);
+bool themeReactive(uint8_t index);
 // The named-role view of any slot table (2.x theme files, ui/theme_file.h).
 // The fields are copied: rebuild the view after the slots change.
 Theme themeView(const char* name, const uint32_t* slots);

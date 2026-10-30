@@ -528,6 +528,7 @@ private:
     uint32_t lastInputAt_ = 0;
     // OT fork title level meter (Config > Level meter): smoothed peaks in px.
     uint32_t meterAt_ = 0;
+    float reactLv_ = 0.0f;   // OT fork Reactor theme: master level without the title meter
     float meterLv_[2] = {};
     uint8_t meterPx_[2] = {}, meterClip_ = 0;
     bool saverOn_ = false;

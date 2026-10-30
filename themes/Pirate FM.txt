@@ -1,0 +1,47 @@
+# Pirate FM: 1994 pirate radio: amber LED dial over a navy night, rig lights green.
+# Semi fork theme pack (tools/themes/make_theme_pack.py), built on the Original theme.
+# Copy to the Themes folder of the card; Config > General > Display theme.
+base = original
+
+background = #040918
+title_bg = #0E1321
+title_text = #FFB45A
+text = #FFB45A
+inverse_text = #040918
+inverse_bg = #FFB45A
+dim = #4E5C80
+scroll_thumb = #755636
+scroll_track = #111524
+line2 = #090E1D
+label_text = #4E5C80
+label_text_off = #252E47
+label_bg = #272E42
+strip = #0E1321
+panel = #0A1228
+panel2 = #272E42
+accent = #FF6A1F
+alert = #FF3B3B
+good = #7CFC00
+yellow = #FFD86B
+orange = #FF6A1F
+cyan = #41D1FF
+note = #FFB347
+instrument = #7CFC00
+fx1 = #FF3B3B
+fx2 = #41D1FF
+note_empty = #433424
+instrument_empty = #224612
+fx1_empty = #431621
+fx2_empty = #133B52
+grid_header = #040918
+grid_bg = #090E1D
+grid_beat = #111524
+grid_muted = #1B1F2D
+grid_cursor_row = #3A2400
+grid_cursor_text = #FFB45A
+grid_cursor_alt = #9C4710
+grid_lines = #121C38
+wave = #FFB45A
+focus_fill = #433428
+marker_grey = #4E5C80
+marker_sel = #4F3C2C

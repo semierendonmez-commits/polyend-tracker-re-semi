@@ -1,0 +1,47 @@
+# Mars Rover: Red-planet dust: rust, sand and oxide under a blue Martian sunset.
+# Semi fork theme pack (tools/themes/make_theme_pack.py), built on the Original theme.
+# Copy to the Themes folder of the card; Config > General > Display theme.
+base = original
+
+background = #120806
+title_bg = #1B1210
+title_text = #F1D2B6
+text = #F1D2B6
+inverse_text = #120806
+inverse_bg = #F1D2B6
+dim = #7A5446
+scroll_thumb = #766355
+scroll_track = #1E1412
+line2 = #170D0B
+label_text = #7A5446
+label_text_off = #412A23
+label_bg = #392C28
+strip = #1B1210
+panel = #1E0F0B
+panel2 = #392C28
+accent = #FF6A3D
+alert = #FF4A2A
+good = #8FB6C9
+yellow = #F5C26B
+orange = #FF6A3D
+cyan = #8FB6C9
+note = #E89060
+instrument = #F5C26B
+fx1 = #C2553A
+fx2 = #8FB6C9
+note_empty = #482A1C
+instrument_empty = #4B361F
+fx1_empty = #3E1B13
+fx2_empty = #313437
+grid_header = #120806
+grid_bg = #170D0B
+grid_beat = #1E1412
+grid_muted = #271E1C
+grid_cursor_row = #3A1A10
+grid_cursor_text = #F1D2B6
+grid_cursor_alt = #9C4226
+grid_lines = #2A1510
+wave = #F1D2B6
+focus_fill = #4A3A32
+marker_grey = #7A5446
+marker_sel = #55453B

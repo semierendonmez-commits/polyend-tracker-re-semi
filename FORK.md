@@ -342,7 +342,7 @@ effect's random parts are seeded the same for both channels of a stereo sample.
 
 ## Config
 
-- **General > Display theme**: 29 built-in themes, then the theme files of the
+- **General > Display theme**: 32 built-in themes, then the theme files of the
   card's `Themes` folder (2.2.3; **Export theme** saves the current one, a fork
   palette too, as a file to edit). Original, Monochrome, Anniversary,
   then Early Cyber, Corporate, Amber CRT, Green Phosphor, Thermal, Workstation,
@@ -356,6 +356,18 @@ effect's random parts are seeded the same for both channels of a stereo sample.
   colour), **Glitch** (a grey page with rare short colour flashes). The new ones
   recolour Original (Workstation: Monochrome) in RAM; the stock config byte
   keeps the base theme.
+- **Music-reactive themes** (the last three built-in ones): **Beat** (the accent
+  flashes white on every beat of the playing song, the page on the downbeat, from
+  the sequencer's own tick and time signature), **Reactor** (the page and accent go
+  from deep blue to red-hot and white with the master output level), **Pump** (the
+  text and the column colours duck into the page with the sidechain envelope of
+  Master 5/5, or with the beat when no sidechain has targets). They update every
+  40 ms and stay still while nothing plays.
+- **Theme pack** (`themes/*.txt`, for the card's `Themes` folder): Iznik, Test
+  Card, Acetate, Pirate FM, Oscilloscope, Risograph, Bauhaus, Bioluminescence,
+  Hazard, Mars Rover, Aurora, Concrete, Soundsystem, made by
+  `tools/themes/make_theme_pack.py` from a few colours each (every one of the 42
+  roles written).
 - **General > Display font**: Original, New, **Pixel** (Departure Mono at its
   native 11 px, a 1-px grid). The stock config byte keeps Original for Pixel.
 - **General > Auto slice**: Stock or **Breaks** (spectral-flux onsets, 46 ms

@@ -1,0 +1,47 @@
+# Bauhaus: Dessau 1925: primary red, blue and ochre with black rules on paper.
+# Semi fork theme pack (tools/themes/make_theme_pack.py), built on the Monochrome theme.
+# Copy to the Themes folder of the card; Config > General > Display theme.
+base = monochrome
+
+background = #EEEAE0
+title_bg = #DBD7CE
+title_text = #111111
+text = #111111
+inverse_text = #EEEAE0
+inverse_bg = #111111
+dim = #7D7A72
+scroll_thumb = #8B8883
+scroll_track = #E2DED5
+line2 = #E9E5DC
+label_text = #7D7A72
+label_text_off = #BBB8AE
+label_bg = #C6C2B6
+strip = #E4E1D7
+panel = #E1DCCF
+panel2 = #C6C2B6
+accent = #D7261E
+alert = #D7261E
+good = #1F4E9E
+yellow = #C99A00
+orange = #D9731A
+cyan = #1F4E9E
+note = #1F4E9E
+instrument = #B8860B
+fx1 = #D7261E
+fx2 = #222222
+note_empty = #B0BBCC
+instrument_empty = #DECCA0
+fx1_empty = #E7AFA6
+fx2_empty = #B1AEA7
+grid_header = #111111
+grid_bg = #E9E5DC
+grid_beat = #E0DCD3
+grid_muted = #D1CEC5
+grid_cursor_row = #111111
+grid_cursor_text = #EEEAE0
+grid_cursor_alt = #741C18
+grid_lines = #CFC9BA
+wave = #111111
+focus_fill = #B7B4AC
+marker_grey = #7D7A72
+marker_sel = #ACA9A2

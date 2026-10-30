@@ -1080,6 +1080,37 @@ void Ui::update(uint32_t now) {
     // OT fork: animated themes move their colours ~8 times a second.
     if (!app.customThemeActive() && themeAnimated(app.cfg.uiTheme) && now - animAt_ >= themeTickMs(app.cfg.uiTheme)) {
         animAt_ = now;
+        if (themeReactive(app.cfg.uiTheme)) {
+            // OT fork Beat / Reactor / Pump: the beat and bar from the
+            // sequencer's tick counter (576 ticks a step), the master level
+            // (shared with the title meter), the deeper of the two sidechains.
+            uint32_t beatEnv = 0, barEnv = 0;
+            const SequencerSettings& ss = app.seq.settings();
+            if (app.seq.isPlaying()) {
+                const uint32_t tk = app.seq.tickPosition() > 0 ? app.seq.tickPosition() - 1 : 0;
+                const uint32_t beatTicks = 576u * (ss.tsDen + 1u), barTicks = beatTicks * (ss.tsNum + 1u);
+                const uint32_t bp = tk % beatTicks, br = tk % barTicks;
+                beatEnv = bp < beatTicks / 2 ? 255u - bp * 510u / beatTicks : 0u;
+                barEnv = br < beatTicks ? 255u - br * 255u / beatTicks : 0u;
+            }
+            float lv = 0.0f;
+            if (app.cfg.levelMeter) {
+                lv = meterLv_[0] > meterLv_[1] ? meterLv_[0] : meterLv_[1];
+            } else {
+                for (int sd = 0; sd < 2; ++sd) {
+                    const float p = app.engine.masterPeak(sd);
+                    reactLv_ = p > reactLv_ ? p : reactLv_ * 0.8f;
+                }
+                lv = reactLv_;
+            }
+            const float db = lv > 1e-5f ? 20.0f * std::log10(lv) : -96.0f;   // -48..0 dBFS -> 0..255
+            const int level = db <= -48.0f ? 0 : (db >= 0.0f ? 255 : int((db + 48.0f) * (255.0f / 48.0f)));
+            const bool sc = app.fork.sc[0].targets || app.fork.sc[1].targets;
+            const float e0 = app.engine.sidechainLevel(0), e1 = app.engine.sidechainLevel(1);   // envelopes, 1 = full duck
+            const float e = e0 > e1 ? e0 : e1;
+            const int duck = sc ? int((e < 0.0f ? 0.0f : (e > 1.0f ? 1.0f : e)) * 255.0f) : int(beatEnv);
+            themeInputs(uint8_t(beatEnv), uint8_t(barEnv), uint8_t(level), uint8_t(duck));
+        }
         themeTick(app.cfg.uiTheme, now);
         dirty();
     }

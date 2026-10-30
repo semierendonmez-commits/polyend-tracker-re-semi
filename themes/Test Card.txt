@@ -1,0 +1,47 @@
+# Test Card: Broadcast colour bars: yellow, cyan, green, magenta on studio black.
+# Semi fork theme pack (tools/themes/make_theme_pack.py), built on the Original theme.
+# Copy to the Themes folder of the card; Config > General > Display theme.
+base = original
+
+background = #0B0B0B
+title_bg = #151515
+title_text = #EBEBEB
+text = #EBEBEB
+inverse_text = #0B0B0B
+inverse_bg = #EBEBEB
+dim = #7F7F7F
+scroll_thumb = #707070
+scroll_track = #171717
+line2 = #101010
+label_text = #7F7F7F
+label_text_off = #3F3F3F
+label_bg = #303030
+strip = #151515
+panel = #141414
+panel2 = #303030
+accent = #EB1C1C
+alert = #EB1C1C
+good = #14EB14
+yellow = #EBEB14
+orange = #EB8A14
+cyan = #14EBEB
+note = #EBEB14
+instrument = #14EBEB
+fx1 = #14EB14
+fx2 = #EB14EB
+note_empty = #43430D
+instrument_empty = #0D4343
+fx1_empty = #0D430D
+fx2_empty = #430D43
+grid_header = #0B0B0B
+grid_bg = #101010
+grid_beat = #171717
+grid_muted = #212121
+grid_cursor_row = #1C1CEB
+grid_cursor_text = #EBEBEB
+grid_cursor_alt = #841C84
+grid_lines = #262626
+wave = #EBEBEB
+focus_fill = #434343
+marker_grey = #7F7F7F
+marker_sel = #4E4E4E

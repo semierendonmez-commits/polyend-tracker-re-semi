@@ -1,0 +1,47 @@
+# Concrete: Brutalist: raw grey concrete with a safety-orange warning.
+# Semi fork theme pack (tools/themes/make_theme_pack.py), built on the Monochrome theme.
+# Copy to the Themes folder of the card; Config > General > Display theme.
+base = monochrome
+
+background = #C9C5BE
+title_bg = #B9B5AF
+title_text = #1B1B1B
+text = #1B1B1B
+inverse_text = #C9C5BE
+inverse_bg = #1B1B1B
+dim = #6E6A64
+scroll_thumb = #7B7875
+scroll_track = #BFBBB4
+line2 = #C5C1BA
+label_text = #6E6A64
+label_text_off = #A09C96
+label_bg = #A6A29B
+strip = #C1BDB6
+panel = #BDB8B0
+panel2 = #A6A29B
+accent = #FF5A1F
+alert = #E03A10
+good = #2B6E4F
+yellow = #B07A00
+orange = #FF5A1F
+cyan = #2B5C8A
+note = #1B1B1B
+instrument = #4A4A4A
+fx1 = #FF5A1F
+fx2 = #2B5C8A
+note_empty = #95928D
+instrument_empty = #A3A09B
+fx1_empty = #D9A58E
+fx2_empty = #9AA6AE
+grid_header = #1B1B1B
+grid_bg = #C5C1BA
+grid_beat = #BDB9B3
+grid_muted = #B1ADA7
+grid_cursor_row = #1B1B1B
+grid_cursor_text = #C9C5BE
+grid_cursor_alt = #8D3A1D
+grid_lines = #B0ABA2
+wave = #1B1B1B
+focus_fill = #9E9A95
+marker_grey = #6E6A64
+marker_sel = #95928D

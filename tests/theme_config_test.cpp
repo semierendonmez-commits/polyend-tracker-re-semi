@@ -102,7 +102,7 @@ TEST(apply_card_theme_activates_table) {
     Harness h;
     App& a = *h.app;
     putFile(h.fs, "Themes/Neon.txt", kNeon);
-    pickTheme(h, kThemeTotal);   // semi fork: the files after the 29 built-in themes
+    pickTheme(h, kThemeTotal);   // semi fork: the files after the 32 built-in themes
     CHECK(!cfgScreen(h).editing);
     CHECK(a.customThemeActive());
     CHECK_STR(a.customThemeName(), "Neon");

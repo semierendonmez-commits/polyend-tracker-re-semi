@@ -1,0 +1,47 @@
+# Aurora: Northern lights: green and violet curtains over an arctic night.
+# Semi fork theme pack (tools/themes/make_theme_pack.py), built on the Original theme.
+# Copy to the Themes folder of the card; Config > General > Display theme.
+base = original
+
+background = #030B14
+title_bg = #0D151D
+title_text = #CDE7F0
+text = #CDE7F0
+inverse_text = #030B14
+inverse_bg = #CDE7F0
+dim = #4A6878
+scroll_thumb = #5E6E77
+scroll_track = #101720
+line2 = #081019
+label_text = #4A6878
+label_text_off = #233541
+label_bg = #26323E
+strip = #0D151D
+panel = #081624
+panel2 = #26323E
+accent = #7CFF6B
+alert = #FF6B8A
+good = #55F2A6
+yellow = #E6FF6B
+orange = #FFB36B
+cyan = #6BD3FF
+note = #55F2A6
+instrument = #B07CFF
+fx1 = #FF6BD6
+fx2 = #6BD3FF
+note_empty = #184538
+instrument_empty = #2E274F
+fx1_empty = #422344
+fx2_empty = #1D3D4F
+grid_header = #030B14
+grid_bg = #081019
+grid_beat = #101720
+grid_muted = #1A2129
+grid_cursor_row = #123A2E
+grid_cursor_text = #CDE7F0
+grid_cursor_alt = #479C4C
+grid_lines = #0B1E2E
+wave = #9CFFD0
+focus_fill = #36424B
+marker_grey = #4A6878
+marker_sel = #404D56

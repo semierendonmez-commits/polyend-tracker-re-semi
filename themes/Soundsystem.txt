@@ -1,0 +1,47 @@
+# Soundsystem: Speaker stack at a dance: red, gold and green on black.
+# Semi fork theme pack (tools/themes/make_theme_pack.py), built on the Original theme.
+# Copy to the Themes folder of the card; Config > General > Display theme.
+base = original
+
+background = #0A0A06
+title_bg = #141410
+title_text = #EDE6C8
+text = #EDE6C8
+inverse_text = #0A0A06
+inverse_bg = #EDE6C8
+dim = #6E6A52
+scroll_thumb = #706D5D
+scroll_track = #161612
+line2 = #0F0F0B
+label_text = #6E6A52
+label_text_off = #373528
+label_bg = #303029
+strip = #141410
+panel = #14140C
+panel2 = #303029
+accent = #E2231A
+alert = #FF3B30
+good = #009B3A
+yellow = #FFD100
+orange = #FF8C1A
+cyan = #9AD0EC
+note = #FFD100
+instrument = #00B347
+fx1 = #E2231A
+fx2 = #9AD0EC
+note_empty = #473C04
+instrument_empty = #083416
+fx1_empty = #40100B
+fx2_empty = #2E3C40
+grid_header = #0A0A06
+grid_bg = #0F0F0B
+grid_beat = #161612
+grid_muted = #20201C
+grid_cursor_row = #3A3000
+grid_cursor_text = #EDE6C8
+grid_cursor_alt = #8E2A0D
+grid_lines = #1E1E14
+wave = #FFD100
+focus_fill = #434136
+marker_grey = #6E6A52
+marker_sel = #4E4C40

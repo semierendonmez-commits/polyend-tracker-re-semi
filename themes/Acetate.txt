@@ -1,0 +1,47 @@
+# Acetate: A fresh dubplate: black lacquer, silver grooves, a red wax label.
+# Semi fork theme pack (tools/themes/make_theme_pack.py), built on the Original theme.
+# Copy to the Themes folder of the card; Config > General > Display theme.
+base = original
+
+background = #07080C
+title_bg = #111216
+title_text = #C9CED6
+text = #C9CED6
+inverse_text = #07080C
+inverse_bg = #C9CED6
+dim = #5D6470
+scroll_thumb = #5E6167
+scroll_track = #131418
+line2 = #0C0D11
+label_text = #5D6470
+label_text_off = #2E3139
+label_bg = #2C2E33
+strip = #111216
+panel = #0F1117
+panel2 = #2C2E33
+accent = #D2232A
+alert = #FF3B30
+good = #E9DFC4
+yellow = #E9DFC4
+orange = #D98E3A
+cyan = #9FC2DE
+note = #DDE3EA
+instrument = #E9DFC4
+fx1 = #D2232A
+fx2 = #7FA7C9
+note_empty = #3C3F44
+instrument_empty = #403E3A
+fx1_empty = #3A0F14
+fx2_empty = #25303B
+grid_header = #07080C
+grid_bg = #0C0D11
+grid_beat = #131418
+grid_muted = #1D1E22
+grid_cursor_row = #2A2F3A
+grid_cursor_text = #C9CED6
+grid_cursor_alt = #7E2932
+grid_lines = #171A22
+wave = #AEB6C2
+focus_fill = #383A3E
+marker_grey = #5D6470
+marker_sel = #414349

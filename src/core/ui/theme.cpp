@@ -216,10 +216,19 @@ const Palette kPalettes[kThemeTotal - kThemeCount] = {
     {"Ember", 0, 0x0E0402, 0xFFE2CC, 0xFF5A1F, 0xFFB000, 0xFF8A3D, 0xFFD27F, 0xFF4D2E, 0xFFC27A, 0xFF7A1F, 0xFFB000, 6},
     {"Night Drive", 0, 0x0A0418, 0xE8E0FF, 0xFF2A6D, 0x05D9E8, 0xFF2A6D, 0xF9F871, 0xD1F7FF, 0x05D9E8, 0xFF9E00, 0x05D9E8, 7},
     {"Glitch", 0, 0x000000, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xBBBBBB, 0x888888, 0xDDDDDD, 0xFFFFFF, 0xFFFFFF, 8},
+    // Music-reactive ones (OT fork 2.2.3-semi.2): they follow the sequencer
+    // and the master output (themeInputs), still while nothing plays.
+    {"Beat", 0, 0x07070A, 0xE0E0E8, 0xFF2A55, 0x2AFFA0, 0x2AFFA0, 0xFFE14A, 0xFF5AA0, 0x4AC8FF, 0xFF8A3D, 0x4AC8FF, 9},
+    {"Reactor", 0, 0x02060C, 0xD8E8F0, 0x00C8FF, 0x5AFFB0, 0x5AE0FF, 0xFFD24A, 0xFF7A5A, 0x9AB8FF, 0xFF8A3D, 0x00C8FF, 10},
+    {"Pump", 0, 0x050210, 0xF0E8FF, 0xC04CFF, 0x4CFFD2, 0x4CFFD2, 0xFFE04C, 0xFF4CA0, 0x4CB8FF, 0xFF9A4C, 0x4CB8FF, 11},
 };
 
 // Animation phase of the active animated theme (themeTick), 0..255.
 uint8_t gAnimPhase = 0;
+// Music inputs of the reactive themes (themeInputs): the beat and bar
+// envelopes (255 at the start, decaying), the master level, the sidechain
+// duck depth, 0..255 each.
+uint8_t gBeatEnv = 0, gBarEnv = 0, gLevel = 0, gDuck = 0;
 
 inline uint32_t mix(uint32_t a, uint32_t b, uint32_t t /* 0..255 */) {
     uint32_t out = 0;
@@ -301,6 +310,23 @@ const Theme& theme(uint8_t index) {
             const uint32_t t = gAnimPhase < 128 ? gAnimPhase * 2u : (255u - gAnimPhase) * 2u;
             p.bg = mix(0x0A0418, 0x22062E, t);
             p.accent = mix(0xFF2A6D, 0xFF9E00, t);
+        } else if (p.anim == 9) {   // Beat: the accent flashes on every beat, the page on the downbeat
+            p.accent = mix(p.accent, 0xFFFFFF, gBeatEnv);
+            p.good = mix(p.good, 0xFFFFFF, gBeatEnv / 2u);
+            p.bg = mix(p.bg, 0x2A0E24, gBarEnv / 2u);
+        } else if (p.anim == 10) {  // Reactor: the master level heats the page up
+            const uint32_t l = gLevel;
+            p.bg = mix(0x02060C, l < 192 ? 0x1A0A04 : 0x3A0800, l);
+            p.accent = l < 160 ? mix(0x00C8FF, 0xFF7A00, l * 255u / 160u) : mix(0xFF7A00, 0xFFFFFF, (l - 160u) * 255u / 95u);
+            p.good = mix(0x5AFFB0, 0xFFD24A, l);
+        } else if (p.anim == 11) {  // Pump: the page ducks with the sidechain (the beat without one)
+            const uint32_t d = gDuck;
+            p.text = mix(p.text, p.bg, d * 3u / 5u);
+            p.accent = mix(0xC04CFF, 0xFF4CA0, d);
+            p.note = mix(p.note, p.bg, d / 2u);
+            p.instr = mix(p.instr, p.bg, d / 2u);
+            p.fx1 = mix(p.fx1, p.bg, d / 2u);
+            p.fx2 = mix(p.fx2, p.bg, d / 2u);
         } else if (p.anim == 8) {   // Glitch: rare short flashes of colour on a datamatic page
             const uint32_t n = (gAnimPhase * 2246822519u) >> 26;   // 0..63
             if (n < 3) {
@@ -332,6 +358,11 @@ void themeTick(uint8_t index, uint32_t ms) {
     // Night Drive 6 s; Glitch 2 s.
     static const uint32_t kPeriod[9] = {12000u, 4000u, 12000u, 500u, 20000u, 16000u, 1500u, 6000u, 2000u};
     const uint8_t an = kPalettes[index - kThemeCount].anim;
+    if (an >= 9) {   // reactive: a new build whenever an input moved
+        static uint32_t tick = 0;
+        gAnimPhase = uint8_t(++tick);
+        return;
+    }
     const uint32_t period = kPeriod[an < 9 ? an : 0];
     gAnimPhase = uint8_t((ms % period) * 256u / period);
 }
@@ -339,7 +370,19 @@ void themeTick(uint8_t index, uint32_t ms) {
 uint32_t themeTickMs(uint8_t index) {
     if (!themeAnimated(index)) return 125;
     const uint8_t an = kPalettes[index - kThemeCount].anim;
+    if (an >= 9) return 40u;   // the reactive ones follow the music
     return an == 3 || an == 8 || an == 6 ? 60u : 125u;
+}
+
+void themeInputs(uint8_t beatEnv, uint8_t barEnv, uint8_t level, uint8_t duck) {
+    gBeatEnv = beatEnv;
+    gBarEnv = barEnv;
+    gLevel = level;
+    gDuck = duck;
+}
+
+bool themeReactive(uint8_t index) {
+    return index >= kThemeCount && index < kThemeTotal && kPalettes[index - kThemeCount].anim >= 9;
 }
 
 const char* themeName(uint8_t index) {

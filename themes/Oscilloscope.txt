@@ -1,0 +1,47 @@
+# Oscilloscope: A phosphor trace on a lit graticule; the trigger level in yellow.
+# Semi fork theme pack (tools/themes/make_theme_pack.py), built on the Original theme.
+# Copy to the Themes folder of the card; Config > General > Display theme.
+base = original
+
+background = #020A05
+title_bg = #0C140F
+title_text = #7CFFB2
+text = #7CFFB2
+inverse_text = #020A05
+inverse_bg = #7CFFB2
+dim = #2F7A52
+scroll_thumb = #397853
+scroll_track = #0F1612
+line2 = #070F0A
+label_text = #2F7A52
+label_text_off = #163C28
+label_bg = #243028
+strip = #0C140F
+panel = #06140B
+panel2 = #243028
+accent = #E8FF5A
+alert = #FF5A5A
+good = #7CFFB2
+yellow = #E8FF5A
+orange = #E8C35A
+cyan = #5AFFE0
+note = #5CFF9C
+instrument = #2EE6A8
+fx1 = #B6FFD9
+fx2 = #9CE65C
+note_empty = #18472B
+instrument_empty = #0D412E
+fx1_empty = #2F473A
+fx2_empty = #28411B
+grid_header = #020A05
+grid_bg = #070F0A
+grid_beat = #0F1612
+grid_muted = #19201C
+grid_cursor_row = #0E3A22
+grid_cursor_text = #7CFFB2
+grid_cursor_alt = #7B9C3E
+grid_lines = #0F3A22
+wave = #C4FFE0
+focus_fill = #204730
+marker_grey = #2F7A52
+marker_sel = #275439

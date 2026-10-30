@@ -1,0 +1,47 @@
+# Risograph: Riso print: fluorescent pink, blue and green inks on cream stock.
+# Semi fork theme pack (tools/themes/make_theme_pack.py), built on the Monochrome theme.
+# Copy to the Themes folder of the card; Config > General > Display theme.
+base = monochrome
+
+background = #F4EEDF
+title_bg = #E0DBCD
+title_text = #1F2A5C
+text = #1F2A5C
+inverse_text = #F4EEDF
+inverse_bg = #1F2A5C
+dim = #8C8A9E
+scroll_thumb = #9496A4
+scroll_track = #E8E2D4
+line2 = #EFE9DB
+label_text = #8C8A9E
+label_text_off = #C5C1C2
+label_bg = #CEC7B5
+strip = #EAE4D6
+panel = #EAE2CE
+panel2 = #CEC7B5
+accent = #FF3FA4
+alert = #FF3FA4
+good = #00A95C
+yellow = #E0A800
+orange = #E07B00
+cyan = #0078BF
+note = #0078BF
+instrument = #FF3FA4
+fx1 = #00A95C
+fx2 = #E07B00
+note_empty = #ABCBD5
+instrument_empty = #F7BACD
+fx1_empty = #ABD9B8
+fx2_empty = #EECC9C
+grid_header = #1F2A5C
+grid_bg = #EFE9DB
+grid_beat = #E5E0D2
+grid_muted = #D7D1C4
+grid_cursor_row = #FF3FA4
+grid_cursor_text = #F4EEDF
+grid_cursor_alt = #FF3FA4
+grid_lines = #DDD3BC
+wave = #0078BF
+focus_fill = #BFBDBE
+marker_grey = #8C8A9E
+marker_sel = #B4B3B8
