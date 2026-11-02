@@ -19,9 +19,12 @@ and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**
 
 ![Performance: tracks 2 and 4 selected](screenshots/2.2.3-semi/perf-select.png)
 
-- **Performance track keys now select** (user report: "the keys work the wrong way round"):
-  F1..F8 light the tracks the effects play on; nothing lit = every track. The stock behaviour
-  (every track, a key turns its track off) is **Config > General > Perform track keys: Exclude**.
+- **Performance track keys select, as on the original firmware** (user report: "the keys work
+  the wrong way round"; confirmed in Polyend's tracker-ce source): every track starts off,
+  F1..F8 light the tracks the effects play on. OpenTracker's way (every track on, a key turns
+  its track off) is **Config > General > Perform track keys: Exclude**.
+- **Pads on an empty FX cell** now work as on the original firmware: the last used effect goes
+  in and the pad sets its value (Fx + pad still picks the effect: top right = Roll).
 
 ### Previous update (2.2.3-semi.4): Turing Machine generator, fixes from user reports
 

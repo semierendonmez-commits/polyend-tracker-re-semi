@@ -143,8 +143,8 @@ void PerformanceScreen::start(int opt) {
     // Step 3: FX enabled on every track. 2.x tracks 9-16 take the FX too
     // but have no pattern override (the Tracker Mini stores 1-8 only).
     for (int t = 0; t < kTrackCount; ++t) {
-        fxOn[t] = true;
-        lit[t] = false;   // OT fork Select keys: nothing lit = every track
+        fxOn[t] = !selectKeys();   // Select (stock): no track until a key picks it
+        lit[t] = false;
         pending_[t] = 0;
     }
     lastPattern_ = curPat;
@@ -874,10 +874,11 @@ void PerformanceScreen::update(uint32_t now) {
 
 bool PerformanceScreen::selectKeys() const { return app_.cfg.perfKeys == 0; }
 
+// Stock (Polyend tracker-ce cPerformEngine::tracksPerformanceState): every
+// track starts off, a key turns its track on (highlighted), the FX play on
+// the tracks that are on only.
 void PerformanceScreen::setFxOnFromLit() {
-    bool any = false;
-    for (int t = 0; t < kTrackCount; ++t) any = any || lit[t];
-    for (int t = 0; t < kTrackCount; ++t) fxOn[t] = !any || lit[t];
+    for (int t = 0; t < kTrackCount; ++t) fxOn[t] = lit[t];
 }
 
 // ---------------------------------------------------------------------------
@@ -1163,10 +1164,8 @@ void PerformanceScreen::sceneTick(uint32_t now) {
     }
     if (done) {
         for (int tr = 0; tr < kTrackCount; ++tr) fxOn[tr] = (morphFxOn_ >> tr) & 1u;
-        if (selectKeys()) {   // all on: nothing lit; else the tracks on are lit
-            const bool all = morphFxOn_ == 0xFFFFu;
-            for (int tr = 0; tr < kTrackCount; ++tr) lit[tr] = !all && fxOn[tr];
-        }
+        if (selectKeys())
+            for (int tr = 0; tr < kTrackCount; ++tr) lit[tr] = fxOn[tr];
         morphing_ = false;
         refreshBar();
     }

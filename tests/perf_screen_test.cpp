@@ -203,6 +203,7 @@ TEST(perf_track_key_patterns) {
 TEST(perf_cc_slot_live_value) {
     PerfRig r;
     App& a = r.a();
+    a.cfg.perfKeys = 1;   // FX on every track (Exclude keys)
     r.h.tap(btn::Performance);
     PerformanceScreen& p = r.p();
     a.handleControlChange(51, 127);   // slot 0 = volume
@@ -288,6 +289,7 @@ TEST(perf_fx_conversion) {
     CHECK_EQ(perf::lengthOverride(8), 127);
     PerfRig r;
     App& a = r.a();
+    a.cfg.perfKeys = 1;   // FX on every track (Exclude keys)
     r.h.tap(btn::Performance);
     PerformanceScreen& p = r.p();
     p.src.setValue(1, 3, -70);
@@ -538,11 +540,12 @@ TEST(perf_queued_pattern_blinks_and_edit_rows_are_red) {
     r.p().edit = false;
 }
 
-// OT fork, user report (2.2.3-semi.4): "in Perform the track keys work the
-// wrong way round: the tracks I press are not affected, the others are".
-// Config > Perform track keys = Select (default): a key lights its track and
-// the FX play on the lit tracks only; nothing lit = every track. Scenes keep
-// the tracks; Exclude is the stock toggle (covered by the tests above).
+// User report (2.2.3-semi.4): "in Perform the track keys work the wrong way
+// round: the tracks I press are not affected, the others are". Polyend's
+// tracker-ce source (cPerformEngine) settles it: every track starts off and
+// a key turns its track on. Config > Perform track keys = Select (default)
+// does that; scenes keep the tracks; Exclude is what OpenTracker did
+// (covered by the tests above).
 TEST(perf_select_track_keys) {
     PerfRig r;
     App& a = r.a();
@@ -553,8 +556,9 @@ TEST(perf_select_track_keys) {
     p.src.setType(0, perf::kVolume);
     p.src.setValue(0, 1, 30);
     r.h.pad(12);
-    for (int t = 0; t < 8; ++t) CHECK(p.fxOn[t]);   // nothing lit: every track
-    CHECK(a.ui.bar.label[0].highlight);            // not lit
+    for (int t = 0; t < 8; ++t) CHECK(!p.fxOn[t]);   // nothing lit: no track
+    CHECK_EQ(int(a.engine.voice(0).perf().volume), 0);
+    CHECK(a.ui.bar.label[0].highlight);             // not lit
     // Track 2 and 4: only they get the FX.
     r.h.tap(btn::F2);
     r.h.tap(btn::F4);
@@ -569,11 +573,11 @@ TEST(perf_select_track_keys) {
     r.h.down(btn::Fx2);
     r.h.tap(btn::F1);
     r.h.up(btn::Fx2);
-    // Unlight both: every track again.
+    // Unlight both: no track again.
     r.h.tap(btn::F2);
     r.h.tap(btn::F4);
-    for (int t = 0; t < 8; ++t) CHECK(p.fxOn[t] && !p.lit[t]);
-    CHECK_EQ(int(a.engine.voice(0).perf().volume), 30);
+    for (int t = 0; t < 8; ++t) CHECK(!p.fxOn[t] && !p.lit[t]);
+    CHECK_EQ(int(a.engine.voice(1).perf().volume), 0);
     r.h.down(btn::Fx1);
     r.h.tap(btn::F1);
     r.h.up(btn::Fx1);

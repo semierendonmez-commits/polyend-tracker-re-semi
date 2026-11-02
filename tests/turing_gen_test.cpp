@@ -169,6 +169,7 @@ TEST(turing_knob_orders_ordinary_tracks) {
     h.app->seq.setPerfPatternMemory(mem.get());
     h.app->boot();
     App& a = *h.app;
+    a.cfg.perfKeys = 1;   // FX on every track (Exclude keys)
     // Track 2 is a Turing generator line, the others are not.
     int16_t v[gen::kParams];
     defaults(v);

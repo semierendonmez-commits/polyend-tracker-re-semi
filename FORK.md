@@ -158,11 +158,11 @@ the downbeat, rolls end at the downbeat.
 
 ### Live (Performance)
 
-**Track keys** (Config > General > **Perform track keys**). **Select** (the
-fork's default): F1..F8 light the tracks the effects play on; with none lit
-they play on every track. **Exclude** (stock 1.9.2): the effects play on
-every track and a key turns its track off (lit red). Scenes keep the tracks
-either way.
+**Track keys** (Config > General > **Perform track keys**). **Select** (as
+the original firmware, checked in Polyend's tracker-ce source): every track
+starts off, F1..F8 light the tracks the effects play on. **Exclude** (what
+OpenTracker did): the effects play on every track and a key turns its track
+off. Scenes keep the tracks either way.
 
 **Perform FX chooser.** In edit mode (Rec), hold Shift and turn the encoder:
 all Perform FX open as a grid (the encoder or a pad picks, F7 / F8 shows what

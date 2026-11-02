@@ -104,10 +104,10 @@ struct Config {
     // OT fork, fork byte 16: Perform CC out (0 off, 1 on): learned Perform
     // columns send their value as CC on MIDI out when it changes.
     uint8_t perfCcOut = 0;
-    // OT fork, fork byte 17: Performance track keys. 0 Select: a key lights
-    // its track and the FX play on the lit tracks only (none lit: all
-    // tracks). 1 Exclude (stock 1.9.2): FX on every track, a key turns its
-    // track off (lit red).
+    // OT fork, fork byte 17: Performance track keys. 0 Select (stock, from
+    // Polyend's tracker-ce source): every track starts off, a key turns its
+    // track on (lit) and the FX play on the lit tracks only. 1 Exclude (what
+    // OpenTracker did): FX on every track, a key turns its track off.
     uint8_t perfKeys = 0;
     uint8_t extReserved[4] = {};
     static constexpr uint8_t kSatColors = 5;

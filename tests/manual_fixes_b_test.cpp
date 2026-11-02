@@ -247,6 +247,7 @@ TEST(perf_screen_key_from_instr_params_reverts_like_stock) {
 TEST(perf_export_while_fx_alive_equals_baseline) {
     PerfRig r;
     App& a = *r.h.app;
+    a.cfg.perfKeys = 1;   // FX on every track (Exclude keys)
     {
         std::vector<int16_t> smp(3000);
         for (uint32_t i = 0; i < smp.size(); ++i) smp[i] = int16_t((i % 100) * 300 - 15000);

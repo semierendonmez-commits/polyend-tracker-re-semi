@@ -1,9 +1,10 @@
 // Pattern screen FX entry with the pads (user report, 2.2.3-semi.2: "when
 // placing an fx on a note the pads will not enter that fx; the top right
 // pad should be R for roll"). Fx key + pad picks the FX by the menu order
-// (top right pad = Roll), also from the held FX list; on an empty FX cell a
-// pad alone picks the FX too (it used to write a value without an effect);
-// on a cell with an FX the pad sets its value.
+// (top right pad = Roll), also from the held FX list. As in Polyend's
+// tracker-ce source (setSelectionFxValueByPad): a pad alone on an empty FX
+// cell puts the last used FX there and sets its value (it used to write a
+// value without an effect); on a cell with an FX the pad sets its value.
 #include "test.h"
 #include "ui_fakes.h"
 
@@ -40,10 +41,11 @@ TEST(fx_pad_entry_picks_the_effect) {
     h.up(btn::Fx1);
     h.run(50);
     CHECK_EQ(int(fx(2).type), int(FxId::Roll));
-    // A pad alone on an empty FX cell: the effect of that pad.
+    // A pad alone on an empty FX cell: the last used FX (Roll), its value from the pad.
     p.step = 4;
-    h.pad(11);
+    h.pad(5);
     CHECK_EQ(int(fx(4).type), int(FxId::Roll));
+    CHECK_EQ(int(fx(4).value), int(pops::fxValueFromPad(uint8_t(FxId::Roll), 5)));
     // A pad on a cell that has an FX: its value (the type stays).
     p.step = 4;
     const uint8_t v0 = fx(4).value;

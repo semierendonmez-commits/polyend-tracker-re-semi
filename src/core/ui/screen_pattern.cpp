@@ -1274,17 +1274,19 @@ void PatternScreen::noteLastFx(int column, int orderIdx) {
 void PatternScreen::writeFxPad(const SelRect& r, int pad) {
     App& a = app_;
     const int slot = fxSlotForColumn(col);
-    // OT fork (user report): on an empty FX cell a pad alone picks the effect
-    // too, by the same pad map as Fx + pad (top right = Roll); it used to
-    // write a value with no effect, so nothing showed.
-    const bool empty = a.pattern().tracks[r.t0].steps[r.s0].fx[slot].type == 0;
-    if (empty || ui_.isDown(col == 2 ? btn::Fx1 : btn::Fx2)) {
+    if (ui_.isDown(col == 2 ? btn::Fx1 : btn::Fx2)) {
         const uint8_t type = kFxMenuOrder[pad < kFxCount ? pad : kFxCount - 1];
         pops::writeFxType(a.pattern(), r, col, type);
         noteLastFx(col, pad < kFxCount ? pad : kFxCount - 1);
     } else {
+        // Stock (Polyend tracker-ce Sequencer::setSelectionFxValueByPad): a
+        // pad alone on an empty cell (one cell, not a selection) puts the last
+        // used FX there, then the pad sets its value. It used to write a value
+        // with no effect, so nothing showed (user report).
+        if (r.single() && a.pattern().tracks[r.t0].steps[r.s0].fx[slot].type == 0)
+            pops::writeFxType(a.pattern(), r, col, kFxMenuOrder[lastFxOrder(col)]);
         const uint8_t type = a.pattern().tracks[r.t0].steps[r.s0].fx[slot].type;
-        pops::writeFxValue(a.pattern(), r, col, pops::fxValueFromPad(type, pad));
+        if (type) pops::writeFxValue(a.pattern(), r, col, pops::fxValueFromPad(type, pad));
     }
 }
 
