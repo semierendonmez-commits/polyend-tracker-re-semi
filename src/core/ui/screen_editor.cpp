@@ -14,6 +14,7 @@
 #include "app/app.h"
 #include "app/sample_fx.h"
 #include "app/sample_fx_ot.h"
+#include "app/ptfx.h"
 #include "ui/screens.h"
 
 namespace ot {
@@ -25,7 +26,9 @@ int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 constexpr int kWaveY = 116, kWaveH = 219, kMarkTop = 108, kMarkBottom = 334;
 constexpr int kListX = 601, kListW = 197;
 
-void effectItem(void*, int i, char* out, int cap) { std::snprintf(out, size_t(cap), "%s", sfx::effect(i).name); }
+void effectItem(void*, int i, char* out, int cap) {
+    std::snprintf(out, size_t(cap), "%s", i < sfx::kEffectCount ? sfx::effect(i).name : ptfx::name(i - sfx::kEffectCount));
+}
 }  // namespace
 
 // Waveform chrome and bar glyphs (wave.cpp).
@@ -40,6 +43,7 @@ void EditorScreen::start(int opt) {
     page = 1;
     inert = true;
     stopPreview();
+    refreshPlugins();
     const uint8_t ci = a.currentInstrument();
     slot_ = ci;
     if (ci != lastInstr_) undoAvail = false;   // the undo belongs to one instrument
@@ -99,6 +103,7 @@ void EditorScreen::enter() {
     view.reset(a.bank.frames(slot_));
     // spec 06 §6.1: load the 17 x 9 default table on every normal entry.
     for (int e = 0; e < sfx::kEffectCount; ++e) sfx::defaults(e, params[e]);
+    ptfx::defaults(params[sfx::kEffectCount]);
     const float t = a.project.tempo();
     if (t >= 40.0f && t <= 800.0f) params[sfx::kStretchBeat][0] = float(int(t + 0.5f));
     {   // Timestretch Note Length starts at the sample's length (manual p.218,
@@ -185,14 +190,23 @@ bool EditorScreen::apply() {
     uint32_t s0, s1;
     selection(&s0, &s1);
     const uint32_t sel = s1 - s0;
-    const float* p = params[effect];
+    const float* p = prm();
     if (effect == sfx::kTuner) {   // OT fork: analysis only
         tune();
         return false;
     }
-    const uint32_t outSel = sfx::outputFrames(effect, p, sel);
-    const uint32_t newLen = effect == sfx::kCrop ? outSel : len - sel + outSel;
-    const uint32_t scratch = 2u * sfx::scratchFloats(effect, p) + 2u;   // OT fork: in samples
+    uint32_t outSel;
+    if (effect >= sfx::kEffectCount) {   // OT fork .ptfx: the length comes from the loaded plugin
+        if (!loadPlugin()) return false;
+        const uint32_t room = (a.bank.freeSamples() - plugReserve_) / ch;
+        const uint32_t cap = room < sfx::kMaxFrames ? room : sfx::kMaxFrames;
+        outSel = ptfx::frames(p, sel, cap > len - sel ? cap - (len - sel) : 1u);
+    } else {
+        plugReserve_ = 0;
+        outSel = sfx::outputFrames(effect, p, sel);
+    }
+    uint32_t newLen = effect == sfx::kCrop ? outSel : len - sel + outSel;
+    const uint32_t scratch = 2u * sfx::scratchFloats(effect, p) + 2u + plugReserve_;   // OT fork: in samples
     if (!fits(newLen, scratch)) return false;
     stopPreview();
     a.allVoicesOff();   // voices point into the bank
@@ -209,7 +223,12 @@ bool EditorScreen::apply() {
             std::memcpy(dst, src + s0, size_t(sel) * sizeof(int16_t));
         } else {
             std::memcpy(dst, src, size_t(s0) * sizeof(int16_t));
-            sfx::process(effect, p, src + s0, sel, dst + s0, outSel);
+            const uint32_t got = sfx::process(effect, p, src + s0, sel, dst + s0, outSel);
+            if (c == 0 && got < outSel) {   // a plugin ended early: the first channel sets the length
+                outSel = got;
+                newLen = len - sel + outSel;
+            }
+            for (uint32_t i = got; i < outSel; ++i) dst[s0 + i] = 0;
             std::memcpy(dst + s0 + outSel, src + s1, size_t(len - s1) * sizeof(int16_t));
         }
         ui_.progress("Applying", int((c + 1) * 100 / ch));
@@ -268,6 +287,59 @@ void EditorScreen::lendScratch(int16_t* at, uint32_t samples) {
     uintptr_t u = reinterpret_cast<uintptr_t>(at);
     u = (u + 3u) & ~uintptr_t(3);
     sfx::setScratch(reinterpret_cast<float*>(u), (samples - 2u) / 2u);
+}
+
+// OT fork .ptfx plugins (app/ptfx.h): listed after the built-in effects.
+int EditorScreen::effectTotal() const { return sfx::kEffectCount + ptfx::count(); }
+
+void EditorScreen::setEffect(int e) {
+    e = clampi(e, 0, effectTotal() - 1);
+    if (e >= sfx::kEffectCount && ptfx::selected() != e - sfx::kEffectCount) {
+        if (!ptfx::select(e - sfx::kEffectCount)) return;   // gone from the card: stay
+        ptfx::defaults(params[sfx::kEffectCount]);
+        std::snprintf(plugName_, sizeof(plugName_), "%s", ptfx::name(e - sfx::kEffectCount));
+    }
+    if (e != effect) previewState = 0;
+    effect = e;
+}
+
+void EditorScreen::refreshPlugins() {
+    // The listing lives in the browsers' shared buffer, which other screens
+    // reuse: read again on every entry, the selected plugin found by name.
+    ptfx::attach(&app_.fs(), browserListMem(), kBrowserListBytes);
+    const int n = ptfx::scan();
+    plugReserve_ = 0;
+    if (effect < sfx::kEffectCount) return;
+    for (int k = 0; k < n; ++k)
+        if (!std::strcmp(ptfx::name(k), plugName_) && ptfx::select(k)) {
+            effect = sfx::kEffectCount + k;
+            return;
+        }
+    effect = 0;   // removed from the card
+}
+
+bool EditorScreen::loadPlugin() {
+    // At the top of the free sample memory: the outputs grow from the bottom
+    // (fits() counts plugReserve_ in).
+    App& a = app_;
+    plugReserve_ = 0;
+    const uint32_t freeS = a.bank.freeSamples();
+    // What it asks for, but at most half the free memory (the rest is for
+    // the result); a plugin gets less scratch then, as on CE.
+    uint32_t bytes = ptfx::memBytes() + 16u;
+    if (bytes / 2u > freeS / 2u) bytes = (freeS / 2u) * 2u;
+    if (bytes < ptfx::minBytes() + 16u || bytes / 2u + 64u > freeS) {
+        ui_.ask("Sample Editor", "Not enough free memory for this effect", nullptr, nullptr, "OK", nullptr, nullptr);
+        return false;
+    }
+    int16_t* top = a.bank.tail() + freeS;
+    void* at = reinterpret_cast<void*>((reinterpret_cast<uintptr_t>(top) - bytes) & ~uintptr_t(15));
+    if (!ptfx::load(at, bytes - 8u)) {
+        ui_.ask("Sample Editor", "This effect could not be loaded", nullptr, nullptr, "OK", nullptr, nullptr);
+        return false;
+    }
+    plugReserve_ = bytes / 2u + 8u;
+    return true;
 }
 
 // OT fork Tuner: the selection's pitch; Write puts Tune / Finetune on the
@@ -331,14 +403,23 @@ bool EditorScreen::preview(int note) {
     uint32_t s0, s1;
     selection(&s0, &s1);
     const uint32_t sel = s1 - s0;
-    const uint32_t outSel = sfx::outputFrames(effect, params[effect], sel);
+    // Keep the undo data at the tail intact: process after it.
+    const uint32_t keep = undoAvail ? undoFrames_ * (undoStereo_ ? 2u : 1u) : 0u;
+    uint32_t outSel;
+    if (effect >= sfx::kEffectCount) {   // OT fork .ptfx
+        if (!loadPlugin()) return false;
+        const uint32_t free = a.bank.freeSamples() - plugReserve_;
+        const uint32_t room = free > keep ? (free - keep) / ch : 0u;
+        outSel = ptfx::frames(prm(), sel, room < sfx::kMaxFrames ? room : sfx::kMaxFrames);
+    } else {
+        plugReserve_ = 0;
+        outSel = sfx::outputFrames(effect, prm(), sel);
+    }
     // The processed preview belongs to one selection and effect: moving a
     // marker made the old audio play cut to the new length (user report:
     // the further Start moved, the more was missing at the end).
     if (s0 != prevS0_ || s1 != prevS1_ || effect != prevEffect_) previewState = 0;
-    // Keep the undo data at the tail intact: process after it.
-    const uint32_t keep = undoAvail ? undoFrames_ * (undoStereo_ ? 2u : 1u) : 0u;
-    const uint32_t scratch = 2u * sfx::scratchFloats(effect, params[effect]) + 2u;   // OT fork
+    const uint32_t scratch = 2u * sfx::scratchFloats(effect, prm()) + 2u + plugReserve_;   // OT fork
     if (!fits(outSel, keep + scratch)) return false;
     int16_t* out = a.bank.tail() + keep;
     if (previewState == 0) {
@@ -348,7 +429,9 @@ bool EditorScreen::preview(int note) {
         beginFxProgress("Processing", ch);
         for (uint32_t c = 0; c < ch; ++c) {
             fxProgressChannel(c);
-            sfx::process(effect, params[effect], cur + c * len + s0, sel, out + c * outSel, outSel);
+            const uint32_t got = sfx::process(effect, prm(), cur + c * len + s0, sel, out + c * outSel, outSel);
+            if (c == 0 && got < outSel) outSel = got;   // a plugin ended early
+            for (uint32_t i = got; i < outSel; ++i) out[c * outSel + i] = 0;
         }
         sfx::setScratch(nullptr, 0);
         sfx::setProgress(nullptr, nullptr);
@@ -438,7 +521,7 @@ void EditorScreen::refreshBar() {
     for (int i = 0; i < 4; ++i) {
         const int k = paramPage * 4 + i;
         if (k >= e.params) continue;
-        sfx::formatParam(effect, k, params[effect][k], v, sizeof(v));
+        sfx::formatParam(effect, k, prm()[k], v, sizeof(v));
         b.set(i, e.p[k].name, v);
     }
     if (e.params > 4) b.set(4, "More");
@@ -462,7 +545,7 @@ void EditorScreen::markerDelta(int which, int d) {
 void EditorScreen::paramDelta(int d) {
     const sfx::EffectDesc& e = sfx::effect(effect);
     if (paramFocus >= e.params) return;
-    float& v = params[effect][paramFocus];
+    float& v = prm()[paramFocus];
     v = sfx::clampParam(effect, paramFocus, v + float(d) * e.p[paramFocus].step);
     previewState = 0;   // any change -> back to "dirty" (spec 06 §6.4)
     stopPreview();
@@ -516,7 +599,7 @@ void EditorScreen::onButton(uint8_t id, uint8_t state) {
                 break;
             case btn::F7:
             case btn::F8:
-                if (focus == 3) effect = clampi(effect + (id == btn::F8 ? 1 : -1), 0, sfx::kEffectCount - 1);
+                if (focus == 3) setEffect(effect + (id == btn::F8 ? 1 : -1));
                 focus = 3;
                 break;
             case btn::Left: focus = clampi(focus - 1, 0, 3); break;
@@ -568,7 +651,7 @@ void EditorScreen::onButton(uint8_t id, uint8_t state) {
         case btn::Down: paramDelta(-1); break;
         case btn::Delete:
             if (paramFocus < e.params) {
-                params[effect][paramFocus] = e.p[paramFocus].def;
+                prm()[paramFocus] = e.p[paramFocus].def;
                 previewState = 0;
                 stopPreview();
             }
@@ -593,7 +676,7 @@ void EditorScreen::onEncoder(int d) {
             case 0: markerDelta(0, d); break;
             case 1: markerDelta(1, d); break;
             case 2: view.step(d); break;
-            default: effect = clampi(effect + clampi(d, -5, 5), 0, sfx::kEffectCount - 1); break;
+            default: setEffect(effect + clampi(d, -5, 5)); break;
         }
     }
     refreshBar();
@@ -635,7 +718,7 @@ void EditorScreen::draw(Gfx& g) {
             const sfx::ParamDesc& pd = e.p[k];
             wg::ValueBarStyle st;
             st.bipolar = pd.min < 0 && pd.max > 0;
-            float f = (params[effect][k] - pd.min) / (pd.max - pd.min);
+            float f = pd.max > pd.min ? (prm()[k] - pd.min) / (pd.max - pd.min) : 0.0f;
             if (st.bipolar) f = f * 2.0f - 1.0f;
             else if (f < 1.0f / 369.0f) f = 1.0f / 369.0f;   // value 0 = the 1.5-px line [Part 2 §7.4]
             wg::valueBar(g, th, x, wg::kPanelY, wg::columnW(), wg::kPanelH, f, st);
@@ -681,7 +764,7 @@ void EditorScreen::draw(Gfx& g) {
     wg::ListView v;
     v.x = kListX;
     v.w = kListW;
-    v.count = sfx::kEffectCount;
+    v.count = effectTotal();
     v.sel = effect;
     v.top = wg::listFollow(effect, v.count, wg::listVisibleRows(v.h), 0);
     v.selStyle = wg::ListSel::kWhite;

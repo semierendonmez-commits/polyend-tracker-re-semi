@@ -874,11 +874,14 @@ public:
 
     uint16_t startM = 0, endM = 65535;
     int focus = 0;          // page 1: 0 start, 1 end, 2 zoom, 3 effect list (spec 06 §6.3)
-    int effect = 0;         // 0..16 (sfx::Effect)
+    int effect = 0;         // sfx::Effect; from sfx::kEffectCount on, the .ptfx plugins (OT fork)
     int page = 1;           // 1 markers/effect list, 2 effect parameters
     int paramPage = 0;      // 4-parameter page on page 2
     int paramFocus = 0;     // parameter index on page 2
-    float params[sfx::kEffectCount][sfx::kMaxParams] = {};   // OT fork: 19 effects
+    float params[sfx::kEffectCount + 1][sfx::kMaxParams] = {};   // OT fork: + the selected plugin's
+    float* prm() { return params[effect < sfx::kEffectCount ? effect : sfx::kEffectCount]; }
+    int effectTotal() const;     // built-in + plugins
+    void setEffect(int e);       // selects a plugin's description too
     bool undoAvail = false;
     int previewState = 0;   // 0 dirty, 1 processed (spec 06 §6.4 F7)
     // What the processed preview was made from: a different selection or
@@ -906,6 +909,12 @@ private:
     void paramDelta(int d);
     bool fits(uint32_t newFrames, uint32_t extraSamples);
     void lendScratch(int16_t* at, uint32_t samples);   // OT fork
+    // OT fork .ptfx: the listing again (start), the code into the top of the
+    // free sample memory (preview / apply; false: message shown).
+    void refreshPlugins();
+    bool loadPlugin();
+    uint32_t plugReserve_ = 0;   // samples the loaded plugin holds at the top
+    char plugName_[24] = {};
     // OT fork: the long effects report progress while they run (synchronous):
     // the popup is redrawn every 100 ms or so.
     void beginFxProgress(const char* title, uint32_t channels);

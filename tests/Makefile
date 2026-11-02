@@ -64,6 +64,24 @@ $(OUT)/fatfs_alloc_test: fatfs_alloc_test.cpp $(OUT)/obj/fatfs/ff.o $(OUT)/obj/f
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -I$(FATFS) $< $(OUT)/obj/fatfs/ff.o $(OUT)/obj/fatfs/ffunicode.o $(LDFLAGS) -o $@
 
+# OT fork .ptfx plugins (ptfx_test.cpp): the fork's plugins (ptfx/) and the
+# SDK's reference effects compiled for the host, each under its own names, so
+# the loader can run them through its platform hook.
+PTFX_SDK := ../third_party/polyend-ptfx-sdk
+PTFX_OURS := ot_radio ot_clipper ot_transcode ot_dctcrush ot_paulstretch ot_granular
+PTFX_REFS := multimode_filter stereo_delay add_silence analog_kick_gen
+PTFX_CFLAGS := -std=c11 -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined -ffp-contract=off -I$(PTFX_SDK)
+PTFX_OBJS := $(patsubst %,$(OUT)/obj/ptfx/%.o,$(PTFX_OURS) $(PTFX_REFS))
+$(OUT)/obj/ptfx/ot_%.o: ../ptfx/ot_%.c ../ptfx/ot_common.h $(PTFX_SDK)/tracker_plugin.h
+	@mkdir -p $(dir $@)
+	$(CC) $(PTFX_CFLAGS) -Wall -Wextra -Werror -Dplugin_init=ot_$*_init -Dplugin_set_param=ot_$*_set -Dplugin_process_block=ot_$*_process -c $< -o $@
+$(OUT)/obj/ptfx/%.o: $(PTFX_SDK)/effects/%.c $(PTFX_SDK)/tracker_plugin.h
+	@mkdir -p $(dir $@)
+	$(CC) $(PTFX_CFLAGS) -w -Dplugin_init=$*_init -Dplugin_set_param=$*_set -Dplugin_process_block=$*_process -DPLUGIN_PARAMS=$*_params -c $< -o $@
+$(OUT)/ptfx_test: ptfx_test.cpp $(PTFX_OBJS) $(OUT)/libcore.a
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -I$(PTFX_SDK) $< $(PTFX_OBJS) $(OUT)/libcore.a $(LDFLAGS) -o $@
+
 build: $(TEST_BINS)
 
 # Private vendor fixtures (never committed): the repo-root fixtures symlink.

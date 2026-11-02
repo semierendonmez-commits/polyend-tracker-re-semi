@@ -270,3 +270,26 @@ patches:
 sim:
 	$(MAKE) -C sim
 .PHONY: sim
+
+# OT fork: the fork's Sample Editor effects as .ptfx plugins (ptfx/, built
+# with the MIT SDK's builder in third_party/polyend-ptfx-sdk): build/ptfx/
+# Effects/*.ptfx, for /Effects on the card of this firmware or Polyend's CE.
+# Each source is first compiled alone to check it needs no relocation (GOT)
+# and no libc; the builder links it at 0 and never relocates.
+PTFX_SDK  := third_party/polyend-ptfx-sdk
+PTFX_OUT  := $(BUILD)/ptfx/Effects
+PTFX_SRCS := $(wildcard ptfx/*.c)
+PTFX_CC   ?= arm-none-eabi-gcc
+PTFX_FLAGS := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -O3 -fno-builtin \
+              -fno-tree-loop-distribute-patterns -fPIC -mpic-data-is-text-relative -mlong-calls -nostdlib \
+              -Wall -Wextra -Wdouble-promotion -Werror -I$(PTFX_SDK)
+ptfx: $(patsubst ptfx/%.c,$(PTFX_OUT)/%.ptfx,$(PTFX_SRCS))
+$(PTFX_OUT)/%.ptfx: ptfx/%.c ptfx/ot_common.h $(PTFX_SDK)/ptfx_builder.py $(PTFX_SDK)/tracker_plugin.h
+	@mkdir -p $(PTFX_OUT) $(BUILD)/ptfx/obj
+	$(PTFX_CC) $(PTFX_FLAGS) -c $< -o $(BUILD)/ptfx/obj/$*.o
+	@if arm-none-eabi-readelf -r $(BUILD)/ptfx/obj/$*.o | grep -q "GOT\|R_ARM_ABS32"; then \
+	  echo "$<: needs relocation (a global or a pointer in initialised data)"; \
+	  arm-none-eabi-readelf -r $(BUILD)/ptfx/obj/$*.o | grep "GOT\|R_ARM_ABS32"; exit 1; fi
+	python3 $(PTFX_SDK)/ptfx_builder.py $< -o $@ > $(BUILD)/ptfx/obj/$*.log || (cat $(BUILD)/ptfx/obj/$*.log; exit 1)
+	@grep -E "Code|Total" $(BUILD)/ptfx/obj/$*.log | tr -s ' ' | sed "s|^|$*: |"
+.PHONY: ptfx

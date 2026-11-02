@@ -470,6 +470,7 @@ struct JsonScan {
 bool loadJsonTheme(IStorage& fs, const char* name, uint32_t* slots, ThemeParse* out) {
     char path[48];
     std::snprintf(path, sizeof(path), "%s/%s.json", kThemesDir, name);
+    if (!fs.exists(path)) return false;   // the table untouched
     Parser p(slots, out);
     for (int pass = 0; pass < 2; ++pass) {   // the base first, wherever it is in the file
         const IStorage::Handle h = fs.open(path, IStorage::kRead);

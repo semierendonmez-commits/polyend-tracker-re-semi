@@ -115,6 +115,8 @@ void setProgress(void (*fn)(void* ctx, int percent), void* ctx) {
     gProgressCtx = ctx;
 }
 
+void progress(uint64_t done, uint64_t total) { reportProgress(done, total); }
+
 uint32_t scratchFloats(int fx, const float* p) {
     (void)p;
     if (fx == kPaulstretch) return 4u * 16384u + 8192u;   // re, im, window, overlap (largest window)

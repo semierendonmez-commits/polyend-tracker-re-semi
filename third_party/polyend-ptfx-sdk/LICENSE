@@ -1,0 +1,23 @@
+PART 3: MIT LICENSE FOR .PTFX SAMPLE EDITOR SDK (`editor-fx-sdk/`)
+================================================================================
+
+Copyright (c) 2020-2026 Polyend Sp. z o.o. and Polyend Tracker Community Edition Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of the software and associated files in the `editor-fx-sdk/` directory (the
+"SDK Software"), to deal in the SDK Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the SDK Software and `.ptfx` plugins built
+with it, and to permit persons to whom the SDK Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the SDK Software.
+
+THE SDK SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SDK SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SDK SOFTWARE.

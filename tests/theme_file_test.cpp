@@ -293,7 +293,7 @@ TEST(list_themes_sorted_capped_txt_only) {
     putFile(fs, "Themes/neon.txt", "");
     putFile(fs, "Themes/Amber.TXT", "");
     putFile(fs, "Themes/paper.Txt", "");
-    putFile(fs, "Themes/notes.json", "");
+    putFile(fs, "Themes/notes.json", "");                  // OT fork: a CE theme, listed
     putFile(fs, "Themes/.txt", "");
     putFile(fs, "Themes/txt", "");
     putFile(fs, "Themes/abcdefghijklmnopqrstu.txt", "");   // 21 characters: too long
@@ -304,11 +304,12 @@ TEST(list_themes_sorted_capped_txt_only) {
     putFile(fs, "Other/x.txt", "");
     char names[kThemeListMax][kThemeNameMax + 1];
     int n = listThemeFiles(fs, names, kThemeListMax);
-    CHECK_EQ(n, 4);
+    CHECK_EQ(n, 5);
     CHECK_STR(names[0], "abcdefghijklmnopqrst");
     CHECK_STR(names[1], "Amber");
     CHECK_STR(names[2], "neon");
-    CHECK_STR(names[3], "paper");
+    CHECK_STR(names[3], "notes");
+    CHECK_STR(names[4], "paper");
     CHECK(themeNameValid("Neon"));
     CHECK(themeNameValid("My theme 2"));
     CHECK(!themeNameValid(""));

@@ -3,6 +3,8 @@
 // OpenTracker device glue: hands the HAL drivers and the SDRAM buffers to the
 // App (core stays free of hal headers; ARCHITECTURE.md rules).
 #include "app/app.h"
+#include "app/ptfx.h"
+#include "hal/sdram_cache.h"
 #include "hal/sd_stream_reader.h"
 #include "hal/audio_sgtl5000.h"
 #include "hal/board.h"
@@ -79,6 +81,22 @@ extern "C" __attribute__((used, section(".rodata.otSdramLayoutEnd"))) const uint
     ot::board::kSdramBase + kEnd;
 
 ot::App gApp;
+
+// OT fork .ptfx (app/ptfx.h): code just read into the free sample memory
+// (SDRAM, executable under the stack guard's SYSMPU regions). The SDRAM
+// cache is write-through: drop its lines for the range (the card may have
+// written it by DMA), then barriers before the first fetch. Thumb entry
+// points have bit 0 set.
+bool ptfxPrepare(uint8_t* code, uint32_t bytes, uint32_t initOff, uint32_t setOff, uint32_t procOff,
+                 ot::ptfx::Entry* e) {
+    ot::hal::cache::invalidate(code, bytes);
+    __asm__ volatile("dsb 0xf\n\tisb 0xf" ::: "memory");
+    const uintptr_t b = reinterpret_cast<uintptr_t>(code);
+    e->init = reinterpret_cast<ot::ptfx::InitFn>((b + initOff) | 1u);
+    e->setParam = reinterpret_cast<ot::ptfx::SetParamFn>((b + setOff) | 1u);
+    e->process = reinterpret_cast<ot::ptfx::ProcessFn>((b + procOff) | 1u);
+    return true;
+}
 ot::diag::Telemetry gTelemetry;
 void (*gHalService)() = nullptr;
 uint8_t gAppliedBrightness = 0xFF;   // config level last sent to the display
@@ -423,6 +441,7 @@ void otAppMain(ot::hal::HalSet& hal) {
     static hal::SdStreamReader sStreamReader(hal::storage());
     refs.streamReader = &sStreamReader;   // SD streaming (raw sectors through the cluster map)   // 2.x USB Storage mode (null in an OT_USB_MSC=0 image)
     if (!gApp.init(refs, mem)) return;   // falls back to the selftest
+    ot::ptfx::setPrepare(&ptfxPrepare);   // OT fork: .ptfx Sample Editor plugins
     hal::setPowerOffHook(&powerOffHook);
     gApp.ui.platform.devStats = &devStats;         // Config /.develop overlay (spec 06 §7.2)
     gApp.ui.platform.devStatsReset = &devStatsReset;

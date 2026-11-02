@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "app/sample_fx_ot.h"
+#include "app/ptfx.h"
 #include "fmath.h"
 
 namespace ot {
@@ -323,14 +324,17 @@ double dynCoef(float ms) {
 
 }  // namespace
 
-const EffectDesc& effect(int i) { return kEffects[i < 0 || i >= kEffectCount ? 0 : i]; }
+// OT fork: numbers from kEffectCount on are the selected .ptfx plugin (ptfx.h).
+const EffectDesc& effect(int i) { return i >= kEffectCount ? ptfx::desc() : kEffects[i < 0 ? 0 : i]; }
 
 void defaults(int fx, float* p) {
+    if (fx >= kEffectCount) return ptfx::defaults(p);
     const EffectDesc& e = effect(fx);
     for (int i = 0; i < kMaxParams; ++i) p[i] = i < e.params ? e.p[i].def : 0.0f;
 }
 
 float clampParam(int fx, int i, float v) {
+    if (fx >= kEffectCount) return ptfx::clamp(i, v);
     const EffectDesc& e = effect(fx);
     if (i < 0 || i >= e.params) return v;
     const ParamDesc& d = e.p[i];
@@ -343,6 +347,7 @@ float clampParam(int fx, int i, float v) {
 }
 
 void formatParam(int fx, int i, float v, char* out, int cap) {
+    if (fx >= kEffectCount) return ptfx::format(i, v, out, cap);
     const EffectDesc& e = effect(fx);
     const size_t c = size_t(cap);
     if (i < 0 || i >= e.params) {
@@ -408,6 +413,7 @@ uint32_t outputFrames(int fx, const float* p, uint32_t n) {
 }
 
 uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t* out, uint32_t cap) {
+    if (fx >= kEffectCount) return ptfx::run(p, in, n, out, cap);   // may end early
     const uint32_t m = outputFrames(fx, p, n);
     const uint32_t w = m < cap ? m : cap;
     if (n == 0) {
