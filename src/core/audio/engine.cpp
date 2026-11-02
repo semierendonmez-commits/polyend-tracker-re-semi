@@ -241,6 +241,8 @@ void MixerSettings::loadFromProject(const Project& p) {
     lineInMute = p.u8(0x30A) != 0;
     lineInDelaySend = lvl(0x30B);
     lineInReverbSend = lvl(0x30D);
+    lineInDelayMute = p.u8(0x30C) != 0;    // stock: each line-in send has its own mute
+    lineInReverbMute = p.u8(0x30E) != 0;
     for (int t = 0; t < kVoices; ++t) trackLevel[t] = lvl(0x4D0 + uint32_t(t));
     // Global Mixer (spec 07 Q3, Q4).
     reverbLevel = lvl(0x4D8);
@@ -643,8 +645,8 @@ void AudioEngine::updateParams() {
         if (m.postFaderSends) g *= lineLevel;
         return g < 0.01f ? 0.0f : g;
     };
-    lineSendD_.set(m.delayMute ? 0.0f : lineSend(m.lineInDelaySend));
-    lineSendR_.set(m.reverbMute ? 0.0f : lineSend(m.lineInReverbSend));
+    lineSendD_.set(m.delayMute || m.lineInDelayMute ? 0.0f : lineSend(m.lineInDelaySend));
+    lineSendR_.set(m.reverbMute || m.lineInReverbMute ? 0.0f : lineSend(m.lineInReverbSend));
 }
 
 void AudioEngine::controlBlock(float blockUs) {

@@ -38,6 +38,31 @@ const Map kMap[] = {
 };
 #undef F
 
+// The stock image is a header (id "EEPROM\0", version byte 10, u16 total
+// size) and nine blocks, each starting with its own u16 size (checked in
+// Polyend tracker-ce, strMtConfig / mtConfig.cpp: it walks the blocks by
+// those sizes). Stock 1.9.2 sizes and places:
+struct Block {
+    uint8_t at, size;
+};
+constexpr Block kBlocks[9] = {{0x0C, 16}, {0x1C, 8},  {0x24, 14}, {0x32, 0x96}, {0xC8, 0x12},
+                              {0xDA, 10}, {0xE4, 8}, {0xEC, 4},  {0xF0, 4}};
+constexpr uint8_t kImageVersion = 10;
+
+// Header and block sizes as stock writes them, so the stock firmware and the
+// Community Edition read every block (an earlier OpenTracker wrote 0xF4 into
+// the first block size: they then read only that block).
+void stampLayout(uint8_t* img) {
+    img[7] = kImageVersion;
+    img[8] = uint8_t(Config::kImageSize);
+    img[9] = uint8_t(Config::kImageSize >> 8);
+    img[10] = img[11] = 0;
+    for (const Block& b : kBlocks) {
+        img[b.at] = b.size;
+        img[b.at + 1] = 0;
+    }
+}
+
 template <typename T>
 void clampField(T& v, T max, T def) {
     if (v > max) v = def;
@@ -54,8 +79,7 @@ void wr16(uint8_t* p, uint16_t v) {
 void defaultImage(uint8_t* img) {
     std::memset(img, 0, Config::kImageSize);
     std::memcpy(img, kSignature, sizeof(kSignature));
-    wr16(img + Config::kOffVersion, 0x0A00);
-    img[Config::kOffSize] = 0xF4;
+    stampLayout(img);
     const float master = 81.0f;   // 0x10 f32
     std::memcpy(img + 0x10, &master, 4);
     const uint8_t levels[8] = {0x23, 0, 0, 0x0F, 0x0F, 0x1D, 0x1D, 0x51};   // 0x14..0x1B
@@ -170,8 +194,37 @@ void Config::sanitize() {
 uint8_t Config::padDim() const { return uint8_t(10 * ((padsBrightness < 3 ? padsBrightness : 2) + 1) / 3); }
 uint8_t Config::padFull() const { return uint8_t(31 * ((padsBrightness < 3 ? padsBrightness : 2) + 1) / 3); }
 
+uint32_t Config::normalizeImage(const uint8_t* raw, uint32_t len, uint8_t* out) {
+    // A tagged image whose blocks differ in size from stock (the Community
+    // Edition grew the interface block) is re-laid out by its own sizes;
+    // anything else is taken at the fixed stock offsets.
+    std::memcpy(out, raw, kImageSize);
+    if (len < kImageSize || std::memcmp(raw, kSignature, sizeof(kSignature)) != 0) return 0;
+    const uint32_t total = rd16(raw + 8);
+    if (total < kImageSize || total > len) return 0;
+    uint32_t off = kBlocks[0].at;
+    bool differs = false;
+    for (const Block& b : kBlocks) {
+        const uint32_t sz = off + 2 <= len ? rd16(raw + off) : 0;
+        if (sz < 2 || sz > 0xC0 || off + sz > total) return 0;   // not a tagged image: fixed offsets
+        differs = differs || sz != b.size || off != b.at;
+        off += sz;
+    }
+    if (!differs) return 1;
+    off = kBlocks[0].at;
+    for (const Block& b : kBlocks) {
+        const uint32_t sz = rd16(raw + off);
+        std::memset(out + b.at, 0, b.size);
+        std::memcpy(out + b.at, raw + off, sz < b.size ? sz : b.size);
+        off += sz;
+    }
+    stampLayout(out);
+    return 2;
+}
+
 void Config::toImage() {
     std::memcpy(image, kSignature, sizeof(kSignature));
+    stampLayout(image);
     const uint8_t* base = reinterpret_cast<const uint8_t*>(this);
     for (const Map& m : kMap) image[m.img] = base[m.field];
     const int k = (padsBrightness < 3 ? padsBrightness : 2) + 1;
@@ -380,8 +433,13 @@ bool Config::fromImage(const uint8_t* img) {
 }
 
 bool Config::load(INvStore& nv) {
-    uint8_t buf[kImageSize];
-    if (nv.size() < kImageSize || !nv.read(0, buf, kImageSize)) return false;
+    // OT fork: up to 64 bytes more, for a longer tagged image (the Community
+    // Edition's), re-laid out to the stock offsets.
+    uint8_t raw[kImageSize + 64], buf[kImageSize];
+    uint32_t rawLen = kImageSize + 64;
+    if (nv.size() < rawLen) rawLen = nv.size() >= kImageSize ? kImageSize : 0;
+    if (!rawLen || !nv.read(0, raw, rawLen)) return false;
+    normalizeImage(raw, rawLen, buf);
     if (!fromImage(buf)) return false;
     uint8_t ext[kExtSize];
     const Config d;

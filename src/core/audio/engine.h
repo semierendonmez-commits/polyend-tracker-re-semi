@@ -158,6 +158,7 @@ struct MixerSettings {
     uint8_t lineInChannel = 0;        // 0 stereo, 1 left->both, 2 right->both
     uint8_t lineInLevel = 86;
     bool lineInMute = false;
+    bool lineInDelayMute = false, lineInReverbMute = false;   // own mutes of the line-in sends
     uint8_t lineInDelaySend = 0;      // TRK index; 0.5*TRK, 0 below 0.01
     uint8_t lineInReverbSend = 0;
     // Settings (config, not project): metronome volume 0..100 through the

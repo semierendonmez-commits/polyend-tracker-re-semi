@@ -315,7 +315,24 @@ void applyImportedLength(Instrument& ins, uint32_t frames, bool stereo) {
     ins.stereo = stereo;
     // spec 10 §3.3 step 5: grain length clamped to the length (I).
     if (ins.grainLength > frames) ins.grainLength = uint16_t(frames);
-    // SPEC GAP: wavetable parameter refresh for play mode 6 not specified.
+    // Wavetable (play mode 6), as Polyend tracker-ce after a sample load: the
+    // window size fits the length and is the highest power of two in it (up
+    // to 2048), the window count follows from the length, the current window
+    // keeps its place in the range.
+    if (ins.playMode == 6) {
+        ins.sampleType = uint8_t(SampleType::Wavetable);
+        const uint32_t oldCount = ins.wavetableWindowCount;
+        uint32_t size = ins.wavetableWindowSize <= frames ? ins.wavetableWindowSize : frames;
+        uint32_t mask = 2048;
+        while (size && !(size & mask)) mask >>= 1;
+        size &= mask;
+        ins.wavetableWindowSize = uint16_t(size);
+        ins.wavetableWindowCount = size ? frames / size : 0;
+        const int64_t oldMax = int64_t(oldCount) - 1, newMax = int64_t(ins.wavetableWindowCount) - 1;
+        int64_t cur = int64_t(ins.wavetableCurrentWindow);
+        cur = oldMax > 0 ? cur * newMax / oldMax : 0;
+        ins.wavetableCurrentWindow = uint32_t(cur < 0 ? 0 : (cur > newMax ? (newMax < 0 ? 0 : newMax) : cur));
+    }
 }
 
 size_t buildPtiFromMti(const uint8_t* mti, size_t mtiLen, const uint8_t* wavFile, size_t wavLen,

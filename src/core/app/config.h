@@ -137,8 +137,13 @@ struct Config {
     // --- the stock config image --------------------------------------------
     static constexpr uint32_t kImageSize = 0xF4;   // spec 05 §5.4 version word 0xf4
     // Image offsets (spec 05 §5.4 table / spec 03 §4.1 / spec 12 §A.2).
-    static constexpr uint32_t kOffVersion = 0x08;   // u16 0x0A00 (written on a fresh image)
-    static constexpr uint32_t kOffSize = 0x0C;      // u32 0xF4 (written on a fresh image)
+    // Header: id "EEPROM\0", version byte 10 at 0x07, u16 total size 0xF4 at
+    // 0x08; every block starts with its u16 size (stampLayout in config.cpp).
+    static constexpr uint32_t kOffVersion = 0x07;
+    static constexpr uint32_t kOffSize = 0x08;
+    // A raw EEPROM image -> the stock layout in `out` (kImageSize bytes):
+    // 0 = not tagged (copied), 1 = already stock, 2 = re-laid out by its tags.
+    static uint32_t normalizeImage(const uint8_t* raw, uint32_t len, uint8_t* out);
     static constexpr uint32_t kOffPerfPatterns = 0x38;   // u16[8], vestigial (spec 12 §A.4)
     static constexpr uint32_t kOffPerfTypes = 0x48;      // u8[12]
     static constexpr uint32_t kOffPerfValues = 0x54;     // i16[12][4]

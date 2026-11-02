@@ -298,6 +298,17 @@ void optionList(Gfx& g, const Theme& th, int k, const char* const* names, int co
 // Disabled (greyed label, bar and value) while the Global Mixer Line In
 // channel is muted [S snap 006 / 007 / 010 show both; the rule is I].
 bool lineInOff(const Project& p) { return p.u8(pf::kLineInMute) != 0; }
+// Each line-in send has its own mute (Polyend tracker-ce: Shift + its key; new
+// projects start with both muted). Here: Shift + F7 on Delay, and a second
+// press of the send's key on Reverb or Delay (Shift turns the Reverb page).
+bool lineSendOff(const Project& p, bool reverb) {
+    return lineInOff(p) || p.u8(reverb ? pf::kLineInReverbMute : pf::kLineInDelayMute) != 0;
+}
+void toggleLineSend(App& a, bool reverb) {
+    const uint32_t at = reverb ? pf::kLineInReverbMute : pf::kLineInDelayMute;
+    a.project.setU8(at, a.project.u8(at) ? 0 : 1);
+    a.markProjectDirty();
+}
 }  // namespace
 
 // 2.x bank B (docs/specs/2x-01 §4): right-hand title text.
@@ -514,7 +525,8 @@ void MixerScreen::refreshBar() {
                 b.set(i, n[i], v);
             }
             levelText(p.u8(pf::kLineInReverb), v, sizeof(v));
-            b.set(4, "Line in", v, !lineInOff(p));
+            if (p.u8(pf::kLineInReverbMute)) std::snprintf(v, sizeof(v), "Muted");
+            b.set(4, "Line in", v, !lineSendOff(p, true));
             b.set(5, "Model", kRevModels[a.cfg.reverbModel < 7 ? a.cfg.reverbModel : 0]);   // OT fork
             setBack(b);
         } else if (sub == 2) {
@@ -529,7 +541,9 @@ void MixerScreen::refreshBar() {
             std::snprintf(v, sizeof(v), "%d Hz", p.u16(pf::kDelayFilter));
             b.set(5, "Filter", v);
             levelText(p.u8(pf::kLineInDelay), v, sizeof(v));
-            b.set(6, "Line in", v, !lineInOff(p));
+            if (p.u8(pf::kLineInDelayMute)) std::snprintf(v, sizeof(v), "Muted");
+            if (ui_.shift()) std::snprintf(v, sizeof(v), "%s", p.u8(pf::kLineInDelayMute) ? "Unmute" : "Mute");
+            b.set(6, "Line in", v, !lineSendOff(p, false));
             setBack(b);
         } else if (sub == 3) {
             std::snprintf(v, sizeof(v), "%.3fs", p.u16(pf::kLimAttack) / 1000.0);
@@ -880,6 +894,9 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
             } else {
                 int maxF = sub == 2 ? 6 : (sub == 1 ? 5 : 4);   // OT fork: Reverb F6 = model
                 if (sub == 1 && revPage) maxF = kRevCharA[revModelOf(app_)] ? 3 : 1;   // OT fork Reverb 2/2
+                // Line in send mute: Shift + F7 on Delay, or the send's key again.
+                const bool lineKey = (sub == 2 && f == 6) || (sub == 1 && !revPage && f == 4);
+                if (lineKey && (param == f || (sub == 2 && ui_.shift()))) toggleLineSend(app_, sub == 1);
                 if (f <= maxF && !(sub == 3 && f == 3)) param = (sub == 3 && f == 4) ? 3 : f;
             }
         } else {
@@ -935,10 +952,8 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                     if (param == 2 && !sync) param += id == btn::Right ? 1 : -1;
                     if (param == 3 && sync) param += id == btn::Right ? 1 : -1;
                 }
-                // A disabled Line in send (Line In muted) is skipped like
-                // Rate / Time [I]; it is the last parameter of the page.
-                if (sub == 2 && param == 6 && lineInOff(app_.project)) --param;
-                if (sub == 1 && !revPage && param == 4 && lineInOff(app_.project)) param += id == btn::Right ? 1 : -1;   // OT fork: model at 5
+                // The Line in send is never skipped (tracker-ce): a muted one is
+                // only greyed and its key unmutes it.
             }
             break;
         case btn::Delete:
@@ -1233,7 +1248,7 @@ void MixerScreen::draw(Gfx& g) {
             // F6..F8 [S round 3, snap 006]. Bars show the stored 0..1 value
             // (Diffusion 0.80 = 80 % of the well; its range ends at 0.85).
             for (int i = 0; i < 4; ++i) columnBar(g, th, i, p.f32(pf::kReverbSize + 4 * uint32_t(i)));
-            lineInBar(g, th, 4, p.u8(pf::kLineInReverb), lineInOff(p));
+            lineInBar(g, th, 4, p.u8(pf::kLineInReverb), lineSendOff(p, true));
             optionList(g, th, 5, kRevModels, 7, a.cfg.reverbModel < 7 ? a.cfg.reverbModel : 0);   // OT fork
             column(g, th, 6, 2);
             columnFocus(g, th, param);
@@ -1248,7 +1263,7 @@ void MixerScreen::draw(Gfx& g) {
             columnBar(g, th, 3, (p.u16(pf::kDelayTime) - 1) / 3499.0f);
             columnBar(g, th, 4, p.u8(pf::kDelayFeedback) / 100.0f);
             columnBar(g, th, 5, (p.u16(pf::kDelayFilter) - 100) / 19900.0f);
-            lineInBar(g, th, 6, p.u8(pf::kLineInDelay), lineInOff(p));
+            lineInBar(g, th, 6, p.u8(pf::kLineInDelay), lineSendOff(p, false));
             column(g, th, 7);
             columnFocus(g, th, param);
         } else if (sub == 3) {

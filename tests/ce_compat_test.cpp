@@ -181,3 +181,111 @@ TEST(ce_chance_conditions) {
     CHECK_EQ(n1, 4);
     CHECK_EQ(n2, 0);
 }
+
+// The EEPROM image: stock header and block sizes (so stock / CE read every
+// block), and a Community Edition image (interface block 2 bytes longer)
+// read by its block sizes.
+#include "app/config.h"
+#include "nvstore_fake.h"
+
+TEST(ce_config_image_layout) {
+    FakeNvStore nv;
+    Config c;
+    c.clockIn = 2;
+    c.metronome = 1;
+    c.tsNum = 6;
+    c.sliceCount = 16;
+    CHECK(c.save(nv));
+    uint8_t img[Config::kImageSize];
+    CHECK(nv.read(0, img, sizeof img));
+    CHECK_EQ(int(img[7]), 10);
+    CHECK_EQ(int(img[8] | (img[9] << 8)), int(Config::kImageSize));
+    const int at[9] = {0x0C, 0x1C, 0x24, 0x32, 0xC8, 0xDA, 0xE4, 0xEC, 0xF0};
+    int off = 0x0C;
+    for (int b = 0; b < 9; ++b) {   // walking the sizes lands on every block
+        CHECK_EQ(off, at[b]);
+        off += img[off] | (img[off + 1] << 8);
+    }
+    CHECK_EQ(off, int(Config::kImageSize));
+    // A CE image: the same blocks, the interface block 12 bytes, so the
+    // metronome / debug / common blocks sit 2 bytes later; total 0xF8.
+    uint8_t ce[Config::kImageSize + 64] = {};
+    std::memcpy(ce, img, 0xDA);
+    ce[8] = 0xF8;
+    ce[0xDA] = 12;
+    ce[0xDA + 2] = img[0xDA + 2];   // fxPopupDescription
+    std::memcpy(ce + 0xE6, img + 0xE4, 8);   // metronome block
+    ce[0xE6] = 8;
+    std::memcpy(ce + 0xEE, img + 0xEC, 4);
+    std::memcpy(ce + 0xF2, img + 0xF0, 4);
+    uint8_t norm[Config::kImageSize];
+    CHECK_EQ(Config::normalizeImage(ce, sizeof ce, norm), 2u);
+    Config r;
+    CHECK(r.fromImage(norm));
+    CHECK_EQ(int(r.clockIn), 2);
+    CHECK_EQ(int(r.metronome), 1);
+    CHECK_EQ(int(r.tsNum), 6);
+    CHECK_EQ(int(r.sliceCount), 16);
+    // Our own image is taken as it is; an older OpenTracker image (0xF4 in
+    // the first block size) is read at the fixed offsets.
+    CHECK_EQ(Config::normalizeImage(img, sizeof img, norm), 1u);
+    img[0x0C] = 0xF4;
+    CHECK_EQ(Config::normalizeImage(img, sizeof img, norm), 0u);
+    Config o;
+    CHECK(o.fromImage(norm));
+    CHECK_EQ(int(o.tsNum), 6);
+}
+
+// Data-safety fixes from the tracker-ce comparison.
+#include "formats/legacy_upgrade.h"
+#include "model/instrument.h"
+
+TEST(ce_save_cleans_every_stale_instrument) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(saveProjectInto(a, "Projects", "many"));
+    // 90 stale instrument files and 30 other files in instruments/.
+    for (int i = 0; i < 90; ++i) {
+        char n[64];
+        std::snprintf(n, sizeof n, "Projects/many/instruments/%02d old %d.pti", 1 + i % 48, i);
+        h.fs.files[n] = {1, 2, 3};
+    }
+    for (int i = 0; i < 30; ++i) {
+        char n[64];
+        std::snprintf(n, sizeof n, "Projects/many/instruments/notes %d.txt", i);
+        h.fs.files[n] = {1};
+    }
+    CHECK(saveProjectInto(a, "Projects", "many"));
+    int stale = 0, other = 0;
+    for (const auto& kv : h.fs.files) {
+        if (kv.first.rfind("Projects/many/instruments/", 0) != 0) continue;
+        if (kv.first.find(" old ") != std::string::npos) ++stale;
+        if (kv.first.find("notes ") != std::string::npos) ++other;
+    }
+    CHECK_EQ(stale, 0);
+    CHECK_EQ(other, 30);   // other files are kept (documented)
+}
+
+TEST(ce_wavetable_refresh_after_import) {
+    Instrument in;
+    in.playMode = 6;
+    in.wavetableWindowSize = 2048;
+    in.wavetableWindowCount = 16;
+    in.wavetableCurrentWindow = 15;
+    legacy::applyImportedLength(in, 3000, false);   // 3000 frames: window 2048 -> fits once
+    CHECK_EQ(int(in.wavetableWindowSize), 2048);
+    CHECK_EQ(int(in.wavetableWindowCount), 1);
+    CHECK_EQ(int(in.wavetableCurrentWindow), 0);
+    in.wavetableWindowSize = 2048;
+    in.wavetableWindowCount = 4;
+    in.wavetableCurrentWindow = 3;
+    legacy::applyImportedLength(in, 1500, false);   // shorter than a window: 1024 (power of two)
+    CHECK_EQ(int(in.wavetableWindowSize), 1024);
+    CHECK_EQ(int(in.wavetableWindowCount), 1);
+    in.wavetableWindowSize = 256;
+    in.wavetableWindowCount = 8;
+    in.wavetableCurrentWindow = 7;
+    legacy::applyImportedLength(in, 256 * 32, false);
+    CHECK_EQ(int(in.wavetableWindowCount), 32);
+    CHECK_EQ(int(in.wavetableCurrentWindow), 31);   // the last window stays the last
+}

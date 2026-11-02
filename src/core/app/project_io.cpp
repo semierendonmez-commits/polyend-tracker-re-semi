@@ -71,21 +71,23 @@ struct NameList {
     int count;
     bool dirs;   // collect directories instead of files
 };
-bool collectFn(const IStorage::DirEntry& e, void* ctx) {
+// Instrument files only (.pti / .mti; a name the path buffers hold).
+bool collectInstrFn(const IStorage::DirEntry& e, void* ctx) {
     auto* l = static_cast<NameList*>(ctx);
-    if (e.isDir != l->dirs || e.name[0] == '.') return true;
+    if (e.isDir || e.name[0] == '.' || std::strlen(e.name) >= 64) return true;
+    if (!endsWithNoCase(e.name, ".pti") && !endsWithNoCase(e.name, ".mti")) return true;
     if (l->count >= l->cap) return false;
     std::snprintf(l->names[l->count++], 64, "%s", e.name);
     return true;
 }
 
 // Saved instrument "<N> <name>.pti" / "%02d %s.pti" -> N (1..48), else 0.
-// SPEC GAP (spec 10 §7 item 1): the stock scan is unresolved; a leading
-// number 1..48 followed by a space and a ".pti" suffix is accepted.
+// As Polyend tracker-ce (SD.cpp instrument scan): one or two digits, 1..48,
+// then a space and a ".pti" suffix (any case).
 int savedPtiSlot(const char* n) {
     if (!endsWithNoCase(n, ".pti")) return 0;
     int num = 0, digits = 0;
-    while (*n >= '0' && *n <= '9' && digits < 3) {
+    while (*n >= '0' && *n <= '9' && digits < 2) {
         num = num * 10 + (*n++ - '0');
         ++digits;
     }
@@ -215,13 +217,17 @@ bool scanInstrFn(const IStorage::DirEntry& e, void* ctx) {
     } else if (int m = legacyMtiSlot(e.name)) {
         s->hasMti[m - 1] = true;
     }
-    // Open copies the first "<N> <name>.pti" per slot in listing order, from
-    // the first namesCap file names (the stored name is what gets opened).
+    // Open copies the first "<N> <name>.pti" per slot in listing order (the
+    // stored name is what gets opened). Only those names are kept, so a
+    // folder with many other files no longer loses instruments (CE walks
+    // the whole folder too).
     if (s->collect && e.name[0] != '.' && s->listCount < s->namesCap) {
-        const int k = s->listCount++;
-        std::snprintf(s->names[k], 64, "%s", e.name);
-        const int n = savedPtiSlot(s->names[k]);
-        if (n && s->ptiName[n - 1] < 0) s->ptiName[n - 1] = int8_t(k);
+        const int n = savedPtiSlot(e.name);
+        if (n && s->ptiName[n - 1] < 0 && std::strlen(e.name) < 64) {
+            const int k = s->listCount++;
+            std::snprintf(s->names[k], 64, "%s", e.name);
+            s->ptiName[n - 1] = int8_t(k);
+        }
     }
     return true;
 }
@@ -2242,10 +2248,17 @@ bool App::jobUnit(uint32_t& cost) {
             // spec 10 §4.3 step 0 "empty instruments/": stale "NN <old name>.pti"
             // files (renamed or deleted instruments) and legacy instrument_NN.mti
             // headers are removed. SPEC GAP: other files there are kept.
+            // OT fork (checked against Polyend tracker-ce, which empties the
+            // folder): only instrument files are listed, and a full list is
+            // listed again after its pass, so a folder with more than 64 of
+            // them keeps no stale "N oldname.pti" (it could load at the next
+            // open instead of the saved one).
             NameList nl{g_list, int(sizeof(g_list) / sizeof(g_list[0])), 0, false};
             std::snprintf(dst, sizeof(dst), "%s/instruments", pj_.dir);
-            f.listDir(dst, collectFn, &nl);
+            f.listDir(dst, collectInstrFn, &nl);
             pj_.listCount = nl.count;
+            pj_.cleanFull = nl.count >= nl.cap;
+            pj_.cleanRemoved = 0;
             cost += kJobSmallCost;
             pj_.stage = kSClean;
             pj_.idx = 0;
@@ -2254,13 +2267,13 @@ bool App::jobUnit(uint32_t& cost) {
         case kSClean: {
             const int k = pj_.idx++;
             if (k >= pj_.listCount) {
-                pj_.stage = kSInstr;
+                // Another pass while the last one was full and made progress.
+                pj_.stage = pj_.cleanFull && pj_.cleanRemoved ? kSCleanList : kSInstr;
                 pj_.idx = 0;
                 return true;
             }
-            if (!endsWithNoCase(g_list[k], ".pti") && !endsWithNoCase(g_list[k], ".mti")) return true;
             std::snprintf(dst, sizeof(dst), "%s/instruments/%.63s", pj_.dir, g_list[k]);
-            f.remove(dst);
+            if (f.remove(dst)) ++pj_.cleanRemoved;
             cost += kJobSmallCost;
             return true;
         }

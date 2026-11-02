@@ -231,8 +231,10 @@ TEST(config_eeprom_image_layout) {
     h.app->boot();
     // Fresh EEPROM: defaults written at the stock offsets (spec 05 §5.4).
     CHECK_BYTES(nv.mem.data(), 'E', 'E', 'P', 'R', 'O', 'M', 0);
-    CHECK_EQ(nv.mem[0x08] | (nv.mem[0x09] << 8), 0x0A00);
-    CHECK_EQ(nv.mem[0x0C], 0xF4);
+    // Header and block sizes as stock writes them (checked in Polyend tracker-ce).
+    CHECK_EQ(nv.mem[0x07], 10);
+    CHECK_EQ(nv.mem[0x08] | (nv.mem[0x09] << 8), 0xF4);
+    CHECK_EQ(nv.mem[0x0C], 16);
     CHECK_EQ(nv.mem[0x1B], 81);      // master volume
     CHECK_EQ(nv.mem[0x2F], 2);       // Middle C
     CHECK_EQ(nv.mem[0x30], 6);       // clock correction
@@ -267,7 +269,7 @@ TEST(config_eeprom_image_layout) {
     h.run(5100);
     CHECK_EQ(nv.mem[0xCB], 1);
     // Unknown bytes are preserved across load/save.
-    nv.mem[0x1D] = 0xAB;
+    nv.mem[0x1E] = 0xAB;
     nv.mem[0xCD] = 0x5A;
     Harness h2(false);
     h2.app->setNvStore(&nv);
@@ -276,7 +278,7 @@ TEST(config_eeprom_image_layout) {
     h2.app->cfg.theme = 1;
     CHECK(h2.app->saveConfig());
     CHECK_EQ(nv.mem[0xD5], 1);
-    CHECK_EQ(nv.mem[0x1D], 0xAB);
+    CHECK_EQ(nv.mem[0x1E], 0xAB);
     CHECK_EQ(nv.mem[0xCD], 0x5A);
 }
 

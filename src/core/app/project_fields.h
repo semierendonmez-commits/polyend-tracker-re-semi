@@ -46,7 +46,9 @@ constexpr uint32_t kTempo = 0x1C0;             // f32
 constexpr uint32_t kLineInLevel = 0x309;       // [I] project+0x8bd
 constexpr uint32_t kLineInMute = 0x30A;        // [I]
 constexpr uint32_t kLineInDelay = 0x30B;       // [I]
+constexpr uint32_t kLineInDelayMute = 0x30C;   // 1 = the line-in delay send is muted (checked in tracker-ce)
 constexpr uint32_t kLineInReverb = 0x30D;      // [I]
+constexpr uint32_t kLineInReverbMute = 0x30E;  // 1 = the line-in reverb send is muted (new projects: both 1)
 constexpr uint32_t kReverbSize = 0x418;        // f32 0..1
 constexpr uint32_t kReverbDamp = 0x41C;
 constexpr uint32_t kReverbPreDelay = 0x420;

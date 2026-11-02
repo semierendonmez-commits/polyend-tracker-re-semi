@@ -93,6 +93,8 @@ struct ProjectJob {
     uint32_t dataOff[kSampleInstrumentCount] = {};
     uint8_t modes[kSampleInstrumentCount] = {};
     int listCount = 0;
+    int cleanRemoved = 0;      // OT fork: files the instruments/ clean removed in this pass
+    bool cleanFull = false;    // the pass listed as many as fit: list again after it
     uint32_t wipeCount = 0;        // names of the current wipe batch (in the scratch buffer)
     // Chunked item state.
     IStorage::Handle in = -1, out = -1;
