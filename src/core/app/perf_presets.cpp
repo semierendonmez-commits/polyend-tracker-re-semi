@@ -28,7 +28,7 @@ const char* const kTmLenLabels[] = {"Gen", "1", "2",  "3",  "4",  "5",  "6",  "7
                                     "9",   "10", "11", "12", "13", "14", "15", "16"};
 
 // spec 06 §3.2 / spec 12 §E.2 ranges; LP/HP/BP exclude each other (§E.1).
-// Names: stock 1.9.2 screen (owner photo 2026-10-23) for the first 12; the rest
+// Names: as Polyend tracker-ce (performanceFx.cpp) for the stock FX; the rest
 // from the manual p.276 list until a stock capture shows them [I].
 const FxDesc kFx[kFxCount] = {
     {"---", 0, 0, nullptr, 0, 0, false},
@@ -44,15 +44,15 @@ const FxDesc kFx[kFxCount] = {
     {"Sample end", -100, 100, nullptr, 0, 0, false},
     {"Sample playback", 0, 1, kDirection, 0, 0, false},
     {"Volume LFO speed", -23, 23, nullptr, 0, 0, false},
-    {"Panning LFO Speed", -28, 28, nullptr, 0, 0, false},
-    {"Finetune LFO Speed", -28, 28, nullptr, 0, 0, false},
-    {"Filter LFO Speed", -28, 28, nullptr, 0, 0, false},
-    {"Grain/WT LFO Speed", -28, 28, nullptr, 0, 0, false},
-    {"Step Repeater", 0, 15, kRepeater, 0, 0, false},
-    {"Pattern Play Mode", 0, 46, nullptr, 0, 0, false},   // labels: seq::playModeLabel; 23..32 OT BBCut, 33..36 TILT, 37..39 Genotype, 40..46 M / (TM hidden) / R
-    {"Pattern Length", 0, 8, kLength, 0, 0, true},
-    {"Bit Depth", -12, 12, nullptr, 0, 0, false},
-    {"Overdrive", -100, 100, nullptr, 0, 0, false},
+    {"Panning LFO speed", -28, 28, nullptr, 0, 0, false},
+    {"Finetune LFO spd", -28, 28, nullptr, 0, 0, false},
+    {"Filter LFO speed", -28, 28, nullptr, 0, 0, false},
+    {"Gran/Wt LFO speed", -28, 28, nullptr, 0, 0, false},
+    {"Step repeater", 0, 15, kRepeater, 0, 0, false},
+    {"Pattern play mode", 0, 46, nullptr, 0, 0, false},   // labels: seq::playModeLabel; 23..32 OT BBCut, 33..36 TILT, 37..39 Genotype, 40..46 M / (TM hidden) / R
+    {"Pattern length", 0, 8, kLength, 0, 0, true},
+    {"Sample bit depth", -12, 12, nullptr, 0, 0, false},
+    {"Sample overdrive", -100, 100, nullptr, 0, 0, false},
     {"Acid Density", -14, 14, nullptr, 0, 0, false},   // OT fork: an offset, any density reachable
     {"Acid Accent", -100, 100, nullptr, 0, 0, false},
     {"Acid Slide", -100, 100, nullptr, 0, 0, false},

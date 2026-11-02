@@ -334,7 +334,7 @@ void LoaderScreen::list() {
         if (t - t0 >= 150 && (!popup || t - shown >= 100)) {
             shown = t;
             popup = true;
-            ui_.progress("Loading", dirsTotal ? dirsSeen * 100 / dirsTotal : 0);
+            ui_.progress("Loading files list", dirsTotal ? dirsSeen * 100 / dirsTotal : 0);   // stock title (tracker-ce)
         }
         ++dirsSeen;
         int files = 0;
@@ -1154,7 +1154,7 @@ void LoaderScreen::draw(Gfx& g) {
         g.vline(xe, 116, 218, trimSel == 1 ? th.accent : th.text);
         if (trimPlaying_ && trimLen_) {
             const uint64_t f0 = uint64_t(trimStart) * trimLen_ / 65535 + uint64_t(trimElapsed_) * 44100 / 1000;
-            g.vline(100 + int(f0 * 600 / trimLen_), 116, 218, th.good);
+            g.vline(100 + int(f0 * 600 / trimLen_), 116, 218, th.alert);   // red, as stock
         }
         return;
     }

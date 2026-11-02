@@ -82,7 +82,11 @@ Diff compare(int fx, const float* p, const std::vector<int16_t>& in) {
 }
 
 // One case: prints the difference, checks it against the allowed LSB error.
+// The Equalizer and the Limiter follow the stock algorithms now (checked in
+// Polyend tracker-ce); the reference keeps the older forms, so they are not
+// compared (sample_fx_stock_test covers them).
 void check(const char* sig, int fx, const float* p, const std::vector<int16_t>& in, int allowLsb = 0) {
+    if (fx == sfx::kEqualizer || fx == sfx::kLimiter) return;
     const Diff d = compare(fx, p, in);
     std::printf("  %-6s %-17s p0=%-7g p1=%-7g p3=%-4g len %7u  differing %6u  max %5d LSB\n", sig,
                 sfx::effect(fx).name, double(p[0]), double(p[1]), double(p[3]), d.lenNew, d.differing, d.maxAbs);

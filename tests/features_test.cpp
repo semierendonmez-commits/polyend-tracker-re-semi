@@ -54,8 +54,10 @@ TEST(export_samples_from_file_screen) {
     CHECK(a.ui.bar.label[5].enabled);
     CHECK(a.ui.bar.label[4].enabled);    // As .it (spec 11 §2, mod_it_test)
     h.tap(btn::F6);
-    const char* k = "Projects/New Project/export/samples/01_kick.wav";
-    const char* s = "Projects/New Project/export/samples/05_snare.wav";
+    // Stock naming (Polyend tracker-ce): the instrument name, a number
+    // suffix when the file exists.
+    const char* k = "Projects/New Project/export/samples/kick.wav";
+    const char* s = "Projects/New Project/export/samples/snare.wav";
     CHECK(h.fs.files.count(k));
     CHECK(h.fs.files.count(s));
     WavInfo info;
@@ -65,6 +67,7 @@ TEST(export_samples_from_file_screen) {
     CHECK_EQ(info.dataSize, 5000u * 2u);
     CHECK(std::memcmp(h.fs.files[s].data() + 44, a.bank.left(4), 5000 * 2) == 0);
     CHECK_EQ(a.exportSamples(), 2);
+    CHECK(h.fs.files.count("Projects/New Project/export/samples/kick2.wav"));   // nothing overwritten
 }
 
 TEST(export_external_clock_prompt) {

@@ -902,7 +902,7 @@ void RecorderScreen::draw(Gfx& g) {
     if (xs >= kWaveX && xs <= last) waveMarker(g, th, xs, sel == 1 ? th.accent : wave, 1, true, false, 108, 334);
     if (xe >= kWaveX && xe <= last) waveMarker(g, th, xe, sel == 2 ? th.accent : wave, -1, true, false, 108, 334);
     headX_ = playheadX();
-    if (headX_ >= 0) g.vline(headX_, kWaveY, kWaveH, th.good);
+    if (headX_ >= 0) g.vline(headX_, kWaveY, kWaveH, th.alert);   // red, as stock
     g.textf(400, 80, kFontText, th.text, IDisplay::kOptCenter, "Recorded %.2f s   crop levels %d/%d", double(len) / 44100.0,
             undoDepth, kUndoLevels);
 }

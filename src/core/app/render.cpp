@@ -150,8 +150,7 @@ bool App::exportName(ExportKind kind, char* out, int cap, bool stems) {
 int App::exportSamples() {
     // spec 05 appendix E1.4 "Samples": <folder>/<name>/export/samples/<..>.wav
     // (format "%s/%s/export/samples/%s%s.wav", spec 02 §1), 16-bit 44.1 kHz
-    // (spec 02 §8.3). SPEC GAP: the two name parts are not identified;
-    // OpenTracker writes "<NN>_<instrument name>" (NN = slot 01..48).
+    // (spec 02 §8.3), the two parts being the name and a number suffix.
     g_cancel = false;
     IStorage& f = fs();
     char base[256], path[320];
@@ -179,9 +178,10 @@ int App::exportSamples() {
             if (*c == '/' || *c == '\\' || *c == ':' || *c == '*' || *c == '?' || *c == '"' || *c == '<' || *c == '>' ||
                 *c == '|')
                 *c = '_';
-        char pre[8];
-        std::snprintf(pre, sizeof(pre), "%02d_", i + 1);
-        std::snprintf(path, sizeof(path), "%s/%s%s.wav", base, pre, nm);
+        // As Polyend tracker-ce: "<instrument name><suffix>.wav", the suffix
+        // empty first, then 2..48 while the file exists (nothing overwritten).
+        std::snprintf(path, sizeof(path), "%s/%s.wav", base, nm);
+        for (int k = 2; f.exists(path) && k <= 48; ++k) std::snprintf(path, sizeof(path), "%s/%s%d.wav", base, nm, k);
         if (f.exists(path)) f.remove(path);
         const uint32_t frames = bank.frames(i);
         const bool st = bank.stereo(i);

@@ -626,7 +626,7 @@ void textWindow(Gfx& g, uint8_t font, uint32_t c, char* s, int x0, int y, int le
 
 int marqueeOffset(uint32_t ticks) {
     const int t = ticks > 1000000u ? 1000000 : int(ticks);
-    return t <= 10 ? t * t / 30 : (20 * t - 100) / 30;
+    return t <= 10 ? t * t / 30 : t - 7;   // 1 px per tick after tick 10 (Polyend tracker-ce list.cpp)
 }
 
 void marqueeFrame(uint32_t nowMs) {

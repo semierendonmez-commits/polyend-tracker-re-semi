@@ -419,8 +419,8 @@ TEST(loader54_marquee_widget) {
     CHECK_EQ(wg::marqueeOffset(3), 0);     // 9/30
     CHECK_EQ(wg::marqueeOffset(6), 1);     // 36/30
     CHECK_EQ(wg::marqueeOffset(10), 3);    // 100/30
-    CHECK_EQ(wg::marqueeOffset(11), 4);    // (220-100)/30
-    CHECK_EQ(wg::marqueeOffset(40), 23);   // (800-100)/30
+    CHECK_EQ(wg::marqueeOffset(11), 4);    // 11 - 7: 1 px per tick (Polyend tracker-ce list.cpp)
+    CHECK_EQ(wg::marqueeOffset(40), 33);   // 40 - 7
     static const std::string kLongItem = "A selected sample name that is far wider than the list column";
     static const std::string kLongOther = "An unselected sample name that is also wider than the column";
     RecordingDisplay d;

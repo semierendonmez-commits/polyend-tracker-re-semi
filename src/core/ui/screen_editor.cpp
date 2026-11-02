@@ -103,8 +103,9 @@ void EditorScreen::enter() {
     if (t >= 40.0f && t <= 800.0f) params[sfx::kStretchBeat][0] = float(int(t + 0.5f));
     {   // Timestretch Note Length starts at the sample's length (manual p.218,
         // MANUAL_AUDIT_2026-10-23 #14), 0.01 s steps, 0.1..8 s.
-        float sec = float(a.bank.frames(slot_)) / 44100.0f;
-        sec = float(int(sec * 100.0f + 0.5f)) / 100.0f;
+        // Not rounded (as stock): the default target is the selection's own
+        // length, so an untouched stretch keeps it.
+        const float sec = float(a.bank.frames(slot_)) / 44100.0f;
         params[sfx::kStretchNote][0] = sec < 0.1f ? 0.1f : (sec > 8.0f ? 8.0f : sec);
     }
     previewState = 0;
@@ -651,7 +652,7 @@ void EditorScreen::draw(Gfx& g) {
         const float hf = playheadFrac();
         if (hf >= 0.0f) {
             const int hx = 401 + int((hf - v0) / (v1 - v0) * 397.0f + 0.5f);
-            if (hx >= 401 && hx <= 798) g.vline(hx, kWaveY, kWaveH, th.good);
+            if (hx >= 401 && hx <= 798) g.vline(hx, kWaveY, kWaveH, th.alert);   // red, as stock
         }
         return;
     }
@@ -673,7 +674,7 @@ void EditorScreen::draw(Gfx& g) {
         const float hf = playheadFrac();
         if (hf >= 0.0f) {
             const int hx = int((hf - v0) / (v1 - v0) * 599.0f + 0.5f);
-            if (hx >= 0 && hx < 600) g.vline(hx, kWaveY, kWaveH, th.good);
+            if (hx >= 0 && hx < 600) g.vline(hx, kWaveY, kWaveH, th.alert);   // red, as stock
         }
     }
     // Effect list (601, 29, 197, 394): 14 visible rows of 17.

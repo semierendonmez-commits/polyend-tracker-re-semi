@@ -5,26 +5,11 @@
 #include <cstring>
 
 #include "app/app.h"
+#include "games/rom_list.h"   // naturalCompare
 
 namespace ot {
 
 namespace {
-struct Collect {
-    char (*names)[ProjectBrowser::kNameCap];
-    int cap;
-    int count;
-};
-bool collectDirs(const IStorage::DirEntry& e, void* ctx) {
-    auto* c = static_cast<Collect*>(ctx);
-    if (!e.isDir || e.name[0] == '.') return true;
-    // SPEC GAP: names that do not fit the 40-char list rows are not listed
-    // (projects and keyboard-made folders are at most 32 chars).
-    if (std::strlen(e.name) >= size_t(ProjectBrowser::kNameCap)) return true;
-    if (c->count >= c->cap) return false;
-    std::snprintf(c->names[c->count++], ProjectBrowser::kNameCap, "%s", e.name);
-    return true;
-}
-
 int cmpNoCase(const char* a, const char* b) {
     for (;; ++a, ++b) {
         int x = (unsigned char)*a, y = (unsigned char)*b;
@@ -33,6 +18,25 @@ int cmpNoCase(const char* a, const char* b) {
         if (x != y || !x) return x - y;
     }
 }
+
+struct Collect {
+    char (*names)[ProjectBrowser::kNameCap];
+    int cap;
+    int count;
+};
+bool collectDirs(const IStorage::DirEntry& e, void* ctx) {
+    auto* c = static_cast<Collect*>(ctx);
+    if (!e.isDir || e.name[0] == '.') return true;
+    // As Polyend tracker-ce: macOS archive folders and the Workspace are not projects.
+    if (cmpNoCase(e.name, "__MACOSX") == 0 || cmpNoCase(e.name, "Workspace") == 0) return true;
+    // SPEC GAP: names that do not fit the 40-char list rows are not listed
+    // (projects and keyboard-made folders are at most 32 chars).
+    if (std::strlen(e.name) >= size_t(ProjectBrowser::kNameCap)) return true;
+    if (c->count >= c->cap) return false;
+    std::snprintf(c->names[c->count++], ProjectBrowser::kNameCap, "%s", e.name);
+    return true;
+}
+
 }  // namespace
 
 bool isActiveProjectPath(App& a, const char* path, bool* contains) {
@@ -86,9 +90,10 @@ int ProjectBrowser::list(App& a) {
         std::snprintf(p, sizeof(p), "%s/%s/project.mt", path_, names_[i]);
         kind_[i] = f.exists(p) ? kProject : kFolder;
     }
-    // SPEC GAP: listing order is not specified; case-insensitive alphabetical.
+    // Natural order as Polyend tracker-ce (compareStrings): digit runs by
+    // value ("Project 2" before "Project 10"), otherwise case-insensitive.
     for (int i = first + 1; i < count_; ++i)
-        for (int j = i; j > first && cmpNoCase(names_[j - 1], names_[j]) > 0; --j) {
+        for (int j = i; j > first && games::naturalCompare(names_[j - 1], names_[j]) > 0; --j) {
             char t[kNameCap];
             std::memcpy(t, names_[j], kNameCap);
             std::memcpy(names_[j], names_[j - 1], kNameCap);

@@ -794,10 +794,9 @@ void Voice::control(const VoiceControl& c) {
     uint8_t fType = ov_.ftype >= 0 ? uint8_t(ov_.ftype) : (ins_->filterType > 2 ? 0 : ins_->filterType);
     float baseCut = ov_.cutoff >= 0.0f ? ov_.cutoff : ins_->cutoff;
     if (perf_.filterType >= 0) {
-        // Performance filter FX: force the type; when the instrument filter
-        // was off or of another type, offsets start from the open position
-        // (LP 1.0, HP 0.0, BP 0.5) -- OpenTracker choice (SPEC GAP).
-        if (!fOn || fType != uint8_t(perf_.filterType)) baseCut = perf_.filterType == 0 ? 1.0f : (perf_.filterType == 1 ? 0.0f : 0.5f);
+        // Performance filter FX (as Polyend tracker-ce): the type is forced and
+        // the offset starts from the step FX cutoff, else the instrument's
+        // stored cutoff, whether its filter was on or of another type.
         fOn = true;
         fType = uint8_t(perf_.filterType);
         baseCut = clampf(baseCut + perf_.cutoff, 0.0f, 1.0f);

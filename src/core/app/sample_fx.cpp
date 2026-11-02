@@ -18,13 +18,13 @@ constexpr float kRate = 44100.0f;
 constexpr double kRateExact = 44117.647;
 constexpr double kPi = 3.14159265358979323846;
 
-// SPEC GAP: the stock type labels are not in the specs; the curves are stock
-// (spec 18 §2.2 Overdrive: piecewise soft clip, exponential, stepped).
-const char* const kOdTypes[3] = {"Soft", "Exp", "Step"};
+// Stock shows the Type as 0 / 1 / 2; its curves are named Quadratic,
+// Exponential and Reciprocal (Polyend tracker-ce mtEffectOverdrive.h).
+const char* const kOdTypes[3] = {"Quad", "Exp", "Recip"};
 
 // spec 06 §6.4 table (names are OpenTracker's wording).
 const EffectDesc kEffects[kEffectCount] = {
-    {"Normalizer", 1, {{"Level", 1, 100, 1, 100, kFmtPercent, nullptr}}},   // SPEC GAP: "runtime min" -> 1
+    {"Normalizer", 1, {{"Level", 0, 100, 1, 100, kFmtPercent, nullptr}}},   // 0 silences, as stock (tracker-ce)
     {"Crop", 0, {}},
     {"Reverse", 0, {}},
     {"Amplifier", 1, {{"Gain", 0.01f, 5, 0.01f, 1, kFmtFloat2, nullptr}}},
@@ -289,36 +289,31 @@ uint32_t wsola(const int16_t* in, uint32_t n, uint32_t m, uint32_t N, int16_t* o
     return w;
 }
 
-// Peaking biquad (direct form I, normalised samples).
-// SPEC GAP: the stock coefficient formula (lg:0x791c0) is not decoded; this
-// is the RBJ peaking EQ with Q = f / bw.
-// Kept in double: a float form loses low-frequency gain (DC at 10 Hz +12 dB:
-// 32767 -> 32283), even around the second differences.
-struct Biquad {
-    double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, x1 = 0, x2 = 0, y1 = 0, y2 = 0;
-    void peaking(double f, double lin, double q) {
-        // fmath.h double helpers: no double libm on the device
-        // (docs/OPTIMIZATION_2X.md OP-4).
-        const double A = fm::sqrtD(lin);
-        const double w0 = 2.0 * kPi * f / kRateExact;
-        const double sn = fm::sinD(w0), cs = fm::cosD(w0);
-        const double alpha = sn / (2.0 * q);
-        const double a0 = 1.0 + alpha / A;
-        b0 = (1.0 + alpha * A) / a0;
-        b1 = -2.0 * cs / a0;
-        b2 = (1.0 - alpha * A) / a0;
-        a1 = -2.0 * cs / a0;
-        a2 = (1.0 - alpha / A) / a0;
+// Equalizer band as the stock firmware (checked in Polyend tracker-ce,
+// mtEffectEQ): the Regalia-Mitra peaking filter of soundpipe's eqfil (MIT),
+// d = cos(2 pi f / Fs), c = tan(pi bw / Fs), a = (1 - c) / (1 + c); the gain
+// is the linear factor g of the UI value (eqGain), mixed as
+// 0.5 (y + x + g (x - y)).
+struct EqBand {
+    double d = 0, a = 0, g = 1, z1 = 0, z2 = 0;
+    void set(double f, double bw, double gain) {
+        d = fm::cosD(2.0 * kPi * f / kRateExact);
+        const double th = kPi * bw / kRateExact;
+        const double c = fm::sinD(th) / fm::cosD(th);
+        a = (1.0 - c) / (1.0 + c);
+        g = gain;
     }
     double run(double x) {
-        const double y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-        x2 = x1;
-        x1 = x;
-        y2 = y1;
-        y1 = y;
-        return y;
+        const double w = x + d * (1.0 + a) * z1 - a * z2;
+        const double y = a * w - d * (1.0 + a) * z1 + z2;
+        z2 = z1;
+        z1 = w;
+        return 0.5 * (y + x + g * (x - y));
     }
 };
+// UI gain (dB label, -12..+12) -> the stock linear factor: 1 + 3 L / 12 up
+// (+12 -> x4), 1 + 0.8 L / 12 down (-12 -> x0.2).
+double eqGain(double L) { return L >= 0.0 ? 1.0 + 3.0 * L / 12.0 : 1.0 + 0.8 * L / 12.0; }
 
 // Limiter / compressor smoothing coefficient (spec 18 §2.2):
 // c = 1 - exp(-2.2 * 1000 / (t_ms * 44100)).
@@ -585,17 +580,14 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
             // Three cascaded peaking bands; bw = f'/(w + 3 f'/20000) with
             // f' = min(f, 20000), clamped 0..20000; a band whose (linear) gain
             // is exactly 1.0 is bypassed. y = sat(trunc(clip(v) * 32767)).
-            // SPEC GAP: UI dB -> linear gain 10^(dB/20) (the stock conversion
-            // is open).
-            Biquad b[3];
+            EqBand b[3];
             bool on[3];
             for (int k = 0; k < 3; ++k) {
-                const double lin = fm::pow10D(double(p[3 * k]) / 20.0);
                 const double f = p[3 * k + 1] < 20000.0f ? double(p[3 * k + 1]) : 20000.0;
                 double bw = f / (double(p[3 * k + 2]) + 3.0 * f / 20000.0);
                 if (bw > 20000.0) bw = 20000.0;
-                on[k] = lin != 1.0 && bw > 0.0 && f > 0.0;
-                if (on[k]) b[k].peaking(f, lin, f / bw);
+                on[k] = p[3 * k] != 0.0f && bw > 0.0 && f > 0.0;   // 0 dB: an identity anyway
+                if (on[k]) b[k].set(f, bw, eqGain(double(p[3 * k])));
             }
             for (uint32_t i = 0; i < w; ++i) {
                 double v = double(in[i]) / 32767.0;
@@ -610,15 +602,16 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
         case kLimiter: {
             const float thr = float(fm::pow10D(double(p[0]) / 20.0) * 32767.0);
             const float ca = float(dynCoef(p[1])), cr = float(dynCoef(p[2]));
-            // SPEC GAP: c0 (obj+0x74, set at ctor) is not decoded; 1.0 makes
-            // e1 the instantaneous |x|.
-            const float c0 = 1.0f;
+            // As Polyend tracker-ce (mtEffectLimiter): the detector is a
+            // one-pole average of |x| (c0 = 0.002, ~11 ms) and both detector
+            // states are kept as 16-bit integers (truncated every sample).
+            const float c0 = 0.002f;
             float e1 = 0.0f, e2 = 0.0f, g = 1.0f;
             for (uint32_t i = 0; i < w; ++i) {
                 const float ax = std::fabs(float(in[i]));
-                e1 = c0 * ax + (1.0f - c0) * e1;
+                e1 = float(uint16_t(c0 * ax + (1.0f - c0) * e1));
                 const float ce = e1 > e2 ? ca : cr;
-                e2 += ce * (e1 - e2);
+                e2 = float(uint16_t(e2 + ce * (e1 - e2)));
                 const float r = e2 > thr ? thr / e2 : 1.0f;
                 const float cg = r < g ? ca : cr;
                 g += cg * (r - g);

@@ -607,7 +607,7 @@ TEST(switch_pattern_now_while_playing_keeps_step) {
     CHECK_EQ(r.seq.currentPatternNumber(), 7);
 }
 
-TEST(switch_pattern_now_wraps_step_beyond_new_length) {
+TEST(switch_pattern_now_step_beyond_new_length_restarts) {
     Rig r(120.0f);   // FakeHost loads 4-step patterns
     r.a.tracks[0].lastStep = 15;
     r.seq.play(0);
@@ -615,7 +615,11 @@ TEST(switch_pattern_now_wraps_step_beyond_new_length) {
     r.seq.switchPatternNow(2);
     r.block();
     CHECK_EQ(r.seq.currentPatternNumber(), 2);
-    CHECK_EQ(r.seq.step(0), 6 % 4);
+    // As Polyend tracker-ce: the position is kept; beyond the new length it
+    // goes back to the loop start at the next step (not modulo).
+    CHECK_EQ(r.seq.step(0), 6);
+    CHECK(r.runUntil([&] { return r.seq.step(0) != 6; }));
+    CHECK_EQ(r.seq.step(0), 0);
     CHECK(r.seq.isPlaying());
 }
 

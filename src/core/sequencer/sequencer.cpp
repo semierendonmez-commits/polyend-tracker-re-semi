@@ -1332,17 +1332,14 @@ void Sequencer::commitSwitch() {
     // A preload is for the pattern before the switch (or, without a stage
     // buffer, went into the buffer that is now the old pattern).
     dropPreload();   // patternEnd reloads a queued pattern (sync)
-    // SPEC GAP (spec 16 §A.2 / 06 §1.7 do not say): 0x3d548 re-points the
-    // sequencer without the "reset positions" of a pattern end, so playback
-    // keeps its step; a step beyond the new length wraps into it.
+    // As Polyend tracker-ce (switchRamPatternsNow): playback keeps its
+    // positions; one beyond the new length goes back to the loop start at the
+    // next step (the step advance wraps it), and the Chance pass counts
+    // start again.
     for (int t = 0; t < kTracks; ++t) {
-        TrackState& tr = tracks_[t];
-        const int li = lastIndex(t);
-        if (tr.step > li) tr.step = int16_t(tr.step % (li + 1));
-        if (tr.stepsPlayed > li) tr.stepsPlayed = int16_t(tr.stepsPlayed % (li + 1));
+        tracks_[t].passCount = 0;
+        tracks_[t].lastCondFired = true;
     }
-    const int bli = baseLastIndex();
-    if (masterPos_ > bli) masterPos_ = int16_t(masterPos_ % (bli + 1));
 }
 
 void Sequencer::queuePattern(int delta) {

@@ -247,19 +247,23 @@ TEST(stock_equalizer) {
     int dev = 0;
     for (uint32_t i = 0; i < mid.size(); ++i) dev = std::abs(r.out[i] - mid[i]) > dev ? std::abs(r.out[i] - mid[i]) : dev;
     CHECK(dev <= 1);
-    // +12 dB on the mid band at 800 Hz: the 800 Hz sine gains ~3.98x.
+    // Stock gain law (Polyend tracker-ce mtEffectEQ): +12 is x4 at the band
+    // centre (the Regalia-Mitra section passes g there exactly), -12 x0.2.
     p[3] = 12;
     r = run(sfx::kEqualizer, p, mid);
     const int pk = peakOf(r.out, 22050);
-    CHECK(std::abs(pk - 7962) < 120);
-    // An 80 Hz sine is barely touched by the mid band (Q = 800/714 = 1.12).
+    std::printf("  EQ +12 at 800 Hz: peak %d\n", pk);
+    CHECK(std::abs(pk - 8000) < 120);
+    // An 80 Hz sine is barely touched by the mid band.
     const auto low = sine(44100, 2000, 80);
     r = run(sfx::kEqualizer, p, low);
-    CHECK(peakOf(r.out, 22050) < 2300);
-    // -12 dB cut.
+    std::printf("  EQ +12 at 800 Hz, 80 Hz sine: peak %d\n", peakOf(r.out, 22050));
+    CHECK(peakOf(r.out, 22050) < 2400);
+    // -12 cut: x0.2.
     p[3] = -12;
     r = run(sfx::kEqualizer, p, mid);
-    CHECK(std::abs(peakOf(r.out, 22050) - 502) < 30);
+    std::printf("  EQ -12 at 800 Hz: peak %d\n", peakOf(r.out, 22050));
+    CHECK(std::abs(peakOf(r.out, 22050) - 400) < 30);
     // Clipping to -1..1 before scaling.
     p[3] = 12;
     r = run(sfx::kEqualizer, p, sine(44100, 20000, 800));
@@ -273,12 +277,15 @@ TEST(stock_limiter) {
     const auto quiet = sine(22050, 10000, 440);
     Run r = run(sfx::kLimiter, p, quiet);
     CHECK(r.out == quiet);
-    // A loud sine settles near the threshold (theta = 16422).
+    // A loud sine: the detector is the ~11 ms average of |x| (stock,
+    // tracker-ce), so the average settles at the threshold (16422) and the
+    // peak at about 16422 / (2 / pi).
     const auto loud = sine(44100, 32000, 440);
     r = run(sfx::kLimiter, p, loud);
     const int pk = peakOf(r.out, 33075);
+    std::printf("  Limiter -6 dB, 32000 sine: settled peak %d\n", pk);
     CHECK(pk < 32000);
-    CHECK(pk > 12000 && pk < 21000);
+    CHECK(pk > 21000 && pk < 28000);
     // The gain only scales: sign and zero crossings are kept.
     for (uint32_t i = 0; i < loud.size(); ++i) CHECK((r.out[i] >= 0) == (loud[i] >= 0) || r.out[i] == 0);
 }

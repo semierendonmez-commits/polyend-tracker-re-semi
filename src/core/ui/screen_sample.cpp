@@ -895,7 +895,7 @@ void PlaybackScreen::draw(Gfx& g) {
         grainShown_ = pos;
     }
     headX_ = playheadX();
-    if (headX_ >= 0) g.vline(headX_, kWaveY, kWaveH, mode == 7 ? th.alert : th.good);
+    if (headX_ >= 0) g.vline(headX_, kWaveY, kWaveH, th.alert);   // red, as stock (Polyend tracker-ce)
     drawModeList(g, th, mode);
 }
 
