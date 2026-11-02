@@ -178,6 +178,54 @@ void decodePattern(const uint8_t* file, size_t len, PatternStock& p, const Patte
     decodeTracks(file, len, p.tracks, ctx, info);
 }
 
+uint32_t normalizeV6Pattern(uint8_t* buf, uint32_t len, V6Info* info) {
+    if (!buf || len < mtp::kTracksOff) return len;
+    const uint8_t version = buf[8];
+    const uint16_t size = uint16_t(buf[0x0C] | (buf[0x0D] << 8));
+    const int n = size == mtp::kV6File16 ? 16 : (size == mtp::kV6File12 ? 12 : 0);
+    if (version < 6 || !n || len < mtp::kTracksOff + mtp::kV6TrackSize * uint32_t(n)) return len;
+    V6Info vi;
+    vi.converted = true;
+    constexpr uint8_t kVolume = 18, kMicro = 2, kFirstUnknown = 43;
+    // Front to back: every 6-byte step lands at or before its 8-byte source.
+    for (int t = 0; t < n; ++t) {
+        const uint8_t* src = buf + mtp::kTracksOff + uint32_t(t) * mtp::kV6TrackSize;
+        uint8_t* dst = buf + mtp::kTracksOff + uint32_t(t) * mtp::kTrackSize;
+        dst[0] = src[0];
+        for (int s = 0; s < kStepCount; ++s) {
+            uint8_t b[8];
+            std::memcpy(b, src + 1 + s * mtp::kV6StepSize, 8);
+            for (int k = 2; k <= 4; k += 2)
+                if (b[k] >= kFirstUnknown) {
+                    b[k] = b[k + 1] = 0;
+                    ++vi.droppedFx;
+                }
+            const int8_t vol = int8_t(b[6]), micro = int8_t(b[7]);
+            auto put = [&](uint8_t type, int8_t v) {
+                if (v < 0) return;
+                for (int k = 2; k <= 4; k += 2)
+                    if (b[k] == 0) {
+                        b[k] = type;
+                        b[k + 1] = uint8_t(v > 100 ? 100 : v);
+                        ++vi.movedVm;
+                        return;
+                    }
+                ++vi.droppedVm;
+            };
+            put(kVolume, vol);
+            put(kMicro, micro);
+            std::memcpy(dst + 1 + s * mtp::kStepSize, b, mtp::kStepSize);
+        }
+    }
+    const uint32_t out = mtp::fileSizeFor(n);
+    buf[8] = buf[9] = buf[10] = buf[11] = mtp::kStructVersion;
+    buf[0x0C] = uint8_t(out);
+    buf[0x0D] = uint8_t(out >> 8);
+    wrU32(buf + mtp::crcOffFor(n), crc32(buf, mtp::crcOffFor(n)));
+    if (info) *info = vi;
+    return out;
+}
+
 void decodePattern(const uint8_t* file, size_t len, Pattern& p, const PatternUpgradeContext* ctx,
                    PatternLoadInfo* info) {
     decodeTracks(file, len, p.tracks, ctx, info);

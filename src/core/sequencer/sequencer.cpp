@@ -511,12 +511,32 @@ void Sequencer::stepStart(int t) {
         if (b) midiDelayBase = (int(b) + 1) * 45 / 100 + 1;  // 13 §I.1
     }
 
-    // (5) Chance pre-pass (id 4).
+    // (5) Chance pre-pass (id 4). OT fork: values above 100 are the
+    // conditions of Polyend's Community Edition (same values, so its
+    // patterns play the same): 101 GL plays when the track's last condition
+    // played, 102 !L when it did not; 103..138 play N passes then skip M,
+    // 139..174 skip N then play M (N, M 1..6, the pass count since Play).
     bool failed = false;
     for (int c = 0; c < 2; ++c) {
         if (col[c]->type != 4) continue;
-        const int r = rng_.range(0, 100);
-        if (int(col[c]->value) < r) {
+        const int v = col[c]->value;
+        bool fired;
+        if (v == kChanceGroupLast) {
+            fired = tr.lastCondFired;
+        } else if (v == kChanceNotLast) {
+            fired = !tr.lastCondFired;
+        } else if (v > 100) {
+            const bool playFirst = v < kChanceSkipPlay0;
+            const int idx = (playFirst ? v - kChancePlaySkip0 : v - kChanceSkipPlay0) % 36;
+            const int n = 1 + idx / 6, m = 1 + idx % 6;
+            const bool inN = int(tr.passCount % uint16_t(n + m)) < n;
+            fired = playFirst ? inN : !inN;
+            tr.lastCondFired = fired;
+        } else {
+            fired = int(v) >= rng_.range(0, 100);
+            tr.lastCondFired = fired;
+        }
+        if (!fired) {
             failed = true;
             if (tr.rollActive && tr.rollCol == c) clearRoll(tr);
             if (tr.arpActive && tr.arpCol == c) clearArp(tr);
@@ -969,6 +989,7 @@ void Sequencer::advanceStep(int t) {
     else wrapped = tr.stepsPlayed > li || breakPending_;  // Rnd and tables count steps
     if (wrapped) {
         tr.stepsPlayed = 0;
+        ++tr.passCount;   // OT fork Chance conditions
         // Queued per-track pattern commits at this track's own loop end.
         if (perf && pendNum_[t].load(std::memory_order_relaxed)) {
             commitTrackPattern(t);
@@ -1085,6 +1106,8 @@ void Sequencer::resetPositions(int startStep) {
         TrackState& tr = tracks_[t];
         tr.micro = 1;
         tr.stepsPlayed = 0;
+        tr.passCount = 0;
+        tr.lastCondFired = true;
         const uint8_t mode = perfTrack(t) ? tr.playMode : kPlayFwd;
         if (mode == kPlayBack) {
             tr.step = int16_t(lastIndex(t));

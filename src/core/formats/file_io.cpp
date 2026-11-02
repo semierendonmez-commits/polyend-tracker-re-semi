@@ -108,6 +108,7 @@ FmtStatus loadPatternFile(IStorage& fs, const char* path, PatternStock& p, const
     uint32_t got = 0;
     FmtStatus st = readWholeFile(fs, path, g_io, mtp::kMiniFileSize, &got);
     if (st != FmtStatus::Ok) return st;
+    got = normalizeV6Pattern(g_io, got);   // OT fork: a 12-track CE 1.0 file (a 16-track one is larger than g_io)
     static Track ext[kExtTrackCount];   // tracks 12..15 dropped (stock store)
     decodePattern16(g_io, got, p, ext, ctx, info);
     return FmtStatus::Ok;
@@ -117,6 +118,7 @@ FmtStatus loadPatternFile(IStorage& fs, const char* path, Pattern& p, const Patt
     uint32_t got = 0;
     FmtStatus st = readWholeFile(fs, path, g_io, mtp::kMiniFileSize, &got);
     if (st != FmtStatus::Ok) return st;
+    got = normalizeV6Pattern(g_io, got);   // OT fork: a 12-track CE 1.0 file (a 16-track one is larger than g_io)
     decodePattern16(g_io, got, p, ctx, info);
     return FmtStatus::Ok;
 }

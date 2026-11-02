@@ -1,0 +1,183 @@
+// OT fork compatibility with Polyend Tracker CE 1.0 (polyend/tracker-ce):
+// structure-6 pattern files (8-byte steps with volume and micro-move) load,
+// and the Chance conditions (values 101..174) play as CE plays them.
+#include <cstring>
+#include <vector>
+
+#include "test.h"
+#include "ui_fakes.h"
+
+#include "app/project_io.h"
+#include "formats/pattern_mtp.h"
+#include "ui/fx_text.h"
+
+using namespace ot;
+
+namespace {
+// A CE 1.0 file of `tracks` tracks: header (structure 6), every step empty
+// (note -1, volume -1, micro-move -1), tracks 32 steps long.
+std::vector<uint8_t> ceFile(int tracks) {
+    const uint32_t size = mtp::v6FileSizeFor(tracks);
+    std::vector<uint8_t> f(size, 0);
+    f[0] = 'K';
+    f[1] = 'S';
+    f[2] = 2;
+    f[4] = 1;   // fw 1.0.0
+    for (int i = 8; i < 12; ++i) f[size_t(i)] = 6;
+    f[0x0C] = uint8_t(size);
+    f[0x0D] = uint8_t(size >> 8);
+    for (int t = 0; t < tracks; ++t) {
+        uint8_t* tr = f.data() + mtp::kTracksOff + uint32_t(t) * mtp::kV6TrackSize;
+        tr[0] = 31;
+        for (int s = 0; s < 128; ++s) {
+            uint8_t* st = tr + 1 + s * 8;
+            st[0] = 0xFF;   // empty note
+            st[6] = 0xFF;   // volume -1
+            st[7] = 0xFF;   // micro-move -1
+        }
+    }
+    return f;
+}
+uint8_t* stepAt(std::vector<uint8_t>& f, int t, int s) {
+    return f.data() + mtp::kTracksOff + uint32_t(t) * mtp::kV6TrackSize + 1 + uint32_t(s) * 8;
+}
+}  // namespace
+
+TEST(ce_v6_pattern_loads) {
+    for (int tracks : {16, 12}) {
+        std::vector<uint8_t> f = ceFile(tracks);
+        // Track 1 step 0: a note with Roll on disk FX slot 0 and volume 70.
+        uint8_t* a = stepAt(f, 0, 0);
+        a[0] = 48;
+        a[1] = 3;
+        a[2] = 3;   // Roll
+        a[3] = 9;
+        a[6] = 70;
+        // Track 3 step 5: both FX slots used, a volume: no room for it.
+        uint8_t* b = stepAt(f, 2, 5);
+        b[0] = 50;
+        b[2] = 18;
+        b[3] = 40;
+        b[4] = 19;
+        b[5] = 30;
+        b[6] = 99;
+        // Last track step 127: a CE-only FX (z = 45) and a micro-move 25.
+        uint8_t* c = stepAt(f, tracks - 1, 127);
+        c[0] = 60;
+        c[2] = 45;
+        c[3] = 50;
+        c[7] = 25;
+        V6Info vi;
+        const uint32_t len = normalizeV6Pattern(f.data(), uint32_t(f.size()), &vi);
+        CHECK(vi.converted);
+        CHECK_EQ(len, mtp::fileSizeFor(tracks));
+        CHECK_EQ(int(vi.movedVm), 2);
+        CHECK_EQ(int(vi.droppedVm), 1);
+        CHECK_EQ(int(vi.droppedFx), 1);
+        Track out[kTrackCount];
+        PatternLoadInfo li;
+        decodePattern16(f.data(), len, out, nullptr, &li);
+        CHECK(!li.upgraded);
+        CHECK_EQ(int(out[0].lastStep), 31);
+        CHECK_EQ(int(out[0].steps[0].note), 48);
+        CHECK_EQ(int(out[0].steps[0].instrument), 3);
+        // Disk slot 0 = model fx[1]; the volume went to the free slot.
+        CHECK_EQ(int(out[0].steps[0].fx[1].type), 3);
+        CHECK_EQ(int(out[0].steps[0].fx[1].value), 9);
+        CHECK_EQ(int(out[0].steps[0].fx[0].type), 18);
+        CHECK_EQ(int(out[0].steps[0].fx[0].value), 70);
+        CHECK_EQ(int(out[2].steps[5].fx[1].type), 18);
+        CHECK_EQ(int(out[2].steps[5].fx[0].type), 19);
+        const Step& z = out[tracks - 1].steps[127];
+        CHECK_EQ(int(z.note), 60);
+        CHECK_EQ(int(z.fx[1].type), 2);   // micro-move took the slot of the dropped z
+        CHECK_EQ(int(z.fx[1].value), 25);
+        CHECK_EQ(int(z.fx[0].type), 0);
+        // Other steps stay empty, nothing reset.
+        CHECK_EQ(int(out[1].steps[3].note), int(kNoteEmpty));
+        CHECK_EQ(int(out[tracks - 1].lastStep), 31);
+        if (tracks == 12) CHECK_EQ(int(li.firstResetTrack), 12);
+    }
+    // Any other file is left alone.
+    std::vector<uint8_t> v5(mtp::kMiniFileSize, 0);
+    v5[8] = 5;
+    v5[0x0C] = uint8_t(mtp::kMiniFileSize);
+    v5[0x0D] = uint8_t(mtp::kMiniFileSize >> 8);
+    V6Info none;
+    CHECK_EQ(normalizeV6Pattern(v5.data(), uint32_t(v5.size()), &none), mtp::kMiniFileSize);
+    CHECK(!none.converted);
+}
+
+TEST(ce_v6_project_opens_from_the_card) {
+    Harness h;
+    App& a = *h.app;
+    // A project saved here, then its pattern 1 replaced by a CE 1.0 file
+    // (as if saved by the Community Edition on the same card).
+    CHECK(saveProjectInto(a, "Projects", "ce"));
+    std::vector<uint8_t> f = ceFile(16);
+    uint8_t* st = stepAt(f, 0, 0);
+    st[0] = 52;
+    st[6] = 55;
+    h.fs.files["Projects/ce/patterns/pattern_01.mtp"] = f;
+    CHECK(a.openProject("Projects", "ce"));
+    const Step& s = a.pattern().tracks[0].steps[0];
+    CHECK_EQ(int(s.note), 52);
+    CHECK((s.fx[0].type == 18 && s.fx[0].value == 55) || (s.fx[1].type == 18 && s.fx[1].value == 55));
+    CHECK_EQ(int(a.pattern().tracks[0].lastStep), 31);
+}
+
+TEST(ce_chance_conditions) {
+    char t[8];
+    fxValueText(4, 101, t);
+    CHECK_STR(t, " GL");
+    fxValueText(4, 102, t);
+    CHECK_STR(t, " !L");
+    fxValueText(4, 103, t);
+    CHECK_STR(t, "1:1");
+    fxValueText(4, 138, t);
+    CHECK_STR(t, "6:6");
+    fxValueText(4, 139, t);
+    CHECK_STR(t, "S11");
+    fxValueText(4, 50, t);
+    CHECK_STR(t, "50");
+    // Play 2 / skip 1 (103 + 1 * 6 + 0 = 109) on a one-step-per-loop track:
+    // passes 0, 1 play, 2 skips, 3, 4 play, 5 skips.
+    Harness h;
+    App& a = *h.app;
+    Pattern& p = a.pattern();
+    for (auto& tr : p.tracks) tr.lastStep = 3;
+    Step& s = p.tracks[0].steps[0];
+    s.note = 48;
+    s.fx[0].type = 4;
+    s.fx[0].value = 109;
+    // Skip 1 / play 2 (139 + 0 * 6 + 1 = 140) on track 2.
+    Step& s2 = p.tracks[1].steps[0];
+    s2.note = 48;
+    s2.fx[0].type = 4;
+    s2.fx[0].value = 140;
+    // GL on track 3 step 2 follows its own step 0 (Chance 0: never).
+    Step& g0 = p.tracks[2].steps[0];
+    g0.note = 48;
+    g0.fx[0].type = 4;
+    g0.fx[0].value = 0;
+    Step& g1 = p.tracks[2].steps[2];
+    g1.note = 50;
+    g1.fx[0].type = 4;
+    g1.fx[0].value = 101;
+    const uint16_t c0 = a.seq.triggerCount(0), c1 = a.seq.triggerCount(1), c2 = a.seq.triggerCount(2);
+    a.togglePlay(false);
+    // Six passes of four steps (the master position counts the steps).
+    const int start = a.seq.masterStep();
+    for (int guard = 0; guard < 20000 && a.seq.masterStep() - start < 24; ++guard) {
+        h.audio.pump(1);
+        h.run(1);
+    }
+    a.togglePlay(false);
+    const int n0 = int(uint16_t(a.seq.triggerCount(0) - c0));
+    const int n1 = int(uint16_t(a.seq.triggerCount(1) - c1));
+    const int n2 = int(uint16_t(a.seq.triggerCount(2) - c2));
+    std::printf("  6 passes: 2:1 played %d, S12 played %d, GL after never played %d\n", n0, n1, n2);
+    CHECK_EQ(n0, 4);
+    CHECK_EQ(n1, 4);
+    CHECK_EQ(n2, 0);
+}

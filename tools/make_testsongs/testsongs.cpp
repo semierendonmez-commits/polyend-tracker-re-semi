@@ -673,6 +673,7 @@ void stressPattern(Gen& g, int num) {
             case FxId::MidiChord: return int(r.next() % 16);
             case FxId::Tune: return 18 + int(r.next() % 13);          // -6..+6
             case FxId::Glide: return int(r.next() % 20);
+            case FxId::Chance: return int(r.next() % 101);   // stock 0..100 (101.. are CE conditions)
             default: {
                 const FxInfo& fi = fxInfo(id);
                 return fi.minValue + int(r.next() % (fi.maxValue - fi.minValue + 1u));

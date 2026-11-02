@@ -9,7 +9,7 @@ const FxInfo kFxTable[kFxCount] = {
     {'!', "Off", 0, 0, 0},
     {'m', "Micro-move", 0, 100, 0},
     {'R', "Roll", 0, 47, 1},
-    {'C', "Chance", 0, 100, 0},
+    {'C', "Chance", 0, 174, 0},          // OT fork: 101..174 conditions (Polyend CE)
     {'n', "Random Note", 0, 100, 0},
     {'i', "Random Instrument", 0, 100, 0},
     {'v', "Random Volume", 0, 100, 0},

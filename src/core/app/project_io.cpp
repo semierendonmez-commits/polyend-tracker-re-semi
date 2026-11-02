@@ -1571,6 +1571,17 @@ inline void keepBit(uint8_t* keep, int num, int e, bool on) {
 // ext tracks that did not fit a full pool (they are remembered in extKeep_
 // and kept from the Workspace file by the autosave). *upgrade: the file
 // was not a current 16-track file. False = the pool was full.
+// OT fork: a Polyend CE 1.0 pattern (structure 6) becomes structure 5 in
+// place; what could not be kept is said once after the load.
+uint32_t App::normalizeCePattern(uint8_t* buf, uint32_t len) {
+    V6Info vi;
+    const uint32_t out = normalizeV6Pattern(buf, len, &vi);
+    if (vi.converted && (vi.droppedVm || vi.droppedFx) && !loadNotice_[0])
+        std::snprintf(loadNotice_, sizeof(loadNotice_), "CE pattern: %u step values had no free FX slot",
+                      unsigned(vi.droppedVm + vi.droppedFx));
+    return out;
+}
+
 bool App::loadPatternBytes(int num, const uint8_t* file, uint32_t len, uint8_t* out, bool* upgrade) {
     PatternUpgradeContext ctx;
     ctx.instrumentPlayModes = pj_.modes;
@@ -1607,7 +1618,8 @@ bool App::savePatternUnit(int num) {
         uint32_t got = 0;
         Track* file = reinterpret_cast<Track*>(mem_.scratch + kPatchOff);
         static_assert(kPatchOff + sizeof(Track) * kTrackCount <= 0x10000, "keep tracks fit the scratch");
-        if (readWholeFile(f, path, mem_.scratch, mtp::kMiniFileSize, &got) == FmtStatus::Ok) {
+        if (readWholeFile(f, path, mem_.scratch, mtp::kReadMax, &got) == FmtStatus::Ok) {
+            got = normalizeV6Pattern(mem_.scratch, got);
             decodePattern16(mem_.scratch, got, file);
             for (int e = 0; e < kExtTrackCount; ++e)
                 if (!ep[e] && ((extKeep_[num] >> e) & 1)) ep[e] = &file[kStockTrackCount + e];
@@ -1893,14 +1905,16 @@ bool App::jobUnit(uint32_t& cost) {
                     pj_.in = f.open(src, IStorage::kRead);
                     const int32_t sz = pj_.in >= 0 ? f.size(pj_.in) : -1;
                     if (sz >= 0) {
-                        const uint32_t want = uint32_t(sz) < mtp::kMiniFileSize ? uint32_t(sz) : mtp::kMiniFileSize;
+                        // OT fork: up to a CE 1.0 (structure 6) file, converted in place first.
+                        const uint32_t want = uint32_t(sz) < mtp::kReadMax ? uint32_t(sz) : mtp::kReadMax;
                         int32_t r = want ? f.read(pj_.in, mem_.scratch, want) : 0;
                         if (r != int32_t(want) && f.seek(pj_.in, 0)) r = want ? f.read(pj_.in, mem_.scratch, want) : 0;
                         jobCloseFiles();
                         cost += kJobSmallCost + want;
                         if (r == int32_t(want)) {
                             ProfScope d(g_ticks.decode);
-                            loadPatternBytes(n, mem_.scratch, want, mem_.scratch + kOutOff, nullptr);
+                            const uint32_t len = normalizeCePattern(mem_.scratch, want);
+                            loadPatternBytes(n, mem_.scratch, len, mem_.scratch + kOutOff, nullptr);
                             pj_.phase = 1;
                             --pj_.idx;   // same pattern, next unit
                             return true;
@@ -1924,12 +1938,17 @@ bool App::jobUnit(uint32_t& cost) {
                 pj_.phase = 0;
             } else {
                 uint32_t got = 0;
-                st = readWholeFile(f, dst, mem_.scratch, mtp::kMiniFileSize, &got);
-                if (st == FmtStatus::IoError) st = readWholeFile(f, dst, mem_.scratch, mtp::kMiniFileSize, &got);   // one retry
+                // The Workspace is shared with any firmware on the card (CE 1.0 writes structure 6).
+                st = readWholeFile(f, dst, mem_.scratch, mtp::kReadMax, &got);
+                if (st == FmtStatus::IoError) st = readWholeFile(f, dst, mem_.scratch, mtp::kReadMax, &got);   // one retry
                 if (st == FmtStatus::Ok) {
                     ProfScope d(g_ticks.decode);
-                    bool upgrade = false;
-                    loadPatternBytes(n, mem_.scratch, got, nullptr, &upgrade);
+                    const uint32_t raw = got;
+                    got = normalizeCePattern(mem_.scratch, got);
+                    bool upgrade = got != raw;   // a CE file: the autosave rewrites it
+                    bool up2 = false;
+                    loadPatternBytes(n, mem_.scratch, got, nullptr, &up2);
+                    upgrade = upgrade || up2;
                     if (upgrade) setBit(g_upgrade, n, true);
                 }
             }

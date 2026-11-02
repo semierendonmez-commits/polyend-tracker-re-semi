@@ -41,7 +41,8 @@ const char* const kDescription[kFxCount] = {
     "Stops a roll or arp started from this column and undoes this slot's earlier change to the voice.",   // 1 Off
     "Delays the note by a fraction of a step. Higher values start it later.",   // 2 Micro-move
     "Repeats the note within the step. The value picks the roll type (plain, fading out, fading in, note variations) and the hits per step.",   // 3 Roll
-    "Probability in percent that the step plays.",   // 4 Chance
+    "Probability in percent that the step plays. Above 100: GL plays when the track's last chance played, "
+    "!L when it did not, N:M plays N passes then skips M, SNM skips N then plays M.",   // 4 Chance
     "Plays a random note within +/- the value around the step note, kept inside the project scale.",   // 5 Random Note
     "Plays a random instrument within +/- the value around the step instrument.",   // 6 Random Instrument
     "Plays the note at a random volume between 0 and the value.",   // 7 Random Volume
@@ -133,6 +134,13 @@ void fxValueText(uint8_t type, uint8_t v, char out[5]) {
             }
             if (v > 33) break;
             std::snprintf(out, n, "%c%2s", kArpDir[(v - 1) / 11], kArpRate[(v - 1) % 11]);
+            return;
+        case FxId::Chance:   // OT fork conditions (Polyend CE values)
+            if (v == 101) std::snprintf(out, n, " GL");
+            else if (v == 102) std::snprintf(out, n, " !L");
+            else if (v >= 103 && v <= 138) std::snprintf(out, n, "%d:%d", 1 + (v - 103) / 6, 1 + (v - 103) % 6);
+            else if (v >= 139 && v <= 174) std::snprintf(out, n, "S%d%d", 1 + (v - 139) / 6, 1 + (v - 139) % 6);
+            else break;
             return;
         case FxId::Panning: std::snprintf(out, n, "%d", int(v) - 50); return;
         case FxId::MicroTune: std::snprintf(out, n, "%d", int(v) - 99); return;

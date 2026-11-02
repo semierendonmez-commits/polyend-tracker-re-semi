@@ -700,6 +700,7 @@ private:
     static bool exportRunning(void* ctx);
     // Mini pattern / patch file internals (project_io.cpp).
     bool loadPatternBytes(int num, const uint8_t* file, uint32_t len, uint8_t* out, bool* upgrade);
+    uint32_t normalizeCePattern(uint8_t* buf, uint32_t len);   // OT fork: CE 1.0 structure 6 -> 5
     bool savePatternUnit(int num);
     void loadPatchUnit(int s, uint32_t& cost);
     bool resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile);

@@ -62,7 +62,7 @@ const Range kRanges[43] = {
     {0, 0},    // 1 Off
     {0, 100},  // 2 Micro-move
     {0, 53},   // 3 Roll (TL 47)
-    {0, 100},  // 4 Chance
+    {0, 174},  // 4 Chance (OT fork: 101..174 the conditions of Polyend CE)
     {0, 100},  // 5 Random note
     {0, 47},   // 6 Random instrument (TL 100)
     {0, 100},  // 7 Random volume

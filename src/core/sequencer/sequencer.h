@@ -55,6 +55,9 @@ public:
     // 2.x: 16 tracks (spec 2x-01 §6). Tracks 8..15 play MIDI and synths; synths
     // (instruments 64..66) play on all 16 tracks (Mini manual 6.13).
     static constexpr int kTracks = kTrackCount;   // 16
+    // OT fork Chance conditions (Chance FX values above 100, Polyend CE's).
+    static constexpr int kChanceGroupLast = 101, kChanceNotLast = 102, kChancePlaySkip0 = 103,
+                         kChanceSkipPlay0 = 139, kChanceMax = 174;
     static constexpr int kVoiceTracks = 8;        // tracks 0..7 own a sample voice
 
     Sequencer() { resetState(); }
@@ -246,6 +249,10 @@ private:
         int16_t step = 0;
         int16_t stepsPlayed = 0;
         uint16_t sinceTrigger = 0;
+        // OT fork Chance conditions (values 101..174, as Polyend tracker-ce):
+        // the track's passes since play, and whether its last condition fired.
+        uint16_t passCount = 0;
+        bool lastCondFired = true;
         int16_t gate = 0;
         int16_t gateLimit = -1;
         // roll

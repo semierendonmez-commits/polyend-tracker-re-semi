@@ -40,7 +40,31 @@ constexpr uint32_t kMaxFileSize = kMiniFileSize;
 static_assert(fileSizeFor(12) == kStockFileSize && crcOffFor(12) == kStockCrcOff, "stock layout");
 static_assert(fileSizeFor(16) == kMiniFileSize && crcOffFor(16) == kMiniCrcOff, "Mini layout");
 static_assert(fileSizeFor(8) == kLegacyFileSize, "8-track layout");
+
+// OT fork: Polyend Tracker CE 1.0 (structure 6) adds a volume and a
+// micro-move byte to every step (8-byte steps). Readers read up to
+// kReadMax bytes and pass the image through normalizeV6Pattern first.
+constexpr uint32_t kV6StepSize = 8;
+constexpr uint32_t kV6TrackSize = 1 + kV6StepSize * 128;   // 1025
+constexpr uint32_t v6FileSizeFor(int tracks) { return kTracksOff + kV6TrackSize * uint32_t(tracks) + 4; }
+constexpr uint32_t kV6File16 = v6FileSizeFor(16);   // 16432
+constexpr uint32_t kV6File12 = v6FileSizeFor(12);   // 12332
+constexpr uint32_t kReadMax = kV6File16;
+static_assert(kV6File16 == 16432 && kV6File12 == 12332, "CE v6 sizes");
 }  // namespace mtp
+
+// What normalizeV6Pattern did (the notice after loading a CE project).
+struct V6Info {
+    bool converted = false;
+    uint16_t movedVm = 0;     // step volumes / micro-moves put into a free FX slot
+    uint16_t droppedVm = 0;   // ... with no free slot left
+    uint16_t droppedFx = 0;   // CE-only FX (w, y, z) removed
+};
+// A structure-6 image (CE 1.0) is rewritten in place as the structure-5 file
+// of the same track count: the step volume (V) and micro-move (m) go into a
+// free FX slot as Volume / Micro-move (same values), CE-only FX types are
+// dropped. Returns the new length (unchanged for any other file).
+uint32_t normalizeV6Pattern(uint8_t* buf, uint32_t len, V6Info* info = nullptr);
 
 // Which on-disk layout encodePattern16 writes.
 enum class MtpLayout : uint8_t {
