@@ -289,3 +289,38 @@ TEST(ce_wavetable_refresh_after_import) {
     CHECK_EQ(int(in.wavetableWindowCount), 32);
     CHECK_EQ(int(in.wavetableCurrentWindow), 31);   // the last window stays the last
 }
+
+// Community Edition themes (/Themes/*.json from Polyend's web theme editor).
+#include "ui/theme.h"
+#include "ui/theme_file.h"
+
+TEST(ce_json_theme_loads) {
+    Harness h;
+    const char* js =
+        "{\n  \"name\": \"Minimal Blue\",\n  \"background\": \"#0c1017\",\n"
+        "  \"patternTracker\": {\n    \"background\": \"#0e131d\",\n    \"note\": \"#58a6ff\",\n"
+        "    \"instrument\": \"#e3b341\"\n  },\n  \"accents\": { \"red\": \"#f85149\", \"green\": \"#2ea043\" },\n"
+        "  \"base\": \"Monochrome\"\n}\n";
+    h.fs.mkdir("Themes");
+    h.fs.files["Themes/Minimal Blue.json"] = std::vector<uint8_t>(js, js + std::strlen(js));
+    h.fs.files["Themes/._Minimal Blue.json"] = {0, 5, 22};
+    char names[8][kThemeNameMax + 1];
+    CHECK_EQ(listThemeFiles(h.fs, names, 8), 1);
+    CHECK_STR(names[0], "Minimal Blue");
+    uint32_t slots[kThemeSlotCount];
+    ThemeParse pr;
+    CHECK(loadThemeFile(h.fs, "Minimal Blue", slots, &pr));
+    CHECK_EQ(int(pr.base), 1);   // the base, though it comes last in the file
+    const Theme t = themeView("Minimal Blue", slots);
+    CHECK_EQ(t.bg & 0xFFFFFFu, 0x0C1017u);
+    CHECK_EQ(t.track[0] & 0xFFFFFFu, 0x58A6FFu);
+    CHECK_EQ(t.track[1] & 0xFFFFFFu, 0xE3B341u);
+    CHECK_EQ(t.accent & 0xFFFFFFu, 0xF85149u);
+    CHECK_EQ(t.good & 0xFFFFFFu, 0x2EA043u);
+    // A .txt of the same name wins and is listed once.
+    const char* tx = "base = original\nbackground = #112233\n";
+    h.fs.files["Themes/Minimal Blue.txt"] = std::vector<uint8_t>(tx, tx + std::strlen(tx));
+    CHECK_EQ(listThemeFiles(h.fs, names, 8), 1);
+    CHECK(loadThemeFile(h.fs, "Minimal Blue", slots, &pr));
+    CHECK_EQ(themeView("x", slots).bg & 0xFFFFFFu, 0x112233u);
+}

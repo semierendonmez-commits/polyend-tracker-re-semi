@@ -288,11 +288,16 @@ bool listFn(const IStorage::DirEntry& e, void* p) {
     // every file it copies to a FAT card; it is not a theme.
     if (e.isDir || e.name[0] == '.') return true;
     const size_t len = std::strlen(e.name);
-    if (len < 5 || len - 4 > size_t(kThemeNameMax) || !sameCi(e.name + len - 4, ".txt")) return true;
+    // OT fork: also the Community Edition's .json themes (same name once).
+    const size_t ext = len >= 6 && sameCi(e.name + len - 5, ".json") ? 5 : 4;
+    if (len < ext + 1 || len - ext > size_t(kThemeNameMax)) return true;
+    if (ext == 4 && !sameCi(e.name + len - 4, ".txt")) return true;
     char base[kThemeNameMax + 1];
-    std::memcpy(base, e.name, len - 4);
-    base[len - 4] = 0;
+    std::memcpy(base, e.name, len - ext);
+    base[len - ext] = 0;
     if (!themeNameValid(base)) return true;
+    for (int k = 0; k < x.n; ++k)
+        if (sameCi(x.names[k], base)) return true;
     // Sorted insertion; when full, the last one in sort order drops out.
     int i = x.n < x.max ? x.n++ : x.max;
     if (i == x.max && (x.max == 0 || cmpCi(base, x.names[x.max - 1]) >= 0)) return true;
@@ -358,10 +363,139 @@ bool themeNameValid(const char* name) {
     return n > 0;
 }
 
+namespace {
+// OT fork: Polyend Tracker CE themes (/Themes/*.json, its web theme editor):
+// "base" picks the base theme, "#RRGGBB" values land on the role closest to
+// their meaning; keys we have no role for are skipped.
+struct JsonRole {
+    const char* path;
+    const char* role;
+};
+const JsonRole kJsonRoles[] = {
+    {"background", "background"},
+    {"topBar.background", "title_bg"},
+    {"topBar.text", "title_text"},
+    {"labels.defaultText", "text"},
+    {"labels.active", "label_text"},
+    {"labels.inactive", "label_text_off"},
+    {"labels.inactiveButton", "label_bg"},
+    {"labels.redButton", "alert"},
+    {"patternTracker.background", "grid_bg"},
+    {"patternTracker.note", "note"},
+    {"patternTracker.instrument", "instrument"},
+    {"patternTracker.fx1", "fx1"},
+    {"patternTracker.fx2", "fx2"},
+    {"patternTracker.inactiveNote", "note_empty"},
+    {"patternTracker.inactiveInstrument", "instrument_empty"},
+    {"patternTracker.inactiveFx1", "fx1_empty"},
+    {"patternTracker.inactiveFx2", "fx2_empty"},
+    {"patternTracker.selection", "grid_cursor_row"},
+    {"patternTracker.selectionText", "grid_cursor_text"},
+    {"patternTracker.playhead", "grid_cursor_alt"},
+    {"patternTracker.gridDivider", "grid_lines"},
+    {"patternTracker.inactiveTrack", "grid_muted"},
+    {"patternTracker.trackName", "grid_header"},
+    {"patternTracker.stepNumber", "dim"},
+    {"popups.stepBackground", "panel"},
+    {"popups.dialog", "panel2"},
+    {"waveform.audio", "wave"},
+    {"waveform.sliceMarker", "marker_grey"},
+    {"waveform.activeSlice", "marker_sel"},
+    {"accents.red", "accent"},
+    {"accents.orange", "orange"},
+    {"accents.yellow", "yellow"},
+    {"accents.green", "good"},
+    {"accents.cyan", "cyan"},
+};
+
+struct JsonScan {
+    Parser* p;
+    bool basePass;
+    bool inStr = false, esc = false, wantKey = false;
+    int depth = 0;
+    char str[40] = {};
+    int sn = 0;
+    char key[40] = {}, section[40] = {};
+    void value(const char* v) {
+        if (depth == 1 && sameCi(key, "base")) {
+            if (basePass) p->set("base", v);
+            return;
+        }
+        if (basePass || v[0] != '#') return;
+        char path[96];
+        std::snprintf(path, sizeof(path), "%s%s%s", depth >= 2 ? section : "", depth >= 2 ? "." : "", key);
+        for (const JsonRole& m : kJsonRoles)
+            if (sameCi(path, m.path)) {
+                if (p->set(m.role, v)) p->locked = true;
+                return;
+            }
+    }
+    void feed(const char* d, uint32_t len) {
+        for (uint32_t i = 0; i < len; ++i) {
+            const char c = d[i];
+            if (inStr) {
+                if (esc) esc = false;
+                else if (c == '\\') esc = true;
+                else if (c == '"') {
+                    inStr = false;
+                    str[sn] = 0;
+                    if (wantKey) {
+                        std::snprintf(key, sizeof(key), "%s", str);
+                        wantKey = false;
+                    } else {
+                        value(str);
+                    }
+                } else if (sn < int(sizeof(str)) - 1) {
+                    str[sn++] = c;
+                }
+                continue;
+            }
+            if (c == '"') {
+                inStr = true;
+                sn = 0;
+            } else if (c == '{') {
+                ++depth;
+                if (depth == 2) std::snprintf(section, sizeof(section), "%s", key);
+                wantKey = true;
+            } else if (c == '}') {
+                --depth;
+                if (depth <= 1) section[0] = 0;
+            } else if (c == ',') {
+                wantKey = true;
+            }
+        }
+    }
+};
+
+bool loadJsonTheme(IStorage& fs, const char* name, uint32_t* slots, ThemeParse* out) {
+    char path[48];
+    std::snprintf(path, sizeof(path), "%s/%s.json", kThemesDir, name);
+    Parser p(slots, out);
+    for (int pass = 0; pass < 2; ++pass) {   // the base first, wherever it is in the file
+        const IStorage::Handle h = fs.open(path, IStorage::kRead);
+        if (h < 0) return false;
+        JsonScan js;
+        js.p = &p;
+        js.basePass = pass == 0;
+        char chunk[512];
+        uint32_t total = 0;
+        int32_t got;
+        while (total < kThemeFileMax && (got = fs.read(h, chunk, sizeof(chunk))) > 0) {
+            js.feed(chunk, uint32_t(got));
+            total += uint32_t(got);
+        }
+        fs.close(h);
+    }
+    p.finish(false);
+    return true;
+}
+}  // namespace
+
 bool loadThemeFile(IStorage& fs, const char* name, uint32_t* slots, ThemeParse* out) {
     if (!themeNameValid(name)) return false;
     char path[48];
     themePath(path, sizeof(path), name);
+    if (!fs.exists(path)) return loadJsonTheme(fs, name, slots, out);   // OT fork: a CE theme
     const IStorage::Handle h = fs.open(path, IStorage::kRead);
     if (h < 0) return false;
     const int32_t size = fs.size(h);
