@@ -144,6 +144,7 @@ void PerformanceScreen::start(int opt) {
     // but have no pattern override (the Tracker Mini stores 1-8 only).
     for (int t = 0; t < kTrackCount; ++t) {
         fxOn[t] = true;
+        lit[t] = false;   // OT fork Select keys: nothing lit = every track
         pending_[t] = 0;
     }
     lastPattern_ = curPat;
@@ -699,7 +700,15 @@ void PerformanceScreen::onButton(uint8_t id, uint8_t state) {
                 trackPatternQueued(t, pending_[t]);
                 pending_[t] = 0;
             } else if (!keyUsed_[k]) {
-                fxOn[t] = !fxOn[t];
+                // OT fork (user report: "the keys work the wrong way round"):
+                // Select lights the track and plays the FX on the lit ones;
+                // Exclude is the stock toggle (a key turns the track off).
+                if (selectKeys()) {
+                    lit[t] = !lit[t];
+                    setFxOnFromLit();
+                } else {
+                    fxOn[t] = !fxOn[t];
+                }
                 applyAll(false);   // enable = apply the active slots, disable = revert
             }
         }
@@ -863,6 +872,14 @@ void PerformanceScreen::update(uint32_t now) {
     }
 }
 
+bool PerformanceScreen::selectKeys() const { return app_.cfg.perfKeys == 0; }
+
+void PerformanceScreen::setFxOnFromLit() {
+    bool any = false;
+    for (int t = 0; t < kTrackCount; ++t) any = any || lit[t];
+    for (int t = 0; t < kTrackCount; ++t) fxOn[t] = !any || lit[t];
+}
+
 // ---------------------------------------------------------------------------
 // Layout (spec 06 §3.3)
 
@@ -878,9 +895,11 @@ void PerformanceScreen::refreshBar() {
         if (ui_.shift()) std::snprintf(v, sizeof(v), "%s", m ? "Unmute" : "Mute");
         else std::snprintf(v, sizeof(v), a.cfg.numbering == 2 ? "Patt: %02X" : "Patt: %d", shownPattern(t));
         // 1.9.2 manual: a highlighted label = FX applied to the track; the
-        // text colour shows the mute state (spec 06 §3.3).
+        // text colour shows the mute state (spec 06 §3.3). Here "highlight"
+        // = not lit: Exclude lights the tracks that are off (stock), Select
+        // the tracks picked.
         b.set(i, nm, v, !m);
-        b.highlight(i, fxOn[t]);
+        b.highlight(i, selectKeys() ? !lit[t] : fxOn[t]);
         // Drawn by draw(): the stock bar shows no focus frames here
         // [S snap 021], so "FX on" is the plain stock look and "FX off"
         // greys the title only [I].
@@ -1027,7 +1046,7 @@ void PerformanceScreen::draw(Gfx& g) {
     {
         bool any = false;
         for (int t = 0; t < 8; ++t) {
-            if (ui_.bar.label[t].highlight) continue;   // highlight = FX on
+            if (ui_.bar.label[t].highlight) continue;   // highlight = not lit (refreshBar)
             if (!any) g.rectsBegin(th.slot(slot::kFocusFrame));
             any = true;
             g.rectsAdd(100 * t + 3, 424, 95, 56);
@@ -1144,6 +1163,10 @@ void PerformanceScreen::sceneTick(uint32_t now) {
     }
     if (done) {
         for (int tr = 0; tr < kTrackCount; ++tr) fxOn[tr] = (morphFxOn_ >> tr) & 1u;
+        if (selectKeys()) {   // all on: nothing lit; else the tracks on are lit
+            const bool all = morphFxOn_ == 0xFFFFu;
+            for (int tr = 0; tr < kTrackCount; ++tr) lit[tr] = !all && fxOn[tr];
+        }
         morphing_ = false;
         refreshBar();
     }

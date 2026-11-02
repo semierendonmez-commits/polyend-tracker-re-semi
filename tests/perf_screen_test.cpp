@@ -162,6 +162,7 @@ TEST(perf_preset_validation) {
 TEST(perf_track_key_patterns) {
     PerfRig r;
     App& a = r.a();
+    a.cfg.perfKeys = 1;   // the stock track keys (Exclude)
     putPattern(a, 2, 40);
     putPattern(a, 3, 41);
     r.h.tap(btn::Performance);
@@ -302,6 +303,7 @@ TEST(perf_fx_conversion) {
 TEST(perf_start_and_type_change_rules) {
     PerfRig r;
     App& a = r.a();
+    a.cfg.perfKeys = 1;   // the stock track keys (Exclude)
     r.h.tap(btn::Performance);
     PerformanceScreen& p = r.p();
     p.src.setValue(0, 1, 50);
@@ -382,6 +384,7 @@ TEST(perf_bank_b_no_pattern_overrides) {
     // reset at every entry like tracks 1-8).
     PerfRig r;
     App& a = r.a();
+    a.cfg.perfKeys = 1;   // the stock track keys (Exclude)
     putPattern(a, 2, 40);
     putPattern(a, 5, 41);
     r.h.tap(btn::Performance);
@@ -427,6 +430,7 @@ TEST(perf_bank_b_no_pattern_overrides) {
 TEST(perf_apply_all_covers_16_tracks) {
     PerfRig r;
     App& a = r.a();
+    a.cfg.perfKeys = 1;   // the stock track keys (Exclude)
     a.cfg.perfPresets = 1;
     r.h.tap(btn::Performance);
     PerformanceScreen& p = r.p();
@@ -532,4 +536,48 @@ TEST(perf_queued_pattern_blinks_and_edit_rows_are_red) {
     r.p().edit = true;
     CHECK(count() > before);
     r.p().edit = false;
+}
+
+// OT fork, user report (2.2.3-semi.4): "in Perform the track keys work the
+// wrong way round: the tracks I press are not affected, the others are".
+// Config > Perform track keys = Select (default): a key lights its track and
+// the FX play on the lit tracks only; nothing lit = every track. Scenes keep
+// the tracks; Exclude is the stock toggle (covered by the tests above).
+TEST(perf_select_track_keys) {
+    PerfRig r;
+    App& a = r.a();
+    CHECK_EQ(int(a.cfg.perfKeys), 0);
+    r.h.tap(btn::Performance);
+    PerformanceScreen& p = r.p();
+    // Column 1 = Volume +30 on row 1.
+    p.src.setType(0, perf::kVolume);
+    p.src.setValue(0, 1, 30);
+    r.h.pad(12);
+    for (int t = 0; t < 8; ++t) CHECK(p.fxOn[t]);   // nothing lit: every track
+    CHECK(a.ui.bar.label[0].highlight);            // not lit
+    // Track 2 and 4: only they get the FX.
+    r.h.tap(btn::F2);
+    r.h.tap(btn::F4);
+    CHECK(p.lit[1] && p.lit[3]);
+    CHECK(!a.ui.bar.label[1].highlight);   // lit
+    CHECK(a.ui.bar.label[0].highlight);
+    CHECK(p.fxOn[1] && p.fxOn[3]);
+    CHECK(!p.fxOn[0] && !p.fxOn[2] && !p.fxOn[5]);
+    CHECK_EQ(int(a.engine.voice(1).perf().volume), 30);
+    CHECK_EQ(int(a.engine.voice(0).perf().volume), 0);
+    // A scene stored now brings the same tracks back.
+    r.h.down(btn::Fx2);
+    r.h.tap(btn::F1);
+    r.h.up(btn::Fx2);
+    // Unlight both: every track again.
+    r.h.tap(btn::F2);
+    r.h.tap(btn::F4);
+    for (int t = 0; t < 8; ++t) CHECK(p.fxOn[t] && !p.lit[t]);
+    CHECK_EQ(int(a.engine.voice(0).perf().volume), 30);
+    r.h.down(btn::Fx1);
+    r.h.tap(btn::F1);
+    r.h.up(btn::Fx1);
+    r.h.run(50);
+    CHECK(p.lit[1] && p.lit[3] && !p.lit[0]);
+    CHECK(!p.fxOn[0] && p.fxOn[1]);
 }

@@ -212,7 +212,8 @@ void Config::toExt(uint8_t* out) const {
     f[14] = limLink;
     f[15] = satColor;
     f[16] = perfCcOut;
-    for (int i = 0; i < 5; ++i) f[17 + i] = extReserved[i];
+    f[17] = perfKeys;
+    for (int i = 0; i < 4; ++i) f[18 + i] = extReserved[i];
     uint8_t sum = 0;
     for (uint32_t i = 0; i < kExtPayload; ++i) sum = uint8_t(sum + out[5 + i]);
     out[5 + kExtPayload] = sum;
@@ -239,7 +240,8 @@ void Config::forkFromExt(const uint8_t* f, uint32_t n) {
     limLink = (n >= 15 && f[14] <= 1) ? f[14] : 0;
     satColor = (n >= 16 && f[15] < kSatColors) ? f[15] : 0;
     perfCcOut = (n >= 17 && f[16] <= 1) ? f[16] : 0;
-    for (uint32_t i = 0; i < 5; ++i) extReserved[i] = n >= 18 + i ? f[17 + i] : 0;
+    perfKeys = (n >= 18 && f[17] <= 1) ? f[17] : 0;
+    for (uint32_t i = 0; i < 4; ++i) extReserved[i] = n >= 19 + i ? f[18 + i] : 0;
 }
 
 bool Config::fromExt(const uint8_t* in, uint32_t len) {
@@ -361,6 +363,7 @@ bool Config::fromImage(const uint8_t* img) {
     c.limLink = limLink;
     c.satColor = satColor;
     c.perfCcOut = perfCcOut;
+    c.perfKeys = perfKeys;
     std::memcpy(c.extReserved, extReserved, sizeof(extReserved));
     std::memcpy(c.scenes, scenes, sizeof(scenes));
     std::memcpy(c.perfMidi, perfMidi, sizeof(perfMidi));
@@ -428,7 +431,7 @@ bool Config::save(INvStore& nv) {
         std::memcmp(extKeep, d.extKeep, sizeof(extKeep)) == 0 && sliceDetector == 0 && uiTheme < kThemeCount &&
         bbReseed == 0 && sliceThru == 0 && uiFont < 2 && scaleLock == 0 && screenSaver == 0 && levelMeter == 0 &&
         reverbModel == 0 && delayModel == 0 && satDrive == 0 && satMixInv == 0 && satToneInv == 0 &&
-        limCeiling == 0 && limLink == 0 && satColor == 0 && perfCcOut == 0 && !anyScene()) {
+        limCeiling == 0 && limLink == 0 && satColor == 0 && perfCcOut == 0 && perfKeys == 0 && !anyScene()) {
         Config probe;
         writeExt = nv.read(kExtOffset, ext, kExtSize) && probe.fromExt(ext, kExtSize);
     }

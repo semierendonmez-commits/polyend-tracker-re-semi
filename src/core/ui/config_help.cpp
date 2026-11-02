@@ -80,6 +80,10 @@ const char* const kGeneralHelp[] = {
     "longer than the threshold (and long ones when the project would not fit); All streams every long "
     "sample. The project reloads when you change it.",
     "How long a sample must be before Auto streams it from the card.",
+    // OT fork.
+    "Track keys on the Performance screen. Select: a key lights its track and the effects play on the lit "
+    "tracks only; with none lit they play on every track. Exclude (stock): the effects play on every track and "
+    "a key turns its track off (lit red).",
 };
 // spec 15 §2.3 MIDI: only CC in (8), CC in channel (9) and Clock sync correction (11).
 const char* const kMidiHelp[] = {

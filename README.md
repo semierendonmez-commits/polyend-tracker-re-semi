@@ -15,7 +15,15 @@ Image: `PolyendTrackerOTs223.ptf` (installs like the upstream image, see Install
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
-### Latest update (2.2.3-semi.4): Turing Machine generator, fixes from user reports
+### Latest update (2.2.3-semi.5): Performance track keys select
+
+![Performance: tracks 2 and 4 selected](screenshots/2.2.3-semi/perf-select.png)
+
+- **Performance track keys now select** (user report: "the keys work the wrong way round"):
+  F1..F8 light the tracks the effects play on; nothing lit = every track. The stock behaviour
+  (every track, a key turns its track off) is **Config > General > Perform track keys: Exclude**.
+
+### Previous update (2.2.3-semi.4): Turing Machine generator, fixes from user reports
 
 ![Generate: Turing](screenshots/2.2.3-semi/gen-turing.png)
 
@@ -34,7 +42,7 @@ and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**
 - **Fix: pads on an empty FX cell**: in edit mode a pad alone now picks the effect, by the same
   map as Fx + pad (top right = Roll); it wrote a value with no effect before.
 
-### Previous update (2.2.3-semi.3): MIDI learn, a theme editor on the device, Trigger theme
+### Earlier update (2.2.3-semi.3): MIDI learn, a theme editor on the device, Trigger theme
 
 | **Trigger: a column lights up when its track plays** | **Edit theme: every role, R / G / B with the encoder** |
 |---|---|

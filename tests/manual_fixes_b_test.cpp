@@ -184,6 +184,7 @@ struct PerfRig {
 TEST(perf_stays_live_on_instr_params_and_master) {
     PerfRig r;
     App& a = *r.h.app;
+    a.cfg.perfKeys = 1;   // the stock track keys (Exclude)
     r.h.tap(btn::Performance);
     PerformanceScreen& p = r.p();
     r.h.pad(24 + 1);
@@ -322,6 +323,7 @@ TEST(perf_other_screen_while_playing_reverts_at_pattern_end) {
 TEST(perf_label_colours_and_live_cell_on_top) {
     PerfRig r;
     App& a = *r.h.app;
+    a.cfg.perfKeys = 1;   // the stock track keys (Exclude)
     r.h.tap(btn::Performance);
     PerformanceScreen& p = r.p();
     CHECK(a.ui.bar.label[0].highlight);

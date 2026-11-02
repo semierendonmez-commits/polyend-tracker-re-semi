@@ -49,6 +49,7 @@ static_assert(sizeof(kThemes) / sizeof(kThemes[0]) == kThemeTotal, "one label pe
 const char* const kSliceModes[] = {"Stock", "Breaks"};
 const char* const kBBReseed[] = {"New at stop", "Every loop", "Every 2 loops", "Every 4 loops", "Every 8 loops", "Locked"};
 const char* const kSliceThru[] = {"Off", "On"};
+const char* const kPerfKeys[] = {"Select", "Exclude"};
 const char* const kSaver[] = {"Off", "1 min", "2 min", "5 min", "10 min"};
 const char* const kRevModel[] = {"Stock", "Hall", "Shimmer", "Gated", "Texture", "Plate", "Room"};
 const char* const kDlyModel[] = {"Stock", "Tape", "Lo-fi"};
@@ -123,6 +124,7 @@ const Opt kGeneral[] = {
     {"Export sample rate", kEnum, kCfg, CF(exportRate), 0, 2, kExportRates, 0},   // [I] 2.x
     {"Stream from card", kEnum, kCfg, CF(streamMode), 0, 3, kStreamModes, 0},          // [I] 2.x
     {"Stream threshold", kEnum, kCfg, CF(streamThreshold), 0, 4, kStreamThresholds, 0},   // [I] 2.x
+    {"Perform track keys", kEnum, kCfg, CF(perfKeys), 0, 2, kPerfKeys, 0},   // OT fork
 };
 const Opt kMidi[] = {
     {"Clock in", kEnum, kCfg, CF(clockIn), 0, 3, kClockIn, 0},

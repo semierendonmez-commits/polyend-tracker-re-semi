@@ -777,6 +777,10 @@ public:
     // FX enabled per track (session state; every track on at screen start).
     bool fxOn[kTrackCount] = {true, true, true, true, true, true, true, true,
                               true, true, true, true, true, true, true, true};
+    // OT fork Config > Perform track keys = Select: the lit tracks (none lit:
+    // the FX play on every track). fxOn follows from them (setFxOnFromLit).
+    bool lit[kTrackCount] = {};
+    bool selectKeys() const;
     perf::Source src;               // active preset source (spec 12 §A.1)
     uint8_t sourceIndex = 0;        // 0 global (config), 1 per project
     int16_t cur[12] = {};           // current value per slot (what is applied)
@@ -786,6 +790,7 @@ public:
 
 private:
     void refreshBar();
+    void setFxOnFromLit();
     void applyAll(bool revertEverything);
     void revert();
     void leave();

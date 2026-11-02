@@ -84,6 +84,7 @@ TEST(export_external_clock_prompt) {
 TEST(performance_fx_reach_the_engine) {
     Harness h;
     App& a = *h.app;
+    a.cfg.perfKeys = 1;   // the stock track keys (Exclude)
     h.tap(btn::Performance);
     PerformanceScreen& p = perfScreen(h);
     const perf::Source& s = p.src;
