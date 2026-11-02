@@ -5,7 +5,6 @@
 #include <cstring>
 
 #include "app/app.h"
-#include "games/rom_list.h"   // naturalCompare
 
 namespace ot {
 
@@ -17,6 +16,35 @@ int cmpNoCase(const char* a, const char* b) {
         if (y >= 'A' && y <= 'Z') y += 32;
         if (x != y || !x) return x - y;
     }
+}
+
+// Natural order (as Polyend tracker-ce compareStrings): digit runs compare by
+// value, a digit sorts before a non-digit, otherwise case-insensitive; on a
+// tie the shorter name first.
+int naturalCmp(const char* a, const char* b) {
+    auto dig = [](char c) { return c >= '0' && c <= '9'; };
+    auto low = [](char c) { return c >= 'A' && c <= 'Z' ? char(c + 32) : c; };
+    while (*a && *b) {
+        if (dig(*a) && dig(*b)) {
+            while (*a == '0' && dig(a[1])) ++a;
+            while (*b == '0' && dig(b[1])) ++b;
+            int la = 0, lb = 0;
+            while (dig(a[la])) ++la;
+            while (dig(b[lb])) ++lb;
+            if (la != lb) return la < lb ? -1 : 1;
+            for (int i = 0; i < la; ++i)
+                if (a[i] != b[i]) return a[i] < b[i] ? -1 : 1;
+            a += la;
+            b += lb;
+            continue;
+        }
+        if (dig(*a) != dig(*b)) return dig(*a) ? -1 : 1;
+        if (low(*a) != low(*b)) return low(*a) < low(*b) ? -1 : 1;
+        ++a;
+        ++b;
+    }
+    if (*a == *b) return 0;
+    return *a ? 1 : -1;
 }
 
 struct Collect {
@@ -93,7 +121,7 @@ int ProjectBrowser::list(App& a) {
     // Natural order as Polyend tracker-ce (compareStrings): digit runs by
     // value ("Project 2" before "Project 10"), otherwise case-insensitive.
     for (int i = first + 1; i < count_; ++i)
-        for (int j = i; j > first && games::naturalCompare(names_[j - 1], names_[j]) > 0; --j) {
+        for (int j = i; j > first && naturalCmp(names_[j - 1], names_[j]) > 0; --j) {
             char t[kNameCap];
             std::memcpy(t, names_[j], kNameCap);
             std::memcpy(names_[j], names_[j - 1], kNameCap);
