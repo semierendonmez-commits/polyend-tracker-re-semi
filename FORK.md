@@ -301,6 +301,80 @@ G.726 follows the ITU algorithm in the classic Sun g72x structure (SNR on a busy
 signal: 40k 34 dB, 32k 29 dB, 24k 23 dB, 16k 17 dB; u/A-law 37 dB). The Radio
 effect's random parts are seeded the same for both channels of a stereo sample.
 
+### .ptfx plugins (the card's `Effects` folder)
+
+Sample Editor plugins in Polyend's `.ptfx` format (the MIT SDK of the Community Edition,
+`third_party/polyend-ptfx-sdk`) are listed after the built-in effects, sorted by name. Page 2
+shows their first 9 parameters (lists, whole numbers, decimals with their units); Preview,
+Apply, Undo, the pads and MIDI preview work as for the built-in effects. The same files run on
+CE on all three Trackers.
+
+- Copy the `.ptfx` files into `Effects` at the card's root. Hidden `._` files are skipped;
+  plugins built only for the Tracker+ / Mini (flag IMX only) are not listed.
+- A plugin runs from the free sample memory: its code (32 KB at most, as on CE) and the
+  scratch memory it asks for, at most half of what is free (CE gives at most 640 KB). With too
+  little free memory: "Not enough free memory for this effect".
+- Effects that add samples (a delay tail, silence before) and generators (up to 2 s, replacing
+  the selection) work; a stereo sample is processed one channel at a time.
+
+The fork's own effects as plugins (`make ptfx`, build/ptfx/Effects; in the release as
+`OT_Plugins.zip`), for CE users and to try alongside the built-in ones:
+
+| Plugin | Parameters | Difference from the built-in effect |
+|---|---|---|
+| **OT Transcode** | Codec, Rate, Gens, BitErr (per 10k bits), Loss, Conceal, Mix | none (sample for sample the same) |
+| **OT DCT Crush** | Block, Keep, Bits, Freeze, Mix | none audible (the frames look ahead through short block returns) |
+| **OT Radio** | Band, Fading, Rate, Whistle, Pitch, Noise, Crashes, Mix | none audible |
+| **OT Clipper** | Curve, Drive, Knee, Ceiling (-dB), Mix | no Match (a plugin cannot see the whole selection first); Tape's arctan approximated |
+| **OT Paulstretch** | Stretch x2..x32, Window 50 / 100 / 200 ms | no 400 ms window; the input it keeps is limited by the scratch memory (about 10 s here, 5.5 s on CE) |
+| **OT Granular** | Length x1..x8, Grain, Density, Spray (ms), Pitch, Reverse | Length from x1 and Spray in ms: a grain reads only input from before its start |
+
+Writing a plugin: the SDK's `tracker_plugin.h` and `ptfx_builder.py`; `ptfx/ot_common.h` lists
+the rules (everything `static`, no pointers in initialised data, no libc, no double). The host
+feeds blocks of up to 8192 samples; a block may return fewer than it got and is given the rest
+of the input again (a frame effect's look-ahead); 0 ends the run.
+
+## Polyend Community Edition (CE)
+
+Polyend published the original firmware's source (github.com/polyend/tracker-ce, CE 1.0,
+PolyForm Noncommercial; the `.ptfx` SDK MIT). OpenTracker stays a clean-room reimplementation
+(Apache-2.0): CE is used as a reference for behaviour and file formats, no CE code is copied.
+
+**What CE writes, the fork reads:**
+
+- **Patterns** of structure 6 (8-byte steps with volume and micro-move columns): converted on
+  load to the fork's structure 5. V and m go into a free FX slot as Volume / Micro-move with the
+  same values; CE-only FX (w, y, z: amp / filter envelope, granular length) are dropped; a
+  notice when something had no room. The autosave rewrites the shared Workspace.
+- **Chance conditions** (Chance FX values 101..174): GL (the first pass), !L (not the first),
+  play N / skip M, skip N / play M, counted per track from Play. Shown " GL", " !L", "N:M",
+  "SNM".
+- **Themes**: `Themes/*.json` from Polyend's web theme editor; the closest of the fork's roles
+  take each colour, the base first. A `.txt` of the same name wins.
+- **Plugins**: `.ptfx` (above).
+
+**Where the fork had guessed and CE showed otherwise (now as stock):**
+
+- Performance track keys start off and turn their track on (Exclude keeps the old way);
+  a pad on an empty FX cell puts the last used FX there.
+- Equalizer (Regalia-Mitra band, +12 = x4 / -12 = x0.2), Limiter detector, overdrive names
+  (Quad / Exp / Recip), Normalizer down to 0, Timestretch Note at the exact length, the Perform
+  filter starting from the step / instrument cutoff.
+- The config image: stock header and block sizes, so stock / CE read every block; an image with
+  CE's longer interface block is read by its block sizes. (CE writes its own image over the
+  fork's extra settings, so switching to CE and back resets those.)
+- Save cleans every stale instrument file; Open takes "<N> <name>.pti" with one or two digits.
+- Line-in delay / reverb sends have their own mutes (new projects start muted): Delay page
+  Shift + F7 or F7 again, Reverb page F5 again.
+- Immediate pattern switch keeps the positions; imported wavetables refresh their windows;
+  natural project order; Export Samples numbers the files instead of overwriting; red
+  playheads.
+
+**Not (yet) as CE:** CE's dedicated V / m columns and per-instrument Play Thru, the w / y / z
+FX, MIDI Song Position, the mixer meter law, Shift + Play song / loop in Perform. The fork keeps
+its safer behaviour where it differs on purpose (an open is refused when the project is too
+big; project.mt is checked before the Workspace is wiped).
+
 ## Master
 
 - **Master 4/5 Dynamics** (Master key, fourth page): limiter **mode** (Subtle /
@@ -478,6 +552,7 @@ The image is about 840 KB (2.2.3 alone is about 684 KB).
 make                                    # build/nogames/PolyendTrackerOTs221.ptf (VERSION 2.2.1)
 make host-test                          # all host tests
 make perf-gate                          # QEMU instruction counts + flash size
+make ptfx                               # the fork's effects as .ptfx plugins (build/ptfx/Effects)
 make -C sim                             # desktop simulator
 make fonts                              # regenerate the UI fonts (Pillow)
 ```

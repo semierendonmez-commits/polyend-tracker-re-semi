@@ -15,7 +15,26 @@ Image: `PolyendTrackerOTs223.ptf` (installs like the upstream image, see Install
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
-### Latest update (2.2.3-semi.5): Performance track keys select
+### Latest update (2.2.3-semi.6): Polyend Community Edition compatibility, .ptfx plugins
+
+Polyend published the original firmware's source as the Tracker Community Edition
+(polyend/tracker-ce). This release reads what CE writes, checks the fork's guesses against it,
+and runs CE's Sample Editor plugins. Details: [FORK.md, Polyend CE](FORK.md#polyend-community-edition-ce).
+
+- **.ptfx Sample Editor plugins**: files in the card's `Effects` folder are listed after the
+  built-in effects, with their parameters on page 2 (Preview, Apply, Undo as usual). The same
+  files run on CE (Original, Tracker+, Mini). The fork's **Transcode, DCT Crush, Radio, Clipper,
+  Paulstretch and Granular** come as plugins too (`OT_*.ptfx` in the release), so CE users get them.
+- **CE projects open**: CE's pattern files (8-byte steps with volume and micro-move) load,
+  V / m going into a free FX slot as Volume / Micro-move; CE's **Chance conditions** play
+  (GL, !L, play N / skip M, skip N / play M).
+- **CE themes** (`Themes/*.json`, from Polyend's web theme editor) load and list.
+- **Stock behaviour where the fork guessed wrong**: Perform track keys and pads on an empty FX
+  cell; Equalizer and Limiter as stock; config image readable by stock / CE; instruments folder
+  cleaned on save; line-in delay / reverb send mutes; immediate pattern switch keeps positions;
+  project list in natural order; Export Samples no longer overwrites.
+
+### Previous update (2.2.3-semi.5): Performance track keys select
 
 ![Performance: tracks 2 and 4 selected](screenshots/2.2.3-semi/perf-select.png)
 
@@ -26,7 +45,7 @@ and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**
 - **Pads on an empty FX cell** now work as on the original firmware: the last used effect goes
   in and the pad sets its value (Fx + pad still picks the effect: top right = Roll).
 
-### Previous update (2.2.3-semi.4): Turing Machine generator, fixes from user reports
+### Earlier update (2.2.3-semi.4): Turing Machine generator, fixes from user reports
 
 ![Generate: Turing](screenshots/2.2.3-semi/gen-turing.png)
 
