@@ -77,7 +77,7 @@ struct ParamDesc {
 struct EffectDesc {
     const char* name;
     int params;
-    ParamDesc p[kMaxParams];
+    const ParamDesc* p;   // `params` entries (kMaxParams at most)
 };
 
 const EffectDesc& effect(int i);

@@ -30,57 +30,91 @@ constexpr double kPi = 3.14159265358979323846;
 const char* const kOdTypes[3] = {"Soft", "Exp", "Step"};
 
 // spec 06 §6.4 table (names are OpenTracker's wording).
+const ParamDesc kPNormalizer[1] = {
+    {"Level", 1, 100, 1, 100, kFmtPercent, nullptr},
+};
+const ParamDesc kPAmplifier[1] = {
+    {"Gain", 0.01f, 5, 0.01f, 1, kFmtFloat2, nullptr},
+};
+const ParamDesc kPOverdrive[2] = {
+    {"Gain", 0.01f, 5, 0.01f, 1, kFmtFloat2, nullptr},
+    {"Type", 0, 2, 1, 0, kFmtLabel, kOdTypes},
+};
+const ParamDesc kPDelay[2] = {
+    {"Feedback", 0.01f, 0.95f, 0.01f, 0.95f, kFmtX100, nullptr},
+    {"Time", 1, 5000, 5, 50, kFmtMs, nullptr},
+};
+const ParamDesc kPBitcrusher[2] = {
+    {"Bits", 1, 16, 1, 4, kFmtInt, nullptr},
+    {"Rate", 500, 44100, 100, 44100, kFmtHz, nullptr},
+};
+const ParamDesc kPChorus[2] = {
+    {"Length", 128, 4096, 128, 128, kFmtSamplesMs, nullptr},
+    {"Voices", 1, 8, 1, 1, kFmtInt, nullptr},
+};
+const ParamDesc kPFlanger[4] = {
+    {"Length", 128, 4096, 128, 128, kFmtSamplesMs, nullptr},
+    {"Offset", 1, 100, 1, 50, kFmtPercent, nullptr},
+    {"Depth", 1, 8, 1, 1, kFmtInt, nullptr},
+    {"Rate", 0.1f, 5, 0.1f, 1, kFmtHzF, nullptr},
+};
+const ParamDesc kPEqualizer[9] = {
+    {"Low gain", -12, 12, 0.05f, 0, kFmtDb2, nullptr},
+    {"Low freq", 10, 200, 1, 80, kFmtHz, nullptr},
+    {"Low width", 0.5f, 5, 0.05f, 1, kFmtFloat2, nullptr},
+    {"Mid gain", -12, 12, 0.05f, 0, kFmtDb2, nullptr},
+    {"Mid freq", 100, 8000, 10, 800, kFmtHz, nullptr},
+    {"Mid width", 0.5f, 5, 0.05f, 1, kFmtFloat2, nullptr},
+    {"High gain", -12, 12, 0.05f, 0, kFmtDb2, nullptr},
+    {"High freq", 8000, 20000, 100, 12000, kFmtHz, nullptr},
+    {"High width", 0.5f, 5, 0.05f, 1, kFmtFloat2, nullptr},
+};
+const ParamDesc kPLimiter[3] = {
+    {"Threshold", -60, 0, 1, -6, kFmtDb, nullptr},
+    {"Attack", 0.3f, 10, 0.1f, 3, kFmtMsF, nullptr},
+    {"Release", 1, 2000, 1, 300, kFmtMs, nullptr},
+};
+const ParamDesc kPCompressor[4] = {
+    {"Threshold", -60, 0, 1, -12, kFmtDb, nullptr},
+    {"Ratio", 1, 50, 0.5f, 4, kFmtFloat1, nullptr},
+    {"Attack", 0.3f, 100, 0.1f, 10, kFmtMsF, nullptr},
+    {"Release", 1, 2000, 1, 50, kFmtMs, nullptr},
+};
+const ParamDesc kPWTSmoother[2] = {
+    {"Window Num", 1, 256, 1, 256, kFmtInt, nullptr},
+    {"Window Len", 1, 2048, 1, 2048, kFmtInt, nullptr},
+};
+const ParamDesc kPTimestretchBeat[4] = {
+    {"Tempo", 40, 800, 1, 120, kFmtBpm, nullptr},
+    {"Steps", 1, 64, 1, 16, kFmtInt, nullptr},
+    {"Micro-step", 0, 1, 0.01f, 0, kFmtFloat2, nullptr},
+    {"Granule", 1, 10, 1, 4, kFmtQuarter, nullptr},
+};
+const ParamDesc kPTimestretchNote[2] = {
+    {"Length", 0.1f, 8, 0.01f, 1, kFmtSeconds, nullptr},
+    {"Granule", 10, 1000, 1, 100, kFmtMs, nullptr},
+};
+
 const EffectDesc kEffects[kEffectCount] = {
-    {"Normalizer", 1, {{"Level", 1, 100, 1, 100, kFmtPercent, nullptr}}},   // SPEC GAP: "runtime min" -> 1
-    {"Crop", 0, {}},
-    {"Reverse", 0, {}},
-    {"Amplifier", 1, {{"Gain", 0.01f, 5, 0.01f, 1, kFmtFloat2, nullptr}}},
-    {"Overdrive", 2, {{"Gain", 0.01f, 5, 0.01f, 1, kFmtFloat2, nullptr}, {"Type", 0, 2, 1, 0, kFmtLabel, kOdTypes}}},
-    {"Delay", 2, {{"Feedback", 0.01f, 0.95f, 0.01f, 0.95f, kFmtX100, nullptr}, {"Time", 1, 5000, 5, 50, kFmtMs, nullptr}}},
-    {"Bitcrusher", 2, {{"Bits", 1, 16, 1, 4, kFmtInt, nullptr}, {"Rate", 500, 44100, 100, 44100, kFmtHz, nullptr}}},
-    {"Chorus", 2, {{"Length", 128, 4096, 128, 128, kFmtSamplesMs, nullptr}, {"Voices", 1, 8, 1, 1, kFmtInt, nullptr}}},
-    {"Flanger",
-     4,
-     {{"Length", 128, 4096, 128, 128, kFmtSamplesMs, nullptr},
-      {"Offset", 1, 100, 1, 50, kFmtPercent, nullptr},
-      {"Depth", 1, 8, 1, 1, kFmtInt, nullptr},
-      {"Rate", 0.1f, 5, 0.1f, 1, kFmtHzF, nullptr}}},
-    {"Equalizer",
-     9,
-     {{"Low gain", -12, 12, 0.05f, 0, kFmtDb2, nullptr},
-      {"Low freq", 10, 200, 1, 80, kFmtHz, nullptr},
-      {"Low width", 0.5f, 5, 0.05f, 1, kFmtFloat2, nullptr},
-      {"Mid gain", -12, 12, 0.05f, 0, kFmtDb2, nullptr},
-      {"Mid freq", 100, 8000, 10, 800, kFmtHz, nullptr},
-      {"Mid width", 0.5f, 5, 0.05f, 1, kFmtFloat2, nullptr},
-      {"High gain", -12, 12, 0.05f, 0, kFmtDb2, nullptr},
-      {"High freq", 8000, 20000, 100, 12000, kFmtHz, nullptr},
-      {"High width", 0.5f, 5, 0.05f, 1, kFmtFloat2, nullptr}}},
-    {"Limiter",
-     3,
-     {{"Threshold", -60, 0, 1, -6, kFmtDb, nullptr},
-      {"Attack", 0.3f, 10, 0.1f, 3, kFmtMsF, nullptr},
-      {"Release", 1, 2000, 1, 300, kFmtMs, nullptr}}},
-    {"Compressor",
-     4,
-     {{"Threshold", -60, 0, 1, -12, kFmtDb, nullptr},
-      {"Ratio", 1, 50, 0.5f, 4, kFmtFloat1, nullptr},
-      {"Attack", 0.3f, 100, 0.1f, 10, kFmtMsF, nullptr},
-      {"Release", 1, 2000, 1, 50, kFmtMs, nullptr}}},
-    {"WT Smoother",
-     2,
-     {{"Window Num", 1, 256, 1, 256, kFmtInt, nullptr}, {"Window Len", 1, 2048, 1, 2048, kFmtInt, nullptr}}},
+    {"Normalizer", 1, kPNormalizer},   // SPEC GAP: "runtime min" -> 1
+    {"Crop", 0, nullptr},
+    {"Reverse", 0, nullptr},
+    {"Amplifier", 1, kPAmplifier},
+    {"Overdrive", 2, kPOverdrive},
+    {"Delay", 2, kPDelay},
+    {"Bitcrusher", 2, kPBitcrusher},
+    {"Chorus", 2, kPChorus},
+    {"Flanger", 4, kPFlanger},
+    {"Equalizer", 9, kPEqualizer},
+    {"Limiter", 3, kPLimiter},
+    {"Compressor", 4, kPCompressor},
+    {"WT Smoother", 2, kPWTSmoother},
     // SPEC GAP: no default tempo in the table; 120 BPM (the screen sets the project tempo on entry).
-    {"Timestretch Beat",
-     4,
-     {{"Tempo", 40, 800, 1, 120, kFmtBpm, nullptr},
-      {"Steps", 1, 64, 1, 16, kFmtInt, nullptr},
-      {"Micro-step", 0, 1, 0.01f, 0, kFmtFloat2, nullptr},
-      {"Granule", 1, 10, 1, 4, kFmtQuarter, nullptr}}},
+    {"Timestretch Beat", 4, kPTimestretchBeat},
     // SPEC GAP: no default length; 1.00 s.
-    {"Timestretch Note", 2, {{"Length", 0.1f, 8, 0.01f, 1, kFmtSeconds, nullptr}, {"Granule", 10, 1000, 1, 100, kFmtMs, nullptr}}},
-    {"Fade In", 0, {}},
-    {"Fade Out", 0, {}},
+    {"Timestretch Note", 2, kPTimestretchNote},
+    {"Fade In", 0, nullptr},
+    {"Fade Out", 0, nullptr},
 };
 
 // y = sat(trunc(v)): the stock results truncate toward zero and saturate to

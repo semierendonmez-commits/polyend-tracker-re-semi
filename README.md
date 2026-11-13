@@ -15,7 +15,22 @@ Image: `PolyendTrackerOTs227.ptf` (installs like the upstream image, see Install
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
-### Latest update (2.2.7-semi.1): on OpenTracker 2.2.7, fixes from user reports
+### Latest update (2.2.7-semi.2): a new Sidechain page
+
+- **Master 5/5 Sidechain, redrawn**: SC 1 / SC 2 side by side with their source and a live
+  envelope bar; the **Source** as a grid laid out like Shift + the pads; **Mode** and
+  **Threshold** as buttons; the **envelope's shape** (Attack, Hold, Release, Depth in dB) with
+  the live gain over it and the focused part shaded; the 14 **Targets** as cells laid out like
+  the pads, each dimming as it ducks, with a dot per SC. A short how-to sits next to the targets.
+- **Shift + pad picks any source**: row 1 = tracks 1-8, row 2 = tracks 9-16, row 3 = Off,
+  Line L, Line R; the source's own pad again turns it off. While Shift is held the pads show
+  the sources (the current one lit).
+- **Delete** puts the focused value back to its default (on F1: clears the SC's targets).
+- The focused value is framed on the bottom bar too; Threshold is grey in Trigger mode.
+- 4 KB of flash freed for what comes next (the Sample Editor's effect table keeps only the
+  parameters each effect has); nothing changes in use.
+
+### Previous update (2.2.7-semi.1): on OpenTracker 2.2.7, fixes from user reports
 
 - **Merged upstream OpenTracker 2.2.4 to 2.2.7** (synth presets and the Z FX, the new
   sample filter, piano pad layout, note names, Radio stereo, 44.1 kHz export with a 32-tap
@@ -29,11 +44,10 @@ and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**
   frozen. About 35 times fewer card writes now, and the progress bar moves every 0.4 s of audio.
 - **Sidechain ghost notes**: in Trigger mode a muted source track still triggers the ducking
   without making a sound, and sample notes on tracks 9-16 (no sample voice on the original
-  Tracker) trigger it too. Put the "ghost" kick on its own track and mute it. The Sidechain
-  page title now reads "Pads: targets  Shift+pad: source".
+  Tracker) trigger it too. Put the "ghost" kick on its own track and mute it.
 - To fit 2.2.7 next to the fork: 18 pattern undo steps (was 20) and 9 file undo steps (was 10).
 
-### Previous update (2.2.3-semi.6): Polyend Community Edition compatibility, .ptfx plugins
+### Earlier update (2.2.3-semi.6): Polyend Community Edition compatibility, .ptfx plugins
 
 Polyend published the original firmware's source as the Tracker Community Edition
 (polyend/tracker-ce). This release reads what CE writes, checks the fork's guesses against it,
@@ -202,7 +216,7 @@ Everything of the semi fork, now on the upstream 2.2.3 code (2.2.3-beta2, 51 ups
 
 | **Master 5/5: Sidechain (two sources, targets on the pads)** | **Theme: Acid House (animated)** |
 |---|---|
-| ![Master 5/5: Sidechain](screenshots/2.2.1-semi/master-sidechain.png) | ![Theme: Acid House](screenshots/2.2.1-semi/theme-acidhouse.png) |
+| ![Master 5/5: Sidechain](screenshots/2.2.7-semi/master-sidechain.png) | ![Theme: Acid House](screenshots/2.2.1-semi/theme-acidhouse.png) |
 | **Theme: Plasma (animated)** | **Theme: Colour Wheel (animated)** |
 | ![Theme: Plasma](screenshots/2.2.1-semi/theme-plasma.png) | ![Theme: Colour Wheel](screenshots/2.2.1-semi/theme-colourwheel.png) |
 | **Theme: Ember (animated)** | **Theme: Night Drive (animated)** |

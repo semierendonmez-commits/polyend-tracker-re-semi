@@ -39,6 +39,7 @@ struct Store {
     Param p[kHeaderParams];
     char strings[512];
     sfx::EffectDesc desc;
+    sfx::ParamDesc descP[sfx::kMaxParams];   // desc.p
 };
 
 IStorage* gFs = nullptr;
@@ -249,10 +250,11 @@ bool select(int k) {
     if (f >= 0) gFs->close(f);
     sfx::EffectDesc& d = s.desc;
     d.name = s.names[k];
+    d.p = s.descP;
     d.params = s.np < sfx::kMaxParams ? s.np : sfx::kMaxParams;
     for (int i = 0; i < d.params; ++i) {
         const Param& p = s.p[i];
-        d.p[i] = {p.label, p.min, p.max, p.step, p.def, sfx::kFmtFloat2, nullptr};
+        s.descP[i] = {p.label, p.min, p.max, p.step, p.def, sfx::kFmtFloat2, nullptr};
     }
     return true;
 }

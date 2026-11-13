@@ -198,6 +198,40 @@ TEST(sidechain_master_page) {
     CHECK_EQ(a.engine.settings().sc[0].source, 4);
     a.autosave();
     CHECK(h.fs.exists("Workspace/otfork.bin"));
+    // Shift + pads: row 2 = tracks 9-16, row 3 = Off / Line L / Line R; the
+    // source's own pad again = Off. The pads show the sources while Shift is down.
+    h.down(btn::Shift);
+    h.pad(12 + 2);
+    CHECK_EQ(a.fork.sc[1].source, 11);
+    uint8_t lv[48] = {};
+    m.padLeds(lv);
+    CHECK_EQ(int(lv[14]), int(a.cfg.padFull()));
+    CHECK_EQ(int(lv[0]), int(a.cfg.padDim()));
+    CHECK_EQ(int(lv[24 + 2]), int(a.cfg.padDim()));
+    CHECK_EQ(int(lv[11]), 0);
+    h.pad(12 + 2);
+    CHECK_EQ(a.fork.sc[1].source, 0);
+    h.pad(24 + 2);
+    CHECK_EQ(a.fork.sc[1].source, audio::SidechainSettings::kLineR);
+    h.pad(24);
+    CHECK_EQ(a.fork.sc[1].source, 0);
+    h.pad(30);   // no source there
+    CHECK_EQ(a.fork.sc[1].source, 0);
+    h.up(btn::Shift);
+    CHECK_EQ(a.fork.sc[1].targets, uint16_t(kScSynth0 << 1));   // Shift + pads toggled no target
+    // Delete: the column's default (Depth), on F1 no targets.
+    CHECK(a.fork.sc[1].depth != 80);
+    h.tap(btn::Delete);
+    CHECK_EQ(a.fork.sc[1].depth, 80);
+    h.tap(btn::F1);   // back to SC 1
+    CHECK_EQ(m.scSel, 0);
+    h.tap(btn::Delete);
+    CHECK_EQ(a.fork.sc[0].targets, 0);
+    CHECK_EQ(a.fork.sc[0].source, 4);
+    // The bar shows the focused column; Threshold is grey in Trigger mode.
+    CHECK(a.ui.bar.label[0].highlight);
+    CHECK(!a.ui.bar.label[6].highlight);
+    CHECK(!a.ui.bar.label[7].enabled);
     // The cycle wraps to Master 1/5.
     h.tap(btn::Master);
     CHECK_EQ(m.page, 0);

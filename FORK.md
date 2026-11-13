@@ -448,10 +448,21 @@ audio (was 3 s).
   - **Targets** (the pads): the top row toggles tracks 1..8 (pads 1..8) and
     synth slots 1..3 (pads 9..11); the second row Delay return, Reverb return,
     Line in (pads 13..15). Lit pads are the selected SC's targets, dim ones the
-    other's. **Shift + pad 1..8** sets the source to that track. Nothing is
-    ducked unless it is a target; a target of both SCs gets both.
-  - The left column shows both envelopes live and the 14 targets with a dot
-    per SC.
+    other's. Nothing is ducked unless it is a target; a target of both SCs gets both.
+  - **Shift + pad** picks the source: row 1 pads 1..8 = tracks 1..8, row 2
+    pads 1..8 = tracks 9..16, row 3 pads 1..3 = Off, Line L, Line R; the
+    source's own pad again = Off. While Shift is held the pads show the
+    sources (the current one lit).
+  - **Delete** sets the focused value to its default (Attack 2 ms, Hold 50 ms,
+    Release 150 ms, Depth 80 %, Threshold -24 dB, Source Off, Trigger); on F1
+    it clears the SC's targets.
+  - The page (2.2.7-semi.2): top left SC 1 / SC 2 with their source and live
+    envelope, and the Source grid laid out as Shift + the pads; top right
+    Mode, Threshold and the envelope's shape (Attack, Hold and Release keep a
+    readable width, the rest of the width follows their times; Depth in dB;
+    the live gain drawn over it; the focused part shaded); below, the 14
+    targets laid out as the pads (filled = the selected SC's, a dot per SC,
+    dimming as they duck) and a short how-to.
   - The stock Limiter sidechain (Master Limiter) is unchanged.
   - Cost: nothing while off; a trigger SC ducking four tracks about 0.7 % of
     the audio block; the bench's worst case (both SCs following audio, all 14

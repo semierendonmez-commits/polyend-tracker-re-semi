@@ -382,21 +382,31 @@ void setBack(BottomBar& b) { b.set(7, "Back", " "); }
 
 // OT fork Sidechain 5/5.
 namespace {
-const char* const kScSrc[audio::SidechainSettings::kSourceCount] = {
-    "Off",      "Track 1",  "Track 2",  "Track 3",  "Track 4",  "Track 5",  "Track 6",
-    "Track 7",  "Track 8",  "Track 9",  "Track 10", "Track 11", "Track 12", "Track 13",
-    "Track 14", "Track 15", "Track 16", "Line L",   "Line R"};
+// Source name: "Off", "Track 1".."Track 16", "Line L" / "Line R"; `cell`:
+// the Source grid's short form ("1".."16", "In L" / "In R").
+const char* scSrcName(char* buf, int src, bool cell = false) {
+    if (src <= 0 || src >= audio::SidechainSettings::kSourceCount) return "Off";
+    if (src > 16) std::snprintf(buf, 8, cell ? "In %c" : "Line %c", src == audio::SidechainSettings::kLineL ? 'L' : 'R');
+    else std::snprintf(buf, 10, cell ? "%d" : "Track %d", src);
+    return buf;
+}
 const char* const kScModes[2] = {"Trigger", "Follow"};
-const char* const kScTargets[audio::kScTargetCount] = {"Track 1", "Track 2", "Track 3", "Track 4", "Track 5",
-                                                       "Track 6", "Track 7", "Track 8", "Synth 1", "Synth 2",
-                                                       "Synth 3", "Delay",   "Reverb",  "Line In"};
 int scThreshDb(uint8_t t) { return -60 + (int(t > 100 ? 100 : t) * 6 + 5) / 10; }
+// Defaults (audio::SidechainSettings) for Delete.
+constexpr uint8_t kScDefault[8] = {0, 0, 0, 2, 10, 15, 80, 60};
 }  // namespace
 
 int MixerScreen::scTargetOfPad(int pad) {
     const int r = pad / 12, c = pad % 12;
     if (r == 0) return c < 11 ? c : -1;
     if (r == 1) return c < 3 ? 11 + c : -1;
+    return -1;
+}
+
+int MixerScreen::scSourceOfPad(int pad) {
+    const int r = pad / 12, c = pad % 12;
+    if (r < 2) return c < 8 ? 1 + 8 * r + c : -1;
+    if (r == 2 && c < 3) return c == 0 ? 0 : audio::SidechainSettings::kLineL + c - 1;
     return -1;
 }
 
@@ -425,9 +435,12 @@ void MixerScreen::onPad(uint8_t pad, uint8_t state) {
     if (state != kPress) return;
     App& a = app_;
     audio::SidechainSettings& s = a.fork.sc[scSel & 1];
-    // Shift + a pad of tracks 1-8: that track is the source.
-    if (ui_.shift() && pad < 8) {
-        s.source = uint8_t(pad + 1);
+    if (ui_.shift()) {
+        // Shift + pad: the source (the pads as the Source grid); the source's
+        // own pad again = Off.
+        const int src = scSourceOfPad(pad);
+        if (src < 0) return;
+        s.source = uint8_t(src && src == s.source ? 0 : src);
     } else {
         const int t = scTargetOfPad(pad);
         if (t < 0) return;
@@ -441,7 +454,15 @@ void MixerScreen::onPad(uint8_t pad, uint8_t state) {
 void MixerScreen::padLeds(uint8_t* lv) {
     if (page != 4) return;
     const App& a = app_;
-    const uint16_t mine = a.fork.sc[scSel & 1].targets, other = a.fork.sc[(scSel & 1) ^ 1].targets;
+    const audio::SidechainSettings& s = a.fork.sc[scSel & 1];
+    if (ui_.shift()) {   // the source pads: the current one lit
+        for (int pad = 0; pad < 48; ++pad) {
+            const int src = scSourceOfPad(pad);
+            if (src >= 0) lv[pad] = src == s.source ? a.cfg.padFull() : a.cfg.padDim();
+        }
+        return;
+    }
+    const uint16_t mine = s.targets, other = a.fork.sc[(scSel & 1) ^ 1].targets;
     for (int pad = 0; pad < 24; ++pad) {
         const int t = scTargetOfPad(pad);
         if (t < 0) continue;
@@ -459,7 +480,7 @@ void MixerScreen::refreshBar() {
     if (page == 4) {   // OT fork Sidechain
         const audio::SidechainSettings& s = a.fork.sc[scSel & 1];
         b.set(0, "Sidechain", scSel ? "SC 2" : "SC 1");
-        b.set(1, "Source", kScSrc[s.source < audio::SidechainSettings::kSourceCount ? s.source : 0]);
+        b.set(1, "Source", scSrcName(v, s.source));
         b.set(2, "Mode", kScModes[s.mode ? 1 : 0]);
         std::snprintf(v, sizeof(v), "%d ms", s.attack);
         b.set(3, "Attack", v);
@@ -471,7 +492,8 @@ void MixerScreen::refreshBar() {
         b.set(6, "Depth", v);
         if (s.mode) std::snprintf(v, sizeof(v), "%d dB", scThreshDb(s.thresh));
         else std::snprintf(v, sizeof(v), "Notes");
-        b.set(7, "Threshold", v);
+        b.set(7, "Threshold", v, s.mode != 0);
+        b.highlight(scParam, true);
         return;
     }
     if (page == 3) {   // OT fork Dynamics
@@ -914,6 +936,10 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
         refreshBar();
         return;
     }
+    if (id == btn::Shift && page == 4) {   // OT fork Sidechain: the pads show the sources
+        ui_.dirty();
+        return;
+    }
     if (state != kPress) {
         if (id == btn::Shift) refreshBar();
         return;
@@ -966,6 +992,15 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
             }
             break;
         case btn::Delete:
+            if (page == 4) {   // OT fork Sidechain: the column's default; on SC: no targets
+                audio::SidechainSettings& s = app_.fork.sc[scSel & 1];
+                uint8_t* const f[8] = {nullptr, &s.source, &s.mode, &s.attack, &s.hold, &s.release, &s.depth, &s.thresh};
+                if (scParam == 0) s.targets = 0;
+                else if (scParam > 0 && scParam < 8) *f[scParam] = kScDefault[scParam];
+                app_.markForkDirty();
+                ui_.dirty();
+                break;
+            }
             // Delete resets held faders to 86 = 0 dB (spec 06 §4.4, spec 07 Q3/Q6).
             if (page == 1 && bank) break;   // no bank-B levels
             if (page == 1)
@@ -1151,56 +1186,171 @@ void MixerScreen::update(uint32_t now) {
     if (changed) ui_.dirty();
 }
 
+// OT fork "Sidechain 5/5". Top left: SC 1 / SC 2 (live envelope under each)
+// and the Source grid laid out as Shift + the pads; top right: Mode,
+// Threshold and the envelope's shape (the live gain over it); below: the 14
+// targets laid out as the pads (rows 1 and 2), each dimming as it ducks.
+namespace {
+constexpr int kScTabY = 36, kScTabH = 38;
+constexpr int kScSrcY = 102, kScSrcPitchY = 36, kScSrcH = 32, kScSrcX = 8, kScSrcPitchX = 48, kScSrcW = 44;
+constexpr int kScGx0 = 414, kScGx1 = 784, kScGy0 = 94, kScGy1 = 182;
+constexpr int kScTgtX = 12, kScTgtPitchX = 71, kScTgtW = 66, kScTgtY = 244, kScTgtPitchY = 86, kScTgtH = 80;
+// Source grid cell of a source (Shift + the pads).
+void scSourceCell(int src, int& c, int& r) {
+    if (src >= 1 && src <= 16) {
+        r = (src - 1) / 8;
+        c = (src - 1) % 8;
+    } else {
+        r = 2;
+        c = src == 0 ? 0 : src - audio::SidechainSettings::kLineL + 1;
+    }
+}
+int scGainY(float gain) { return kScGy1 - int(float(kScGy1 - kScGy0) * gain + 0.5f); }
+}  // namespace
+
+void MixerScreen::drawSidechain(Gfx& g) {
+    App& a = app_;
+    const Theme& th = ui_.th();
+    const int sel = scSel & 1;
+    const audio::SidechainSettings& s = a.fork.sc[sel];
+    const uint32_t on = th.slot(slot::kValueBar), well = th.slot(slot::kValueBarAlt);
+    const uint32_t text = th.slot(slot::kList + 4), dim = th.slot(slot::kGrey), frame = th.slot(slot::kList);
+    const uint32_t ink = th.bg, live = th.slot(slot::kCyan), focus = th.slot(slot::kFocusFrame);
+    const uint8_t mode = s.mode ? 1 : 0;
+    const float depth = float(s.depth > 100 ? 100 : s.depth) * 0.01f;
+    char v[24];
+    ui_.drawTitle(g, "Sidechain 5/5");
+    wg::panel(g, th, 2, 31, 395, 178, wg::kThemeColour, false);
+    wg::panel(g, th, 402, 31, 395, 178, wg::kThemeColour, false);
+    wg::panel(g, th, 2, 214, 795, 207, wg::kThemeColour, false);
+
+    // SC 1 / SC 2: name, source, live envelope.
+    for (int k = 0; k < 2; ++k) {
+        const int x = 8 + k * 194;
+        g.fill(x + 10, kScTabY + 30, 168, 4, well);
+        const audio::SidechainSettings& sk = a.fork.sc[k];
+        if (k == sel) g.frame(x, kScTabY, 188, kScTabH, frame, 2);
+        g.text(x + 10, kScTabY + 6, kFont4, k == sel ? text : dim, k ? "SC 2" : "SC 1");
+        g.text(x + 178, kScTabY + 8, kFont3, sk.source ? text : dim, scSrcName(v, sk.source), IDisplay::kOptRightX);
+        const int w = int(scMeter[k] * 168.0f + 0.5f);
+        if (w > 0) g.fill(x + 10, kScTabY + 30, w > 168 ? 168 : w, 4, live);
+    }
+
+    // Source: Shift + pad (rows 1 / 2: tracks 1-8 / 9-16; row 3: Off, Line L / R).
+    g.text(10, 80, kFont3, dim, "Source");
+    g.text(388, 81, kFont1, dim, "Shift + pad (again: Off)", IDisplay::kOptRightX);
+    const int src = s.source < audio::SidechainSettings::kSourceCount ? s.source : 0;
+    for (int i = 0; i < audio::SidechainSettings::kSourceCount; ++i) {
+        int c, r;
+        scSourceCell(i, c, r);
+        const int x = kScSrcX + c * kScSrcPitchX, y = kScSrcY + r * kScSrcPitchY;
+        g.fill(x, y, kScSrcW, kScSrcH, i == src ? on : well);
+        g.text(x + kScSrcW / 2, y + kScSrcH / 2, kFont3, i == src ? ink : (i ? text : dim), scSrcName(v, i, true),
+               IDisplay::kOptCenter);
+    }
+
+    // Mode and Threshold.
+    for (int m = 0; m < 2; ++m) {
+        const int x = 408 + m * 94;
+        g.fill(x, kScTabY, 90, kScTabH, m == mode ? on : well);
+        g.text(x + 45, kScTabY + kScTabH / 2, kFont3, m == mode ? ink : text, kScModes[m], IDisplay::kOptCenter);
+    }
+    g.text(606, kScTabY + 11, kFont3, mode ? text : dim, "Threshold");
+    g.text(784, kScTabY + 11, kFont3, mode ? text : dim, ui_.bar.label[7].bottom, IDisplay::kOptRightX);   // refreshBar's
+
+    // The envelope: a lead-in at 0 dB, Attack down to the depth, Hold,
+    // Release (-60 dB of the envelope over its time) back up. A segment
+    // keeps a readable width; the rest of the width follows the times.
+    const int msA = s.attack, msH = s.hold * 5, msR = (s.release < 1 ? 1 : s.release) * 10;
+    const int minA = msA ? 16 : 2, minH = msH ? 16 : 2, lead = 22, tail = 34;
+    const int spare = (kScGx1 - kScGx0) - lead - tail - minA - minH - 16;
+    const float per = float(spare) / float(msA + msH + msR);
+    const int xa = kScGx0 + lead, xh = xa + minA + int(float(msA) * per + 0.5f);
+    const int xr = xh + minH + int(float(msH) * per + 0.5f), xe = kScGx1 - tail;
+    const int yTop = scGainY(1.0f), yFloor = scGainY(1.0f - depth);
+    g.fill(408, 82, 382, 122, well);
+    g.fill(kScGx0, yTop, kScGx1 - kScGx0, 1, dim);
+    if (scParam >= 3 && scParam <= 5) {   // the focused segment
+        const int x0 = scParam == 3 ? xa : scParam == 4 ? xh : xr, x1 = scParam == 3 ? xh : scParam == 4 ? xr : xe;
+        wg::blendFill(g, x0, kScGy0 - 6, x1 - x0 + 1, kScGy1 - kScGy0 + 12, focus, 60);
+    } else if (scParam == 6) {
+        wg::blendFill(g, kScGx0, yTop, kScGx1 - kScGx0, yFloor - yTop + 1, focus, 45);
+    }
+    const float env = scMeter[sel];
+    if (env > 0.01f && depth > 0.0f) {   // live: the gain now
+        const int y = scGainY(1.0f - depth * env);
+        wg::blendFill(g, kScGx0, yTop, kScGx1 - kScGx0, y - yTop + 1, live, 60);
+        g.fill(kScGx0, y, kScGx1 - kScGx0, 2, live);
+    }
+    g.lineWidth(40);
+    g.line(kScGx0, yTop, xa, yTop, on);
+    g.line(xa, yTop, xh, yFloor, on);
+    g.line(xh, yFloor, xr, yFloor, on);
+    int px = xr, py = yFloor;
+    for (int i = 1; i <= 8; ++i) {
+        const float u = float(i) / 8.0f;
+        const int x = xr + int(float(xe - xr) * u + 0.5f);
+        const int y = scGainY(1.0f - depth * std::exp(-6.9f * u));
+        g.line(px, py, x, y, on);
+        px = x;
+        py = y;
+    }
+    g.line(px, py, kScGx1, yTop, on);
+    g.lineWidth(16);
+    static const char* const kSeg[3] = {"A", "H", "R"};
+    const int segX[4] = {xa, xh, xr, xe};
+    for (int i = 0; i < 3; ++i)
+        if (segX[i + 1] - segX[i] >= 12)
+            g.text((segX[i] + segX[i + 1]) / 2, kScGy1 + 4, kFont1, scParam == 3 + i ? text : dim, kSeg[i],
+                   IDisplay::kOptCenterX);
+    std::snprintf(v, sizeof(v), "%.1f dB", double(20.0f * std::log10(depth < 0.999f ? 1.0f - depth : 0.001f)));
+    g.text(xh + 6, yFloor + 22 < kScGy1 ? yFloor + 5 : yFloor - 21, kFont1, scParam == 6 ? text : dim, v);
+
+    // Targets, as the pads: filled = this SC's, a dot per SC under the name;
+    // a ducking target dims with its envelope.
+    g.text(16, 220, kFont3, dim, "Targets");
+    g.text(784, 221, kFont1, dim, "Pad: on / off", IDisplay::kOptRightX);
+    const uint16_t mine = s.targets, t0 = a.fork.sc[0].targets, t1 = a.fork.sc[1].targets;
+    for (int t = 0; t < audio::kScTargetCount; ++t) {
+        const int c = t < 11 ? t : t - 11, r = t < 11 ? 0 : 1;
+        const int x = kScTgtX + c * kScTgtPitchX, y = kScTgtY + r * kScTgtPitchY, cx = x + kScTgtW / 2;
+        const bool me = (mine >> t) & 1u, any = ((t0 | t1) >> t) & 1u;
+        g.fill(x, y, kScTgtW, kScTgtH, me ? on : well);
+        g.text(cx, y + 8, kFont1, me ? ink : dim, t < 8 ? "Track" : t < 11 ? "Synth" : t < 13 ? "Send" : "Input",
+               IDisplay::kOptCenterX);
+        static const char* const kFx[3] = {"Delay", "Reverb", "Line"};
+        g.text(cx, y + 38, t < 11 ? kFont4 : kFont3, me ? ink : (any ? text : dim),
+               t < 11 ? scSrcName(v, t < 8 ? t + 1 : t - 7, true) : kFx[t - 11],
+               IDisplay::kOptCenter);
+        float duck = 0.0f;
+        for (int k = 0; k < 2; ++k) {
+            const audio::SidechainSettings& sk = a.fork.sc[k];
+            const bool b = (((k ? t1 : t0) >> t) & 1u) != 0;
+            wg::dot(g, cx - 8 + 16 * k, y + kScTgtH - 13, b ? 4.0f : 2.0f, me ? ink : (b ? on : dim));
+            const float d = b && sk.source ? float(sk.depth > 100 ? 100 : sk.depth) * 0.01f * scMeter[k] : 0.0f;
+            duck = d > duck ? d : duck;
+        }
+        if (duck > 0.02f) wg::blendFill(g, x, y, kScTgtW, kScTgtH, ink, uint8_t(200.0f * duck));
+    }
+    // How to: the rest of row 2.
+    g.text(236, 358, kFont1, src ? dim : text,
+           !src ? "Source Off: Shift + a pad picks one"
+                : mode ? "Follow: the source above the threshold ducks" : "Trigger: each source note ducks, muted too");
+
+    // Focus.
+    static const int16_t kBox[8][4] = {{5, 33, 394, 77},   {5, 78, 394, 208},  {405, 33, 595, 77},  {405, 79, 793, 207},
+                                   {405, 79, 793, 207}, {405, 79, 793, 207}, {405, 79, 793, 207}, {600, 33, 793, 77}};
+    const int16_t* f = kBox[scParam & 7];
+    wg::focusFrame(g, th, f[0], f[1], f[2], f[3]);
+}
+
 void MixerScreen::draw(Gfx& g) {
     App& a = app_;
     const Theme& th = ui_.th();
     Project& p = a.project;
     static const char* kSub[5] = {"Master 1/5", "Master Reverb", "Master Delay", "Master Limiter", "Master EQ"};
     if (page == 4) {
-        // OT fork "Sidechain 5/5": column 1 = SC 1 / SC 2 with their live
-        // envelopes and the 14 targets (a dot per SC), then the selected
-        // SC's source, mode and envelope.
-        const audio::SidechainSettings& s = a.fork.sc[scSel & 1];
-        ui_.drawTitle(g, "Sidechain 5/5", "Pads: targets  Shift+pad: source");
-        column(g, th, 0);
-        const uint32_t on = th.slot(slot::kValueBar), well = th.slot(slot::kValueBarAlt);
-        const uint32_t text = th.slot(slot::kList + 4), dim = th.slot(slot::kGrey), frame = th.slot(slot::kList);
-        const int x0 = colX(0);
-        for (int k = 0; k < 2; ++k) {
-            const int y = 38 + k * 42;
-            if (k == (scSel & 1)) {   // the selected SC: the list's selection frame
-                g.fill(x0 + 3, y - 2, 90, 2, frame);
-                g.fill(x0 + 3, y + 34, 90, 2, frame);
-                g.fill(x0 + 3, y - 2, 2, 38, frame);
-                g.fill(x0 + 91, y - 2, 2, 38, frame);
-            }
-            g.text(x0 + 10, y + 1, kFont3, text, k ? "SC 2" : "SC 1");
-            g.fill(x0 + 10, y + 23, 76, 6, well);
-            const int w = int(scMeter[k] * 76.0f + 0.5f);
-            if (w > 0) g.fill(x0 + 10, y + 23, w > 76 ? 76 : w, 6, on);
-        }
-        const uint16_t t0 = a.fork.sc[0].targets, t1 = a.fork.sc[1].targets;
-        for (int t = 0; t < audio::kScTargetCount; ++t) {
-            const int y = 126 + t * 20;
-            const bool b0 = (t0 >> t) & 1u, b1 = (t1 >> t) & 1u;
-            g.text(x0 + 6, y, kFont1, (b0 || b1) ? text : dim, kScTargets[t]);
-            wg::dot(g, x0 + 74, y + 9, b0 ? 4.0f : 2.0f, b0 ? on : well);
-            wg::dot(g, x0 + 88, y + 9, b1 ? 4.0f : 2.0f, b1 ? on : well);
-        }
-        optionList(g, th, 1, kScSrc, audio::SidechainSettings::kSourceCount,
-                   s.source < audio::SidechainSettings::kSourceCount ? s.source : 0);
-        optionList(g, th, 2, kScModes, 2, s.mode ? 1 : 0);
-        columnBar(g, th, 3, s.attack / 100.0f);
-        columnBar(g, th, 4, s.hold / 100.0f);
-        columnBar(g, th, 5, s.release / 100.0f);
-        columnBar(g, th, 6, s.depth / 100.0f);
-        if (s.mode) {
-            columnBar(g, th, 7, s.thresh / 100.0f);
-        } else {
-            column(g, th, 7);
-            bar(g, th, colX(7), wg::kPanelY, 97, wg::kPanelH, s.thresh / 100.0f, th.slot(slot::kValueBarAlt));
-        }
-        columnFocus(g, th, scParam);
+        drawSidechain(g);
         return;
     }
     if (page == 3) {

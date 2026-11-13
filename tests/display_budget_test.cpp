@@ -240,6 +240,41 @@ TEST(mixer_frame_budget) {
     r.h.tap(btn::Play);
 }
 
+// OT fork Sidechain 5/5 at its densest: every target on for both SCs (the
+// ducking overlays on each), Follow (the threshold drawn), the depth focused,
+// playing.
+TEST(sidechain_page_frame_budget) {
+    Rig r;
+    App& a = *r.h.app;
+    for (int st = 0; st < 16; ++st) {   // SC 1: notes on track 1 every step
+        a.pattern().tracks[0].steps[st].note = 60;
+        a.pattern().tracks[0].steps[st].instrument = 0;
+    }
+    a.patternEdited();
+    for (int k = 0; k < 2; ++k) {
+        a.fork.sc[k].source = uint8_t(k ? 17 : 1);
+        a.fork.sc[k].mode = uint8_t(k);
+        a.fork.sc[k].thresh = 0;
+        a.fork.sc[k].targets = 0x3FFF;
+    }
+    a.markForkDirty();
+    for (int i = 0; i < 5; ++i) r.h.tap(btn::Master);
+    MixerScreen& m = *static_cast<MixerScreen*>(a.ui.screen(kModMaster));
+    CHECK_EQ(m.page, 4);
+    r.h.tap(btn::F1);   // SC 2: Follow, the threshold drawn
+    r.h.tap(btn::F7);
+    r.h.tap(btn::Play);
+    r.play(100);
+    r.m.resetMax();
+    r.play(300);
+    const uint32_t words = r.m.maxWords;
+    std::printf("sidechain page (all targets, playing): max %u DL words, SC 1 at %.2f\n", unsigned(words),
+                double(m.scMeter[0]));
+    r.m.printTally();
+    CHECK(words <= 1780);
+    r.h.tap(btn::Play);
+}
+
 // 2.x M1: the same dense page with the window on tracks 13..16 (MIDI
 // channel tags in the Instr column) stays inside the same budget.
 TEST(pattern_playing_frame_budget_tracks_13_16) {

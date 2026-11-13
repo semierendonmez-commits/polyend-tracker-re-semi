@@ -499,6 +499,9 @@ public:
     // tracks 1-8 (pads 1-8), synth slots 1-3 (pads 9-11); row 2: delay,
     // reverb, line in (pads 13-15).
     static int scTargetOfPad(int pad);
+    // Shift + pad: the source it picks (-1 = none). Rows 1 / 2, pads 1-8:
+    // tracks 1-8 / 9-16; row 3, pads 1-3: Off, Line L, Line R.
+    static int scSourceOfPad(int pad);
     int sub = 0;            // master sub-page: 0 main, 1 reverb, 2 delay, 3 limiter, 4 EQ
     int revPage = 0;        // OT fork Master Reverb: 1 = page 2 (Shift): low cut, width, character
     int param = 0;          // selected parameter on the (sub-)page
@@ -526,6 +529,7 @@ public:
     static float reductionDb(float meanGain);
     void dynChange(int d);   // OT fork Dynamics page
     void scChange(int d);    // OT fork Sidechain page
+    void drawSidechain(Gfx& g);   // OT fork Sidechain page
     float gainReduction = 0.0f;   // dB, >= 0
     // 2.x Global Mixer 3/3 synth meters (manual p.220, "right is the
     // actual"): mean of the last 10 slot-bus peaks (10 ms apart), -48..0 dBFS
