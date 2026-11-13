@@ -67,6 +67,14 @@
 //             The main loop assembles the new pattern into the sequencer's
 //             stage buffer; the audio block only swaps pointers. The legacy
 //             path (pattern copied in the audio block) is printed for reference.
+//   exportm / exports   the 44.1 kHz export conversion (audio/export_resampler.h)
+//             on the offline path (no block deadline): ExportResampler::pushBlock
+//             per 128-frame input block, 1 stem (master, 2 channels) and 14 stems
+//             (28 channels), noisy full-scale channels, all distinct, no-op sink;
+//             exports.s5 (informational, not in the baseline) = a song-5-like mix:
+//             7 of 28 channels silent (25 %), 10 of the other 21 with L == R (stems
+//             4-8). The silent-channel skip makes it cheaper than exports
+//             (bit-identical output).
 //   *.max     the per-engine limits: every component line that prints
 //             "limit N" is gated by make perf-gate (tools/telemetry_check.py)
 #include <algorithm>
@@ -79,6 +87,7 @@
 #endif
 
 #include "audio/engine.h"
+#include "audio/export_resampler.h"
 #include "audio/stream_source.h"
 #include "audio/engines/perc.h"
 #include "audio/synth_params.h"
@@ -653,6 +662,55 @@ void switchBench() {
 #endif
 }
 
+// preset / presetx: a Z in the audio block, 4 voices sounding. The same engine
+// ramps every parameter; another engine fades the voices and restarts; the
+// preset's mix (gain, pan, sends) ramps in. SDRAM accesses: the reload reads
+// each of the patch's parameters and its mix from SDRAM.
+SynthPatch gBenchPresets[2];
+void presetBench() {
+    for (int cross = 0; cross < 2; ++cross) {
+        Rig r;
+        r.synth(4);
+        SynthSlotRecord rc = SynthSlotRecord::defaults(0);
+        rc.model = uint32_t(SynthModel::ACD);
+        rc.polyphony = 4;
+        r.eng->synth().setSlotRecord(0, rc);
+        gBenchPresets[0] = gSynthPatch;
+        gBenchPresets[1] = gSynthPatch;
+        if (cross) gBenchPresets[0].engine = kSynthEngineTest;
+        patchSetMix(gBenchPresets[0], -3.0f, 20.0f, 30.0f, 40.0f);   // the Z brings its mix too
+        r.eng->synth().bindPresets(gBenchPresets);
+        for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
+        int16_t out[kBlock * 2];
+        for (int b = 0; b < 20; ++b) r.eng->renderLive(out);
+        const int n = 32 / (kScale > 4 ? 4 : kScale);
+        double steady = 0.0, sw = 0.0;
+        const double acc = 2.0 * synthParamTotal(kSynthEngineAcd) + 2.0 * kPatchMixCount + 1.0;   // + the mix
+        for (int k = 0; k < n; ++k) {
+            double t0 = nowUnits();
+            r.eng->renderLive(out);
+            steady += nowUnits() - t0;
+            r.eng->synth().presetSelect(0, 1);
+            t0 = nowUnits();
+            r.eng->renderLive(out);
+            sw += nowUnits() - t0;
+            gSink = out[k & 255];
+            r.eng->synth().presetSelect(0, 0);   // back, outside the timing
+            r.eng->renderLive(out);
+            if (cross)
+                for (int v = 0; v < 4; ++v) r.synthNote(uint8_t(8 + v), 0, uint8_t(48 + 7 * v));
+        }
+        r.eng->synth().bindPresets(nullptr);
+        const double d = (sw - steady) / n + acc * kSdramCycles;
+#ifdef OT_BENCH_M4
+        std::printf("    %s  %8.1f  (Z block - steady block, est. cycles, limit %d)\n", cross ? "presetx.d" : "preset.d", d,
+                    cross ? 12000 : 16000);
+#else
+        std::printf("  (%s: Z block - steady %+.2f us)\n", cross ? "presetx" : "preset", d);
+#endif
+    }
+}
+
 // peak: song 5 replayed from its trace (tests/peak_trace.cpp, make -C tests
 // peak-trace) through AudioEngine::fillCallback, i.e. with the CPU meter,
 // the governor and the block profile (audio/block_profile.h) as on the
@@ -790,6 +848,57 @@ void peakBench(const char* path, uint32_t maxBlocks) {
     std::printf("  (peak: worst blocks, block cost in %s, phases in %s)\n", kUnit, kStampUnit);
     for (const PeakBlock& b : top)
         if (b.cost > 0.0) printProfile(b);
+}
+
+// 44.1 kHz export conversion (audio/export_resampler.h): ExportResampler::pushBlock
+// per 128-frame input block, the work of one exportWav block on the offline path.
+// stems = 1 or kMaxStems. mix 0: every channel a distinct full-scale noise; mix 1: a
+// song-5-like stem set: 7 of 28 channels silent (stems 0-2 and L of stem 3), stems
+// 4-8 with L == R.
+OT_BIG int16_t gExpIn[ExportResampler::kMaxStems][kBlock * 2];
+OT_BIG ExportResampler::History gExpHist[ExportResampler::kMaxStems];
+uint32_t gExpFrames = 0;
+bool exportSink(void*, int, const int16_t* interleaved, uint32_t frames) {
+    gExpFrames += frames;
+    gSink = interleaved[0];
+    return true;
+}
+double exportBlocks(int stems, int mix) {
+    uint32_t seed = 12345;
+    auto noise = [&seed]() {
+        seed = seed * 1664525u + 1013904223u;
+        return int16_t(seed >> 16);   // the whole int16 range
+    };
+    for (int s = 0; s < stems; ++s) {
+        for (uint32_t i = 0; i < kBlock; ++i) {
+            const int16_t l = noise(), r = noise();
+            gExpIn[s][2 * i] = l;
+            gExpIn[s][2 * i + 1] = r;
+        }
+        if (mix == 1) {
+            if (s < 3) std::memset(gExpIn[s], 0, sizeof(gExpIn[s]));
+            if (s == 3)
+                for (uint32_t i = 0; i < kBlock; ++i) gExpIn[s][2 * i] = 0;
+            if (s >= 4 && s <= 8)
+                for (uint32_t i = 0; i < kBlock; ++i) gExpIn[s][2 * i + 1] = gExpIn[s][2 * i];
+        }
+    }
+    const int16_t* in[ExportResampler::kMaxStems];
+    for (int s = 0; s < stems; ++s) in[s] = gExpIn[s];
+    ExportResampler rs;
+    rs.begin(stems, gExpHist);
+    for (int b = 0; b < 8; ++b) rs.pushBlock(in, kBlock, exportSink, nullptr);   // warm up
+    const int n = 200 / kScale;
+    double best = 1e30;
+    for (int rep = 0; rep < kReps; ++rep) {
+        gSdramAccesses = 0;
+        const double t0 = nowUnits();
+        for (int b = 0; b < n; ++b) rs.pushBlock(in, kBlock, exportSink, nullptr);
+        const double per = (nowUnits() - t0) / n;
+        gAccPerBlock = double(gSdramAccesses) / n;
+        if (per < best) best = per;
+    }
+    return best;
 }
 
 // Per-component cost (one block each, averaged), loud input.
@@ -1343,6 +1452,7 @@ int main(int argc, char** argv) {
     mixBench(4, "mixfat", kSynthEngineFat);
     mixBench(4, "mixwtfm", kSynthEngineWtfm);
     switchBench();
+    presetBench();
 #ifdef OT_BENCH_M4
     peakBench("../build/bench/song5.trace", 8100);   // song positions 0-2 (intro, groove, sixteen-track chords)
 #else
@@ -1357,6 +1467,9 @@ int main(int argc, char** argv) {
     reportVoice("fatstereo", fatVoice(true, true), 34000);
     reportVoice("wtfminit", wtfmVoice(false), 12000);
     reportVoice("wtfmworst", wtfmVoice(true), 32000);
+    report("exportm", exportBlocks(1, 0));
+    report("exports", exportBlocks(ExportResampler::kMaxStems, 0));
+    report("exports.s5", exportBlocks(ExportResampler::kMaxStems, 1));   // informational
     components();
     return 0;
 }

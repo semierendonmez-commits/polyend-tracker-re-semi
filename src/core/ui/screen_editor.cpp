@@ -169,16 +169,20 @@ void EditorScreen::selection(uint32_t* s0, uint32_t* s1) const {
     if (*s1 <= *s0) *s1 = *s0 + 1 <= len ? *s0 + 1 : len;
 }
 
-bool EditorScreen::fits(uint32_t newFrames, uint32_t extraSamples) {
+bool EditorScreen::fits(uint32_t newFrames, uint32_t extraSamples, bool ask) {
     const uint32_t ch = app_.bank.stereo(slot_) ? 2u : 1u;
-    if (newFrames == 0 || newFrames > sfx::kMaxFrames ||
-        uint64_t(newFrames) * ch + extraSamples > app_.bank.freeSamples()) {
+    const char* msg = nullptr;
+    if (newFrames == 0 || newFrames > sfx::kMaxFrames) {
         const bool stretch = effect == sfx::kStretchBeat || effect == sfx::kStretchNote;
-        ui_.ask("Sample Editor", stretch ? "The stretched sample is too long" : "The result would be too long", nullptr,
-                nullptr, "OK", nullptr, nullptr);
-        return false;
+        msg = stretch ? "The stretched sample is too long" : "The result would be too long";
+    } else if (uint64_t(newFrames) * ch + extraSamples > app_.bank.freeSamples()) {
+        // [I] The result is built in free sample memory; with the memory
+        // full "too long" named the wrong cause (tester report).
+        msg = "Not enough free sample memory";
     }
-    return true;
+    if (!msg) return true;
+    if (ask) ui_.ask("Sample Editor", msg, nullptr, nullptr, "OK", nullptr, nullptr);
+    return false;
 }
 
 bool EditorScreen::apply() {
@@ -393,7 +397,7 @@ bool EditorScreen::undo() {
     return true;
 }
 
-bool EditorScreen::preview(int note) {
+bool EditorScreen::preview(int note, bool plainIfFull) {
     App& a = app_;
     if (inert || !a.bank.loaded(slot_)) return false;
     stopPreview();
@@ -420,7 +424,20 @@ bool EditorScreen::preview(int note) {
     // the further Start moved, the more was missing at the end).
     if (s0 != prevS0_ || s1 != prevS1_ || effect != prevEffect_) previewState = 0;
     const uint32_t scratch = 2u * sfx::scratchFloats(effect, prm()) + 2u + plugReserve_;   // OT fork
-    if (!fits(outSel, keep + scratch)) return false;
+    if (!fits(outSel, keep + scratch, !plainIfFull)) {
+        if (!plainIfFull) return false;
+        // No room for the processed preview: play the selection as it is,
+        // from the sample itself (stock pads play the sample).
+        const int16_t* cur = a.bank.data(slot_) + s0;
+        a.previewPitched(cur, stereo ? cur + len : nullptr, sel, note);
+        previewPlaying = true;
+        playS0_ = s0;
+        playSel_ = sel;
+        playOut_ = sel;
+        headAt_ = 0;
+        refreshBar();
+        return true;
+    }
     int16_t* out = a.bank.tail() + keep;
     if (previewState == 0) {
         ui_.progress("Processing", 0);
@@ -461,7 +478,8 @@ void EditorScreen::onPad(uint8_t pad, uint8_t state) {
     // after the job finished (user report) [I]. 2.x: at the pad's note
     // (App::padNote, note 60 = own pitch), as the recorder pads play.
     if (state == kPress) {
-        if (preview(app_.padNote(pad))) padPreview_ = pad;
+        const uint8_t n = app_.padNote(pad);
+        if (n != PadNotes::kNoNote && preview(n, true)) padPreview_ = pad;   // piano layout gaps play nothing
     } else if (state == kRelease && previewPlaying && padPreview_ == int(pad)) {
         padPreview_ = -1;
         stopPreview();
@@ -476,7 +494,7 @@ bool EditorScreen::onMidiNote(uint8_t note, uint8_t velocity, bool on) {
     // and velocity are not used), and that note's note-off stops it.
     (void)velocity;
     if (on) {
-        if (preview()) midiNote_ = note;
+        if (preview(60, true)) midiNote_ = note;
     } else if (previewPlaying && midiNote_ == int(note)) {
         stopPreview();
         refreshBar();

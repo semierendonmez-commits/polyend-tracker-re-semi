@@ -22,7 +22,7 @@ const char* const kProjectHelp[] = {
     "Makes the sample editor markers move to the nearest zero crossing, which avoids clicks at loop and slice "
     "points.",
 };
-// spec 15 §2.2 General: all 11 have help (9 and 10 short in stock); 2.x adds Export theme, CPU meter, Synth voices, Export sample rate and the two SD streaming rows.
+// spec 15 §2.2 General: all 11 have help (9 and 10 short in stock); 2.x adds Export theme, CPU meter, Synth voices, Export sample rate and the two SD streaming rows, then Pad layout and Note names.
 const char* const kGeneralHelp[] = {
     "Selects the FM band and channel steps used by the built-in radio in your part of the world.",
     "Sets the backlight level of the screen.",
@@ -73,6 +73,8 @@ const char* const kGeneralHelp[] = {
     "A colour stage after the master saturation, in the manner of Airwindows: ToTape (soft tape curve, head bump, "
     "rounded top), Console (Spiral), Density, PurestDrive. Drive, Mix and Tone on Master 4/5 work on it; also "
     "chosen in the Saturation list there.",
+    "Records the built-in radio in stereo. Off keeps the radio mono, as the original firmware does; mono "
+    "is cleaner on weak stations and doubles the recording time.",
     "Sample rate of exported songs, patterns, stems and renders. 44.1 kHz converts them, so they play in "
     "time in any DAW. 44117 Hz keeps the Tracker's own rate as the original firmware does; a DAW converts "
     "them on import.",
@@ -80,6 +82,12 @@ const char* const kGeneralHelp[] = {
     "longer than the threshold (and long ones when the project would not fit); All streams every long "
     "sample. The project reloads when you change it.",
     "How long a sample must be before Auto streams it from the card.",
+    "Stock: the pads follow the project's scale and Notes layout. Piano: two keyboards, an octave apart, from "
+    "the root note's octave: the white keys along a row, the black keys in the row above. The pads light up "
+    "as a keyboard; notes outside the scale are dimmer.",
+    // [I] not in stock.
+    "How black keys are named: C# or Db. Auto follows the project's root note and scale, so F major and D "
+    "minor show flats and G major shows sharps.",
     // OT fork.
     "Track keys on the Performance screen. Select (as the original firmware): a key lights its track and the "
     "effects play on the lit tracks only. Exclude: the effects play on every track and a key turns its track "

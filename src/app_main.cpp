@@ -40,8 +40,8 @@ namespace {
 // from App (SRAM).
 constexpr uint32_t kPatSize = sizeof(ot::Pattern);          // 16 tracks, 12,304 B
 constexpr uint32_t kStockSize = sizeof(ot::PatternStock);   // 12 tracks, 9,228 B
-constexpr uint32_t kUndoSlots = 20;      // spec 05 §5.1 (a)
-constexpr uint32_t kFileUndoSlots = 10;  // spec 05 §5.1 (b)
+constexpr uint32_t kUndoSlots = 18;      // spec 05 §5.1 (a): 20 in stock; the semi fork keeps 18 (SDRAM for 2.2.7 + fork state)
+constexpr uint32_t kFileUndoSlots = 9;   // spec 05 §5.1 (b): 10 in stock; 9 here (same reason)
 constexpr uint32_t kScratch = 0x10000;
 // Ext-track pool: 384 blocks (spec gap 9) + the pool-full write target.
 constexpr int kExtBlocks = ot::ExtTrackPool::kDefaultBlocks + 1;
@@ -377,7 +377,7 @@ bool selectInputThunk(void* ctx, uint8_t source, uint8_t gain) {
 void powerOffHook() {
     if (gApp.lastAutosave() == 0) return;
     if (gApp.usbStorageActive()) return;   // the computer owns the card: nothing of ours to write
-    gApp.autosave();
+    gApp.autosave(ot::StreamCopies::kNone);   // the markers name the streamed instruments' files
     gApp.saveConfig();
 }
 

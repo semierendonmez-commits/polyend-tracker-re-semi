@@ -1,13 +1,13 @@
-# OpenTracker, semi fork (2.2.3-semi)
+# OpenTracker, semi fork (2.2.7-semi)
 
 A fork of [sandlbn/polyend-tracker-re](https://github.com/sandlbn/polyend-tracker-re)
-(OpenTracker 2.2.3, merged from 2.2.1) for the original Polyend Tracker, with generators and tools
+(OpenTracker 2.2.7, merged from 2.2.3 and 2.2.1) for the original Polyend Tracker, with generators and tools
 from the semi plug-in family (Acid, Call & Response, Breakbeat / BBCut,
 TURNAROUND, GENOTYPE / TILT, TRANSCODE / FRAMELOSS, CIPHER, NEXUSCLIP, DATASCREEN).
 
-Image: `PolyendTrackerOTs223.ptf` (24 characters, installs like the upstream
+Image: `PolyendTrackerOTs227.ptf` (24 characters, installs like the upstream
 image: copy to `/Firmware`, Config > Firmware update). Keep the stock
-`PolyendTracker_1.9.2.ptf` (and the upstream `PolyendTrackerOTv223.ptf`) in
+`PolyendTracker_1.9.2.ptf` (and the upstream `PolyendTrackerOTv227.ptf`) in
 `/Firmware` to go back.
 
 Everything a generator writes is ordinary steps and step FX, so a pattern made
@@ -375,6 +375,21 @@ FX, MIDI Song Position, the mixer meter law, Shift + Play song / loop in Perform
 its safer behaviour where it differs on purpose (an open is refused when the project is too
 big; project.mt is checked before the Workspace is wiped).
 
+## Pattern undo (2.2.7-semi)
+
+18 pattern undo steps and 9 file undo steps (stock and upstream: 20 and 10): the
+two steps less are the SDRAM that 2.2.7's synth presets and the fork's state
+need next to each other.
+
+## Export (2.2.7-semi)
+
+Song / pattern exports write each WAV in 4 KB chunks (32 KB for a single file)
+from the main-loop scratch memory instead of 256-byte writes. A stems export
+keeps 14 files open; with small writes the card wrote one sector of each in
+turn (about an hour for a 2.5 minute song, the progress bar barely moving).
+The files are byte for byte the same. The progress bar moves every 0.4 s of
+audio (was 3 s).
+
 ## Master
 
 - **Master 4/5 Dynamics** (Master key, fourth page): limiter **mode** (Subtle /
@@ -421,9 +436,13 @@ big; project.mt is checked before the Workspace is wiped).
   (`otfork.bin` next to `project.mt`; stock firmware ignores it).
   - **Source** (F2): Track 1..16 or Line in L / R. **Mode** (F3): **Trigger**
     (a note on the source track starts the envelope: sample, synth or MIDI
-    notes, so a muted kick or a MIDI track can drive it) or **Follow** (the
-    source's audio above the **Threshold**, F8, -60..0 dB; tracks 1..8 and
-    the line input).
+    notes) or **Follow** (the source's audio above the **Threshold**, F8,
+    -60..0 dB; tracks 1..8 and the line input).
+  - **Ghost notes** (Trigger): a muted source track still runs its steps
+    silently and triggers the ducking, so a kick that is only there to pump
+    the mix can sit on its own muted track. Sample notes on tracks 9..16
+    (no sample voice on the original Tracker) trigger too, as do notes with
+    Volume 0.
   - Envelope: **Attack** 0..100 ms, **Hold** 0..500 ms, **Release** 10 ms..1 s,
     **Depth** 0..100 % (F4..F7).
   - **Targets** (the pads): the top row toggles tracks 1..8 (pads 1..8) and

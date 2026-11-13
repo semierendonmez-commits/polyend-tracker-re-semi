@@ -1,6 +1,6 @@
 # OpenTracker
 
-> **This is the semi fork (2.2.3-semi), on top of OpenTracker 2.2.3.** What it adds is listed
+> **This is the semi fork (2.2.7-semi), on top of OpenTracker 2.2.7.** What it adds is listed
 > right below, under [New in the semi fork](#new-in-the-semi-fork); the full guide is **[FORK.md](FORK.md)**.
 > Polyend Backstage feature requests (all 254 Tracker topics) and what this fork can do about them:
 > **[FEATURE_REQUESTS.md](FEATURE_REQUESTS.md)**, the doable ones with notes: **[YAPILABILIR.md](YAPILABILIR.md)**.
@@ -11,11 +11,29 @@ graphics, and is not affiliated with or endorsed by Polyend.
 
 ## New in the semi fork
 
-Image: `PolyendTrackerOTs223.ptf` (installs like the upstream image, see Install). Everything
+Image: `PolyendTrackerOTs227.ptf` (installs like the upstream image, see Install). Everything
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
-### Latest update (2.2.3-semi.6): Polyend Community Edition compatibility, .ptfx plugins
+### Latest update (2.2.7-semi.1): on OpenTracker 2.2.7, fixes from user reports
+
+- **Merged upstream OpenTracker 2.2.4 to 2.2.7** (synth presets and the Z FX, the new
+  sample filter, piano pad layout, note names, Radio stereo, 44.1 kHz export with a 32-tap
+  filter, Open streams long instruments from the project file, and more: see
+  [New in 2.2.7](#new-in-227) and below). The fork's settings, scenes and MIDI learn carry
+  over from semi.6.
+- **Pattern Length** under F2 follows a pattern switch while playing (it kept showing the
+  previous pattern's length until a key was pressed).
+- **Stems export** writes each file in 4 KB chunks instead of 256 bytes: with 14 files open the
+  card wrote one sector of each in turn, so a 2.5 minute song took about an hour and looked
+  frozen. About 35 times fewer card writes now, and the progress bar moves every 0.4 s of audio.
+- **Sidechain ghost notes**: in Trigger mode a muted source track still triggers the ducking
+  without making a sound, and sample notes on tracks 9-16 (no sample voice on the original
+  Tracker) trigger it too. Put the "ghost" kick on its own track and mute it. The Sidechain
+  page title now reads "Pads: targets  Shift+pad: source".
+- To fit 2.2.7 next to the fork: 18 pattern undo steps (was 20) and 9 file undo steps (was 10).
+
+### Previous update (2.2.3-semi.6): Polyend Community Edition compatibility, .ptfx plugins
 
 Polyend published the original firmware's source as the Tracker Community Edition
 (polyend/tracker-ce). This release reads what CE writes, checks the fork's guesses against it,
@@ -34,7 +52,7 @@ and runs CE's Sample Editor plugins. Details: [FORK.md, Polyend CE](FORK.md#poly
   cleaned on save; line-in delay / reverb send mutes; immediate pattern switch keeps positions;
   project list in natural order; Export Samples no longer overwrites.
 
-### Previous update (2.2.3-semi.5): Performance track keys select
+### Earlier update (2.2.3-semi.5): Performance track keys select
 
 ![Performance: tracks 2 and 4 selected](screenshots/2.2.3-semi/perf-select.png)
 
@@ -358,8 +376,90 @@ explains the selected parameter. One undo step per Generate; Seed 0 is random.
 
 2.x brings the newer Tracker Mini features to the original hardware: 16 tracks, synth
 engines, stereo samples, Mini-compatible project files and USB Storage mode. These notes cover
-the whole 2.x line (2.0 to 2.2.1); the full list is in the release notes of the
-[2.2.1 download](https://github.com/sandlbn/polyend-tracker-re/releases).
+the whole 2.x line (2.0 to 2.2.7); the full list is in the release notes of the
+[2.2.7 download](https://github.com/sandlbn/polyend-tracker-re/releases/tag/2.2.7).
+
+## New in 2.2.7
+
+- **Synth presets and the Z FX:** eight presets per project, shared by the three synth slots.
+  Each holds a patch of any model with its gain, pan, sends, polyphony and name. Z1-Z8 in a
+  pattern switch a slot to a preset, Z0 back to its own patch.
+- **The song sounds the same wherever you start:** Play from the middle starts each slot on
+  the right preset, and pads and MIDI play what the song plays at the cursor while stopped.
+- **Edit what you hear:** while a slot plays a preset, the synth pages and the Global Mixer
+  column show and edit that preset.
+- **New sample filter:** flat passbands, exact tuning and rounded loud peaks. Existing songs
+  that use the filter sound slightly different.
+- **Sample Playback:** with Snap to zero off, a marker turns green on a zero crossing in
+  the frames its position covers.
+- **Fixes:** Instrument Params on a synth step follows the sample rule; a copied FX column
+  pastes into the other FX column; Stop cancels a queued pattern; the Synth Macros number
+  follows an FX.
+
+## New in 2.2.6
+
+- **Pattern pads with one finger** (issue #153): a short tap of F1 keeps the pads on patterns
+  until you tap it again or press another screen button.
+- **Resample, Place on:** tracks without notes are green, tracks with notes red; From and
+  Place on list tracks by name.
+- **Radio stereo:** Config > General > Radio stereo = On makes the built-in radio stereo.
+  Off, the default, keeps it mono as on stock.
+- **WAV import:** 32-bit float files that peak past full scale are clipped instead of
+  wrapping into noise.
+
+## New in 2.2.5
+
+- **Performance screen as on stock** (issue #86): every track starts with its FX off; press
+  and release a track's screen button to turn them on. A red label now means FX on, and the
+  filters start from the instrument's own cutoff. Saved performances with a filter column
+  can sound different.
+- **Performance FX on synth notes** (issue #23): on tracks whose FX are on, the filters move
+  the synth's own cutoff, and Panning, Delay send and Reverb send add to the note's pan and
+  sends, also in its release.
+- **Shorter Performance names** (contributed by syamajala): Panning, LP / HP / BP cutoff,
+  Delay send and Reverb send drop the "Sample" prefix.
+- **Note names** (contributed by syamajala): Config > General > Note names: Sharps (C#5),
+  Flats (Db5) or Auto, which follows the project's root note and scale. Display only.
+- **Synth release tails follow the Track Mixer:** a released synth note follows its track's
+  fader and mute; before, the tail played at full level.
+- **Sample Loader:** Add next on a folder does nothing, Add and Add next are greyed when
+  there are no files to add, and moving onto an empty slot with Preview held stops the sample.
+- **Sample Playback** (issue #143): Delete resets Start, End or Zoom, as on stock.
+- **Master held + Jog** (issue #142): letting go of Master returns to the screen you were on.
+- **More free memory** (contributed by syamajala): about 5 KB of SDRAM freed for coming
+  features.
+
+## New in 2.2.4
+
+- **Piano pad layout** (contributed by syamajala): Config > General > Pad layout > Piano
+  turns the pads into two keyboards an octave apart, white keys in a row and black keys
+  above, with the pad lights drawing the keyboard and the scale. Stock stays the default.
+- **Chords in step entry** (contributed by syamajala): select two or more tracks and press
+  pads together; the notes fill the selected tracks on one step. One Undo removes the chord.
+- **Synth pads play chords** up to the slot's Polyphony; before, each new pad released the
+  last one (reported by idagani).
+- **Cleaner 44.1 kHz export** (contributed by bungoleena): a 32-tap sinc conversion, clean up
+  to 18 kHz. Export Song takes about 28 % longer; stems barely change.
+- **Sample Loader:** previews of 24-bit and float stereo files no longer drop out, and names
+  with accents show as plain letters instead of stray symbols (issue #128).
+- **Busy screens no longer fault** (contributed by syamajala): screens with many gradients
+  or lots of text, such as the MIDI instrument CC page, draw in full detail again.
+
+## New in 2.2.2 to 2.2.3
+
+- **Stream long samples from the card** (optional, Off by default): Config > General >
+  Stream from card. Long samples load only their start into memory and play the rest from
+  the SD card, so projects with long stems fit. The Sample Loader marks files that will
+  stream with `~`.
+- **Your own colour themes:** theme files in `/Themes` on the card, plus Export theme. Twelve
+  example themes come as a separate download, among them Halloween (contributed by
+  AnthonyBerg1983).
+- **Steady MIDI clock on the DIN jack** while you change screens, and **pitch bend** from a
+  MIDI keyboard on live notes.
+- **Synth stereo Width**, and a hand-turned Synth Macro now takes over from a pattern FX CC.
+- **Stack overflow protection** (contributed by syamajala) and many fixes from user and
+  beta reports, among them the Sample Editor, synth notes in the pattern editor and
+  starting without an SD card.
 
 ## New in 2.1 to 2.2.1
 
@@ -462,6 +562,18 @@ from that folder.
 original Tracker reads only tracks 1–8 of those patterns (expected from the stock loader's
 rules; not yet confirmed on a stock unit).
 
+## Clean room
+
+OpenTracker stays clean-room. Polyend has published its own firmware as
+[Tracker CE](https://github.com/polyend/tracker-ce) under a noncommercial licence. Please
+don't read or copy CE source code, headers or binaries when working on OpenTracker, and
+treat developer docs that describe its internals as source too. CE's user docs, changelog
+and on-device behaviour are fine to use as a reference, in your own words.
+
+The one exception is CE's sample editor SDK (`.ptfx` plugins), which is MIT licensed: it
+and its docs may be used, with its licence kept in `third_party/`. Nothing else from CE.
+See `AGENTS.md` for the full rules.
+
 ## Known limitations
 
 - The synth sound is own design: settings match the Mini, the sound is close but not
@@ -472,7 +584,10 @@ rules; not yet confirmed on a stock unit).
 - The USB ID is the pid.codes test ID 1209:0001.
 - Live resampling from Line In starts 10–14 ms late (the round trip through external gear);
   compensation is planned.
-- Games (the NES player) is not in the release image since 2.2.1.
+- Games (the game-music player) is not in the release image since 2.2.1.
+- Stream from card is new and Off by default; please report anything odd when you turn it on.
+- A couple of Performance screen issues are still open (among them the global Pattern length
+  in Song mode); fixes are planned.
 
 ## Test songs
 
@@ -481,4 +596,4 @@ and an IDM track using three engines at once) and seven BLAST GRID synth remixes
 (Title, World 1, World 4, Battle, Battle FM, Boss, Final Boss). Copy them to `/Projects` on
 the card.
 
-Downloads: https://github.com/sandlbn/polyend-tracker-re/releases
+Downloads: https://github.com/sandlbn/polyend-tracker-re/releases (latest: [2.2.7](https://github.com/sandlbn/polyend-tracker-re/releases/tag/2.2.7))

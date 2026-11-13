@@ -324,6 +324,41 @@ TEST(editor_pads_audition_the_edit) {
     CHECK(!e.previewPlaying);
 }
 
+// Tester report: with sample memory full, every pad press in the Sample
+// Editor said "The result would be too long". The processed preview needs
+// free memory; pads then play the selection as it is (stock pads play the
+// sample), and Preview / Apply name the real cause.
+TEST(editor_full_memory_pads_play_the_plain_selection) {
+    Harness h(true, 31000);
+    App& a = *h.app;
+    const auto src = addNoise(h, "n.wav", 30000);
+    CHECK(a.importSample("n.wav", 0));
+    a.setCurrentInstrument(0);
+    CHECK(a.bank.freeSamples() < 30000);
+    h.tap(btn::SampleEditor);
+    EditorScreen& e = ed(h);
+    e.startM = 32767;
+    e.endM = 65535;
+    h.push(InputEvent::kPadDown, 5);
+    h.run(10);
+    CHECK(!a.ui.askOpen());
+    CHECK(a.engine.previewBufferActive());
+    CHECK(e.previewPlaying);
+    h.push(InputEvent::kPadUp, 5);
+    h.run(10);
+    CHECK(!a.engine.previewBufferActive());
+    // Preview (F7) and Apply still need the memory; the popup says so.
+    CHECK(!e.preview());
+    CHECK(a.ui.askOpen());
+    CHECK_STR(a.ui.askText(), "Not enough free sample memory");
+    h.tap(btn::F8);
+    e.effect = sfx::kReverse;
+    CHECK(!e.apply());
+    CHECK_STR(a.ui.askText(), "Not enough free sample memory");
+    h.tap(btn::F8);
+    CHECK(slot0(a) == src);
+}
+
 // Moving a marker after a preview: the next preview plays the new selection
 // in full, from the new start (user report 2.0.7: moving Start cut the same
 // amount off the end of the audition).
@@ -483,4 +518,40 @@ TEST(loader_memory_bar_shows_the_change_in_colour) {
     CHECK(hasColour(a.ui.th().alert));
     pointAt("small.wav", 0);  // replaces the big sample: memory shrinks
     CHECK(hasColour(a.ui.th().good));
+}
+
+TEST(editor_delete_resets_start_end_and_zoom) {
+    // spec 06 §6.3: Delete resets the focused control; issue #143 holds the
+    // key (Zoom + Delete) as on stock.
+    Harness h;
+    App& a = *h.app;
+    addNoise(h, "n.wav", 300000);
+    CHECK(a.importSample("n.wav", 0));
+    a.setCurrentInstrument(0);
+    h.tap(btn::SampleEditor);
+    EditorScreen& e = ed(h);
+    h.tap(btn::F3);
+    for (int i = 0; i < 20; ++i) h.enc(1);
+    CHECK(e.view.zoom() > 1.0f);
+    h.down(btn::F3);
+    h.tap(btn::Delete);
+    h.up(btn::F3);
+    CHECK_NEAR(e.view.zoom(), 1.0, 1e-6);
+    char want[16];
+    std::snprintf(want, sizeof(want), "%.2f", 1.0);
+    CHECK_STR(a.ui.bar.label[2].bottom, want);
+    h.tap(btn::F1);
+    for (int i = 0; i < 20; ++i) h.enc(1);
+    CHECK(e.startM > 0);
+    h.down(btn::F1);
+    h.tap(btn::Delete);
+    h.up(btn::F1);
+    CHECK_EQ(e.startM, 0);
+    h.tap(btn::F2);
+    for (int i = 0; i < 20; ++i) h.enc(-1);
+    CHECK(e.endM < 65535);
+    h.down(btn::F2);
+    h.tap(btn::Delete);
+    h.up(btn::F2);
+    CHECK_EQ(e.endM, 65535);
 }

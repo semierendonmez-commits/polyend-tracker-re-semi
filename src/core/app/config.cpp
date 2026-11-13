@@ -131,6 +131,7 @@ void Config::sanitize() {
     clampField<uint8_t>(radioRegion, 3, 0);
     clampField<uint8_t>(streamMode, 2, 0);
     clampField<uint8_t>(streamThreshold, 3, 1);
+    clampField<uint8_t>(radioStereo, 1, 0);
     clampField<uint8_t>(exportRate, 1, 1);
     clampField<uint8_t>(brightness, 2, 2);
     clampField<uint8_t>(theme, 2, 0);
@@ -184,6 +185,8 @@ void Config::sanitize() {
     clampField<uint8_t>(limLink, 1, 0);
     clampField<uint8_t>(satColor, uint8_t(kSatColors - 1), 0);
     if (synthVoices < 1 || synthVoices > kMaxSynthVoices) synthVoices = kDefaultSynthVoices;
+    clampField<uint8_t>(noteNames, 2, 0);
+    clampField<uint8_t>(padLayout, 1, 0);
     themeFile[sizeof(themeFile) - 1] = 0;
     if (themeFile[0] && !themeNameValid(themeFile)) std::memset(themeFile, 0, sizeof(themeFile));
     validateImage(image);
@@ -243,9 +246,11 @@ void Config::toExt(uint8_t* out) const {
     out[6] = synthVoices;
     out[7] = streamMode;
     out[8] = streamThreshold;
-    out[9] = extKeep[0];
+    out[9] = radioStereo;
     out[10] = exportRate;
     std::memcpy(out + 11, themeFile, sizeof(themeFile));
+    out[32] = padLayout;
+    out[33] = noteNames;
     // OT fork bytes after the upstream payload.
     uint8_t* f = out + 5 + kUpstreamExtPayload;
     f[0] = sliceDetector;
@@ -315,14 +320,18 @@ bool Config::fromExt(const uint8_t* in, uint32_t len) {
     }
     streamMode = (n >= 3 && in[7] <= 2) ? in[7] : d.streamMode;
     streamThreshold = (n >= 4 && in[8] <= 3) ? in[8] : d.streamThreshold;
-    extKeep[0] = n >= 5 ? in[9] : d.extKeep[0];
+    radioStereo = (n >= 5 && in[9] <= 1) ? in[9] : d.radioStereo;
     exportRate = (n >= 6 && in[10] <= 1) ? in[10] : 1;
     std::memset(themeFile, 0, sizeof(themeFile));
     if (n >= 6 + sizeof(themeFile) && in[11 + sizeof(themeFile) - 1] == 0) {
         std::memcpy(themeFile, in + 11, sizeof(themeFile));
         if (!themeNameValid(themeFile)) std::memset(themeFile, 0, sizeof(themeFile));
     }
-    forkFromExt(in + 5 + kUpstreamExtPayload, n > kUpstreamExtPayload ? n - kUpstreamExtPayload : 0);
+    // v6 (the fork on 2.2.3): the fork bytes right after the 27 upstream ones.
+    const uint32_t up = in[3] == 6 ? kV6UpstreamExtPayload : kUpstreamExtPayload;
+    padLayout = (up >= 28 && n >= 28 && in[32] <= 1) ? in[32] : 0;
+    noteNames = (up >= 29 && n >= 29 && in[33] <= 2) ? in[33] : 0;
+    forkFromExt(in + 5 + up, n > up ? n - up : 0);
     return true;
 }
 
@@ -425,7 +434,9 @@ bool Config::fromImage(const uint8_t* img) {
     c.streamThreshold = streamThreshold;
     c.exportRate = exportRate;
     std::memcpy(c.themeFile, themeFile, sizeof(themeFile));
-    std::memcpy(c.extKeep, extKeep, sizeof(extKeep));
+    c.radioStereo = radioStereo;
+    c.noteNames = noteNames;
+    c.padLayout = padLayout;
     c.sanitize();
     *this = c;
     toImage();
@@ -449,7 +460,9 @@ bool Config::load(INvStore& nv) {
     streamThreshold = d.streamThreshold;
     exportRate = d.exportRate;
     themeFile[0] = 0;
-    std::memcpy(extKeep, d.extKeep, sizeof(extKeep));
+    radioStereo = d.radioStereo;
+    noteNames = d.noteNames;
+    padLayout = d.padLayout;
     sliceDetector = 0;
     bbReseed = 0;
     sliceThru = 0;
@@ -462,14 +475,17 @@ bool Config::load(INvStore& nv) {
             if (fromExt(ext, len)) recLen = 5 + ext[4] + 1;
             break;
         }
-    // OT fork scenes: after the record (an older fork record was shorter).
+    // OT fork scenes and MIDI learn: right after the record they were saved
+    // with (v6 is 2 bytes shorter than v7; the oldest v1 records shorter
+    // still), read from there; save() writes them after the current record.
     std::memset(scenes, 0, sizeof(scenes));
     uint8_t sc[kScenesSize];
-    const uint32_t scAt = recLen < kExtSize ? kOldScenesOffset : kScenesOffset;
+    const uint32_t scAt = kExtOffset + recLen < kOldScenesOffset ? kOldScenesOffset : kExtOffset + recLen;
     if (nv.size() >= scAt + kScenesSize && nv.read(scAt, sc, kScenesSize)) fromScenes(sc, kScenesSize);
     uint8_t mm[kMidiMapSize];
     std::memset(perfMidi, 0, sizeof(perfMidi));
-    if (nv.size() >= kMidiMapOffset + kMidiMapSize && nv.read(kMidiMapOffset, mm, kMidiMapSize)) fromMidiMap(mm, kMidiMapSize);
+    const uint32_t mmAt = scAt + kScenesSize;
+    if (nv.size() >= mmAt + kMidiMapSize && nv.read(mmAt, mm, kMidiMapSize)) fromMidiMap(mm, kMidiMapSize);
     return true;
 }
 
@@ -486,9 +502,9 @@ bool Config::save(INvStore& nv) {
     const Config d;
     if (cpuMeter == d.cpuMeter && synthVoices == d.synthVoices && streamMode == d.streamMode &&
         streamThreshold == d.streamThreshold && exportRate == d.exportRate && themeFile[0] == 0 &&
-        std::memcmp(extKeep, d.extKeep, sizeof(extKeep)) == 0 && sliceDetector == 0 && uiTheme < kThemeCount &&
-        bbReseed == 0 && sliceThru == 0 && uiFont < 2 && scaleLock == 0 && screenSaver == 0 && levelMeter == 0 &&
-        reverbModel == 0 && delayModel == 0 && satDrive == 0 && satMixInv == 0 && satToneInv == 0 &&
+        radioStereo == d.radioStereo && noteNames == d.noteNames && padLayout == d.padLayout && sliceDetector == 0 &&
+        uiTheme < kThemeCount && bbReseed == 0 && sliceThru == 0 && uiFont < 2 && scaleLock == 0 && screenSaver == 0 &&
+        levelMeter == 0 && reverbModel == 0 && delayModel == 0 && satDrive == 0 && satMixInv == 0 && satToneInv == 0 &&
         limCeiling == 0 && limLink == 0 && satColor == 0 && perfCcOut == 0 && perfKeys == 0 && !anyScene()) {
         Config probe;
         writeExt = nv.read(kExtOffset, ext, kExtSize) && probe.fromExt(ext, kExtSize);
@@ -536,7 +552,9 @@ bool Config::load(IStorage& fs) {
         streamThreshold = d.streamThreshold;
         exportRate = d.exportRate;
         themeFile[0] = 0;
-        std::memcpy(extKeep, d.extKeep, sizeof(extKeep));
+        radioStereo = d.radioStereo;
+        noteNames = d.noteNames;
+        padLayout = d.padLayout;
         sliceDetector = 0;
         bbReseed = 0;
         sliceThru = 0;

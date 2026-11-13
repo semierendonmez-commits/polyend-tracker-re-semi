@@ -174,8 +174,8 @@ TEST(custom_theme_persists_in_ext_v5_and_reloads_at_boot) {
     h.app->markConfigDirty();
     CHECK(h.app->saveConfig());
     const uint8_t* x = nv.mem.data() + Config::kExtOffset;
-    CHECK_BYTES(x, 'O', 'T', 'X', 6, 49);   // semi fork v6: upstream v5 + 22 fork bytes
-    CHECK_EQ(Config::kExtSize, 55u);
+    CHECK_BYTES(x, 'O', 'T', 'X', 7, 51);   // semi fork v7: upstream v5 + 22 fork bytes
+    CHECK_EQ(Config::kExtSize, 57u);
     CHECK(std::memcmp(x + 11, "Paper\0", 6) == 0);
     CHECK_EQ(nv.mem[0xD5], 1);   // the stock byte holds the base
     Harness h2(false);
@@ -298,8 +298,8 @@ TEST(ext_record_v4_reads_as_no_custom_theme) {
     std::snprintf(c.themeFile, sizeof c.themeFile, "My theme");
     uint8_t x[Config::kExtSize];
     c.toExt(x);
-    CHECK_EQ(x[3], 6);    // semi fork v6
-    CHECK_EQ(x[4], 49);
+    CHECK_EQ(x[3], 7);    // semi fork v7
+    CHECK_EQ(x[4], 51);
     Config d;
     CHECK(d.fromExt(x, sizeof x));
     CHECK_STR(d.themeFile, "My theme");

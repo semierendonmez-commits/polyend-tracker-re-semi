@@ -83,9 +83,9 @@ uint32_t wavResampledFrames(uint32_t srcFrames, uint32_t srcRate);
 int16_t wavDecodeSample(const uint8_t* p, uint16_t format, uint16_t bits);
 
 // One output sample of the 4-point cubic between p1 (mu = 0) and p2 (mu = 1):
-// truncation toward zero, then clamp (spec 07 Q8). Shared by the WAV import
-// (CubicResampler) and the export rate conversion (AudioEngine::exportWav),
-// so both interpolate the same way.
+// truncation toward zero, then clamp (spec 07 Q8). The WAV import's
+// interpolation (CubicResampler); the export converts with its own 32-tap
+// sinc (audio/export_resampler.h).
 inline int16_t cubicS16(float p0, float p1, float p2, float p3, float mu) {
     const float a0 = p3 - p2 - p0 + p1;
     const float a1 = p0 - p1 - a0;
@@ -250,15 +250,24 @@ size_t wavEncode(const int16_t* interleaved, uint32_t frames, uint16_t channels,
 class WavWriter {
 public:
     bool open(IStorage& fs, const char* path, uint16_t channels);
+    // OT fork: collect the data in `buf` (a multiple of 512 bytes) and write
+    // it in whole chunks that start on a sector of the file (the first one
+    // fills up to the sector after the header). A stems export keeps 14
+    // files open: small writes to all of them in turn made the card write
+    // one sector of each file at a time (an hour for a 2.5 minute song).
+    void setBuffer(uint8_t* buf, uint32_t bytes);
     bool write(const int16_t* interleaved, uint32_t frames);
     bool close();
     uint32_t frames() const { return frames_; }
 
 private:
+    bool flush();
     IStorage* fs_ = nullptr;
     IStorage::Handle h_ = -1;
     uint16_t channels_ = 1;
     uint32_t frames_ = 0;
+    uint8_t* buf_ = nullptr;
+    uint32_t cap_ = 0, fill_ = 0, limit_ = 0;
 };
 
 }  // namespace ot

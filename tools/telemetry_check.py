@@ -82,11 +82,11 @@ BENCH_PK_RE = re.compile(r"^\s+block\s+\d+ \(song pos \d+, step \d+\):\s+(\d+) M
 # replay worst blocks (220k insn). Update it with `telemetry_check.py cpi` after every device
 # run; docs/OPTIMIZATION_2X.md "CPU round 3" (predicted ~1.7 with the round-3 .fastrun).
 DEVICE_CPI = 1.94
-LIMIT_RE = re.compile(r"^\s+((?:acd|vap|fat|wtfm|perc|pswitch|stream)[\w.]*)\s+(\d+(?:\.\d+)?)\s.*\blimit (\d+)\b")
-# semi fork: 860,000 B (upstream 720,000; 2.2.3 base alone ~684 KB, the fork
-# ~156 KB on top). The hard limit is the stock 1.9.2 image extent,
-# 0xD6460 = 877,664 B, checked by tools/check_image.py on every build.
-FLASH_FAIL = 860000
+LIMIT_RE = re.compile(r"^\s+((?:acd|vap|fat|wtfm|perc|pswitch|preset|stream)[\w.]*)\s+(\d+(?:\.\d+)?)\s.*\blimit (\d+)\b")
+# semi fork: 876,544 B = 0xD6000 (upstream 720,000; the 2.2.7 base plus the
+# fork on top): the last whole 4 KB page under the stock 1.9.2 image extent,
+# 0xD6460 = 877,664 B, which tools/check_image.py checks on every build.
+FLASH_FAIL = 876544
 FLASH_WARN = 600000
 # _estack - _ebss holds the stack and newlib's heap (src/hal/stack_watch.h). With the stack
 # guard (src/hal/stack_guard.h) it also holds the 4 KB heap reserve and the 8 KB guard, so

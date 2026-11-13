@@ -6,6 +6,8 @@
 
 #include "app/app.h"
 #include "ui/screen_games.h"   // OT_GAMES
+#include "app/project_fields.h"
+#include "ui/notes.h"
 #include "ui/screens.h"
 #include "ui/widgets.h"
 
@@ -65,10 +67,22 @@ void Screen::onButton(uint8_t id, uint8_t state) {
     if (id == btn::Play && state == kPress) app_.togglePlay(ui_.shift());
 }
 
+bool Screen::pianoLeds(uint8_t* levels) {
+    App& a = app_;
+    if (a.cfg.padLayout != 1) return false;
+    const uint8_t ci = a.currentInstrument();
+    if (ci < kSampleInstrumentCount && a.instruments[ci].playMode == uint8_t(PlayMode::BeatSlice)) return false;
+    a.refreshPadNotes();
+    return a.padNotes.pianoLeds(levels, a.cfg.padDim(), a.cfg.padFull());
+}
+
 void Screen::onPad(uint8_t pad, uint8_t state) {
     // spec 06 §0.3: pads audition the current instrument.
     // One track voice per held pad, voiceId = pad number (spec 07 Q7).
-    if (state == kPress) app_.previewOn(pad, app_.currentInstrument(), app_.padNote(pad), 127);
+    if (state == kPress) {
+        const uint8_t n = app_.padNote(pad);
+        if (n != PadNotes::kNoNote) app_.previewOn(pad, app_.currentInstrument(), n, 127);   // [I] gaps
+    }
     else if (state == kRelease) app_.previewOff(pad);
 }
 
@@ -182,14 +196,14 @@ void Picker::pick(int pad) {
     if (c < count_) cursor_ = c;
 }
 
-namespace {
-// `s` cut to the characters that fit `maxW` px in `font` (a cell line).
 void fitText(char* out, int cap, uint8_t font, const char* s, int maxW) {
     int n = 0;
     while (s[n] && n < cap - 1 && textWidth(font, s, n + 1) <= maxW) ++n;
     std::memcpy(out, s, size_t(n));
     out[n] = 0;
 }
+
+namespace {
 // Glyph run centred on (cx, cy) (one word per glyph with custom fonts).
 void centredRun(Gfx& g, int cx, int cy, uint8_t font, uint32_t c, const char* s) {
     if (!s || !*s) return;
@@ -632,6 +646,19 @@ void Ui::setUsbStorageMode(bool on) {
     dirty();
 }
 
+int Ui::patternCursorStep() const {
+    const auto* p = static_cast<const PatternScreen*>(screen(kModPattern));
+    if (!p) return 0;
+    return p->step < 0 ? 0 : (p->step >= kStepCount ? kStepCount - 1 : p->step);
+}
+
+int Ui::songCursorPos() const {
+    if (active_ != kModSong) return -1;
+    const auto* s = static_cast<const SongScreen*>(screen(kModSong));
+    if (!s) return -1;
+    return s->cursor < 0 ? 0 : (s->cursor >= kSongSlots ? kSongSlots - 1 : s->cursor);
+}
+
 void Ui::switchTo(int module, int opt) {
     // [I] Issue #52 (stock 1.9.2, checked on a Tracker): from the Pattern
     // screen with Rec off, Instrument Params, Sample Playback and Sample
@@ -649,7 +676,7 @@ void Ui::switchTo(int module, int opt) {
     // 2.x: Instrument Params on a synth step / synth instrument opens the
     // synth slot page (Tracker Mini manual p.146).
     if (module == kModInstrument) {
-        const int s = SynthScreen::entrySlot(app, *this, active_);
+        const int s = SynthScreen::entrySlot(app);
         if (s >= 0) {
             module = kModSynth;
             opt = s + 1;
@@ -1152,6 +1179,12 @@ void Ui::update(uint32_t now) {
             }
         }
     }
+    // [I] Note names (Config > General): Auto follows the project key, which
+    // changes on project open and in Config; setNoteSpelling re-derives it
+    // only when the setting, root or scale changed.
+    const bool flats = noteSpellingFlats();
+    setNoteSpelling(app.cfg.noteNames, app.project.u8(pf::kRootNote), app.project.u8(pf::kScale));
+    if (noteSpellingFlats() != flats) dirty();
     if (noteUntil_ && int32_t(now - noteUntil_) >= 0) {
         noteUntil_ = 0;
         note_[0] = 0;
@@ -1336,17 +1369,19 @@ void Ui::drawTitle(Gfx& g, const char* title, const char* right, bool status) {
     lastTitleValid_ = true;
 }
 
-uint8_t Ui::overlayBits() const {
-    return uint8_t((kb.isOpen() ? 1 : 0) | (picker.isOpen() ? 2 : 0) | (usb.active() ? 4 : 0) |
-                   (factory.active() ? 8 : 0) | (askOpen_ ? 16 : 0) | (progressOpen_ ? 32 : 0) |
-                   (popupKind_ != PopupHeader::kNone ? 64 : 0));
+uint32_t Ui::overlayBits() const {
+    const Screen* s = current();
+    return uint32_t((kb.isOpen() ? 1 : 0) | (picker.isOpen() ? 2 : 0) | (usb.active() ? 4 : 0) |
+                    (factory.active() ? 8 : 0) | (askOpen_ ? 16 : 0) | (progressOpen_ ? 32 : 0) |
+                    (popupKind_ != PopupHeader::kNone ? 64 : 0)) |
+           (s ? uint32_t(s->detailKey()) << 8 : 0u);
 }
 
 void Ui::render() {
     if (!display_) return;
     // Low-detail fallback stays on while the screen and its overlays stay
     // the same (set by an overflowing frame below).
-    const uint8_t ov = overlayBits();
+    const uint32_t ov = overlayBits();
     if (lowDetail_ && (lowDetailGen_ != gen_ || lowDetailOverlays_ != ov)) lowDetail_ = false;
     dirty_ = false;
     titleDrawn_ = false;

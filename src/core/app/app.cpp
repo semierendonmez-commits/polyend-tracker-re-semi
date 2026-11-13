@@ -1,5 +1,7 @@
 #include "app/app.h"
 #include "app/live_gen.h"
+#include "app/synth_chase.h"
+#include "app/synth_presets.h"
 
 #include <cstdio>
 #include <cstring>
@@ -80,6 +82,9 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
     engine.setExportScratch(mem_.exportStems);
     // Synth slots play the App's patches (2.x M3, audio/synth_bank.h).
     for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().bindPatch(s, &patches_[s]);
+    resetSynthPresets();
+    engine.synth().bindPresets(presets::table());
+    chase::resetAll();   // [OT] Z chase: one App owns the summaries
     undo.attach(mem_.undo, mem_.undoNums, mem_.undoSlots);
     fileUndo.attach(mem_.fileUndo, mem_.fileUndoNums, mem_.fileUndoSlots);
     for (auto& in : instruments) in.setDefault();
@@ -234,6 +239,12 @@ void App::applyEngineSettings() {
     m.delayModel = cfg.delayModel;
     m.sc[0] = fork.sc[0];   // OT fork sidechain (project)
     m.sc[1] = fork.sc[1];
+    {   // Trigger sources: their notes trigger even when they make no sound
+        uint16_t ghost = 0;
+        for (const audio::SidechainSettings& sc : fork.sc)
+            if (sc.mode == 0 && sc.targets && sc.source >= 1 && sc.source <= 16) ghost |= uint16_t(1u << (sc.source - 1));
+        seq.setSidechainSources(ghost);
+    }
     seq.setLinks(fork.link);   // OT fork track links (project)
     {   // OT fork Master Reverb page 2 (project): the current model's values.
         const int rm = m.reverbModel < ReverbExtra::kModels ? m.reverbModel : 0;
@@ -301,6 +312,8 @@ uint8_t App::liveVolume(uint8_t instrument, uint8_t vel) const {
     return uint8_t((vel > 127 ? 127 : vel) * iv / 127);
 }
 
+static_assert(App::kAuditionPads == kPadCount, "pad audition ids");
+
 int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t velocity, int forceTrack,
                    int startTrack) {
     // e.g. a running 0x60 loader preview is released first. MIDI input keys
@@ -309,16 +322,18 @@ int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t v
     if (voiceId < kAuditionMidiIn || voiceId >= kAuditionMidiIn + 128) previewOff(voiceId);
     const bool midi = isMidiInstrument(instrument);
     if (isSynthInstrument(instrument)) {
-        if (voiceId >= kAuditionMidiIn && voiceId < kAuditionMidiIn + 128) {
-            // MIDI input: one live track per held note (polyphonic, up to the
-            // slot polyphony and the voice cap); all held: the tracks are
-            // reused in turn.
+        // MIDI input notes and held pads (voiceId = pad number): one live
+        // track per held note (polyphonic, up to the slot polyphony and the
+        // voice cap); all held: the tracks are reused in turn. (Pads on the
+        // one audition track played only the last pad held: tester report,
+        // 3.0.0, also in 2.x.)
+        if ((voiceId >= kAuditionMidiIn && voiceId < kAuditionMidiIn + 128) || voiceId < kAuditionPads) {
             // Velocity as for samples (spec 17 §1.4 step 1: 127 unless
             // Recording options = velocity).
             static_assert(sizeof(synthLive_) / sizeof(synthLive_[0]) == audio::kSynthLiveTracks, "live tracks");
             int k = -1;
             for (int i = 0; i < audio::kSynthLiveTracks && k < 0; ++i)
-                if (!synthLive_[i]) k = i;
+                if (synthLive_[i] == kAuditionNone) k = i;
             if (k < 0) k = synthLiveNext_;
             synthLiveNext_ = uint8_t((k + 1) % audio::kSynthLiveTracks);
             synthLive_[k] = voiceId;
@@ -327,7 +342,8 @@ int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t v
                                   vel >= 127 ? int8_t(-1) : int8_t((vel * 100 + 63) / 127));
             return -1;
         }
-        // 2.x synth slots: the framework's audition track (one note at a time).
+        // 2.x synth slots: the framework's audition track (one note at a time:
+        // the Instrument / Loader previews, the note encoder).
         engine.synth().auditionOn(synthSlotOf(instrument), uint8_t(note & 127));
         synthAudVoice_ = voiceId;
         return -1;
@@ -399,11 +415,11 @@ void App::previewOff(uint16_t voiceId, int startTrack) {
         engine.synth().auditionOff();
         synthAudVoice_ = kNoSynthAudition;
     }
-    // A MIDI input note on a synth live track: one note-off releases one.
+    // A MIDI input note or pad on a synth live track: one note-off releases one.
     for (int k = 0; k < audio::kSynthLiveTracks; ++k)
-        if (synthLive_[k] && synthLive_[k] == voiceId) {
+        if (synthLive_[k] == voiceId) {
             engine.synth().liveOff(k);
-            synthLive_[k] = 0;
+            synthLive_[k] = kAuditionNone;
             return;
         }
     const int t = auditionTrack(voiceId, startTrack);
@@ -415,9 +431,9 @@ void App::previewAllOff() {
     if (synthAudVoice_ != kNoSynthAudition) engine.synth().auditionOff();
     synthAudVoice_ = kNoSynthAudition;
     for (int k = 0; k < audio::kSynthLiveTracks; ++k)
-        if (synthLive_[k]) {
+        if (synthLive_[k] != kAuditionNone) {
             engine.synth().liveOff(k);
-            synthLive_[k] = 0;
+            synthLive_[k] = kAuditionNone;
         }
     engine.previewStop();   // SD file preview
 }
@@ -483,7 +499,13 @@ void App::loop() {
     // Transport bookkeeping.
     const bool playing = seq.isPlaying();
     if (playing && !wasPlaying_) playStart_ = now;
+    // [OT] Stop zeroed the slots' presets (also a MIDI Stop while Play waits
+    // for a MIDI Start, or while stopped).
+    chase::Memory& cm = chase::mem();
+    if ((!playing && wasPlaying_) || cm.seqStops != seq.stopCount()) ++cm.stopSerial;
+    cm.seqStops = seq.stopCount();
     wasPlaying_ = playing;
+    serviceSynthChase();
     if (stepChanged_) {
         stepChanged_ = false;
         ui.dirty();
@@ -627,7 +649,8 @@ void App::handleMidiMessage(uint8_t st, uint8_t d1, uint8_t d2) {
         if (t < 0 && isSynthInstrument(currentInstrument())) {
             int held = 0;
             for (int k = 0; k < audio::kSynthLiveTracks; ++k)
-                if (synthLive_[k] && synthLive_[k] != voice) ++held;
+                if (synthLive_[k] >= kAuditionMidiIn && synthLive_[k] < kAuditionMidiIn + 128 && synthLive_[k] != voice)
+                    ++held;
             t = rect.t0 + held;
         }
         // Step 8: edit-mode chord entry across the selected tracks.
@@ -721,6 +744,7 @@ void App::handleControlChange(uint8_t cc, uint8_t value) {
 
 void App::setPresent(int num, bool on) {
     if (num < 1 || num > kPatternCount) return;
+    chase::invalidate(num);   // [OT] a pattern store write: its Z chase summary is stale
     if (on) present_[num >> 3] |= uint8_t(1u << (num & 7));
     else present_[num >> 3] &= uint8_t(~(1u << (num & 7)));
 }
@@ -730,7 +754,7 @@ bool App::patternHasData(int num) {
     auto hasData = [](const Track& t) {
         for (int s = 0; s < kStepCount; ++s) {
             const Step& st = t.steps[s];
-            if (st.note != kNoteEmpty || st.fx[0].type || st.fx[1].type) return true;
+            if (st.note != kNoteEmpty || st.fx[0].used() || st.fx[1].used()) return true;
         }
         return false;
     };
@@ -755,6 +779,7 @@ int App::firstEmptyPattern() {
 
 void App::markPatternDirty(int num) {
     if (num < 1 || num > kPatternCount) return;
+    chase::invalidate(num);
     patDirty_[num >> 3] |= uint8_t(1u << (num & 7));
     setPresent(num, true);
     unsaved_ = true;
@@ -793,6 +818,7 @@ void App::reportExtPoolFull() {
 
 Track& App::storedTrack(int num, int t) {
     if (!validNum(num) || t < 0 || t >= kTrackCount) return *extDiscard_;
+    chase::invalidate(num);   // write access
     if (t < kStockTrackCount) return storedStock(num).tracks[t];
     const int e = t - kStockTrackCount;
     if (Track* b = ext_.find(num, e)) return *b;
@@ -823,6 +849,7 @@ void App::readStoredTrack(int num, int t, Track& out) const {
 
 bool App::storePattern(int num, const Pattern& p) {
     if (!validNum(num)) return false;
+    chase::invalidate(num);
     PatternStock& st = storedStock(num);
     p.copyStockTo(st);
     bool ok = true;
@@ -869,17 +896,19 @@ int App::compactExtTracks(int num) {
 }
 
 void App::clearExtTracks(int num) {
+    chase::invalidate(num);
     ext_.releasePattern(num);
     if (validNum(num)) extKeep_[num] = 0;   // dropped on purpose: nothing to keep from the file
 }
 
 void App::defaultStored(int num) {
     if (!validNum(num)) return;
-    clearExtTracks(num);
+    clearExtTracks(num);   // the Z chase summary goes with it
     defaultPattern(storedStock(num));
 }
 
 void App::resetPatternStore() {
+    chase::invalidateAll();
     ext_.clear();
     std::memset(extKeep_, 0, sizeof(extKeep_));
     extFullReported_ = 0;
@@ -1003,7 +1032,8 @@ bool App::redoEdit() {
     return true;
 }
 
-void App::copyToClipboard(const SelRect& r) {
+void App::copyToClipboard(const SelRect& r, int col) {
+    clipCol_ = int8_t(col);
     *mem_.clipboard = pattern();
     clipRect_ = r;
     clipValid_ = true;
@@ -1051,7 +1081,7 @@ void App::refreshPadNotes() {
     if (sc >= kScaleCount) sc = 0;
     if (lay > 11) lay = 11;
     if (root > 36) root = 24;
-    padNotes.build(sc, lay, root);
+    padNotes.build(sc, lay, root, cfg.padLayout == 1);   // [I] piano layout
 }
 
 uint8_t App::padNote(uint8_t pad) {
@@ -1227,6 +1257,7 @@ void App::streamUnbindAll() {
         stream_.streamOf[i] = -1;
         stream_.warnedMode[i] = 0xFF;
     }
+    std::memset(streamSrc_, 0, sizeof(streamSrc_));
 }
 
 void App::serviceStreams(uint32_t nowMs) {
@@ -1252,6 +1283,12 @@ void App::streamUnbind(int slot) {
     engine.setStreamSource(slot, nullptr);
     if (hal_.streamReader) hal_.streamReader->unbind(uint8_t(slot));
     stream_.streamOf[slot] = -1;
+    setBitOf(streamSrc_, slot, false);
+}
+
+// Issue #184: nothing plays, records or streams (the copies run then).
+bool App::copyIdle() const {
+    return !seq.isPlaying() && !seq.isArmed() && streamActive() == 0 && !capture.active();
 }
 
 void App::refreshStreamSources() {

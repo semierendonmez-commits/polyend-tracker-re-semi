@@ -93,13 +93,11 @@ int capTop(uint8_t role) {
 }
 
 // Glyph text with its cap top at capY: glyphRun at `pitch` px (custom
-// fonts, or the ROM font glyphs when they are not bound: OP-6); one CMD_TEXT
-// in romTextMode() kRomWholeText (host tests read whole strings).
+// fonts, or the ROM font glyphs when they are not bound: OP-6; one CMD_TEXT
+// in romTextMode() kRomWholeText, host tests read whole strings).
 void run(Gfx& g, int x, int capY, uint8_t font, const char* s, uint32_t c, int pitch = 0) {
     if (!s || !*s) return;
-    const int y = capY - capTop(font);
-    if (customFontsBound() || romTextMode() != kRomWholeText) g.glyphRun(x, y, font, s, c, pitch);
-    else g.text(x, y, font, c, s);
+    g.glyphRun(x, capY - capTop(font), font, s, c, pitch);
 }
 
 // Filled box with the stock 1.5-px soft edge: core, one column/row at
@@ -409,7 +407,7 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
             case 1:
                 return (st.note == kNoteEmpty || st.note == kNoteOff || st.note == kNoteCut || st.note == kNoteFade) &&
                        !isMidiInstrument(st.instrument);
-            default: return st.fx[c - 2].type == 0;
+            default: return !st.fx[c - 2].used();
         }
     };
     for (int pass = 0; pass < 2; ++pass) {
@@ -793,7 +791,7 @@ void PatternScreen::drawListPopup(Gfx& g) {
     v.y = 30;
     v.w = 200;
     v.h = kind == 3 ? 409 : 394;
-    v.count = kind == 3 ? kFxCount : (kind == 5 ? synthui::kMidiPopupCount : kInstrumentCount + kSynthSlotCount);
+    v.count = kind == 3 ? kFxListCount : (kind == 5 ? synthui::kMidiPopupCount : kInstrumentCount + kSynthSlotCount);
     v.sel = pop_.cursor();
     popTop_ = wg::listFollow(v.sel, v.count, wg::listVisibleRows(v.h), popTop_);
     v.top = popTop_;
@@ -813,7 +811,7 @@ void PatternScreen::drawListPopup(Gfx& g) {
         char buf[48];
         popupItem(&ctx, pop_.cursor(), buf, sizeof(buf));
         g.text(x + 13, 34 + 13, kFont1, th.slot(slot::kList + 4), buf, IDisplay::kOptCenterY);
-        wg::textBox(g, th, x + 8, 62, 232, 360, kFont5, fxHelpText(kFxMenuOrder[pop_.cursor() < kFxCount ? pop_.cursor() : 0]), 3);
+        wg::textBox(g, th, x + 8, 62, 232, 360, kFont5, fxHelpText(kFxMenuOrder[pop_.cursor() < kFxListCount ? pop_.cursor() : 0]), 3);
     }
 }
 

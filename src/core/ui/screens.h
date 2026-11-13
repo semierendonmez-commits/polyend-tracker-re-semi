@@ -16,6 +16,7 @@
 #include "ui/wave.h"
 
 namespace ot {
+struct SynthSlotRecord;
 
 struct ImportProbe;   // app/app.h
 
@@ -42,6 +43,8 @@ class PatternScreen final : public Screen {
 public:
     using Screen::Screen;
     const char* name() const override { return "Pattern"; }
+    // Bottom-bar pages over the grid: 2 Live-REC arm page, 1 Shift mute page.
+    uint8_t detailKey() const override;
     void start(int opt) override;
     void stop() override;
     void update(uint32_t now) override;
@@ -209,11 +212,22 @@ private:
     uint8_t colKey_ = 0;            // column key waiting for its hold popup
     uint32_t colKeyAt_ = 0;
     uint8_t pickerKey_ = 0;
+    // Issue #186: the column key down now, the column before it, and whether
+    // it was used as a modifier (a pad, its hold popup): then its release goes
+    // back to that column.
+    uint8_t heldColKey_ = 0;
+    int8_t colBefore_ = -1;
+    bool colKeyUsed_ = false;
+    void releaseColKey(uint8_t id);
     int noteBase_ = 48;             // Note popup: note under F1 (window of 8)
     uint8_t noteKeysOn_ = 0;        // Note popup F-keys sounding (bit = F-key)
     bool encUsedInHold_ = false;
     bool patternHeld_ = false;
     bool patternCombo_ = false;   // another key / the encoder was used while Pattern was held
+    bool patternLatch_ = false;   // 2.x: F1 tapped, the pads keep picking patterns
+    bool focusUsed_ = false;      // a pad / arrow / key / the encoder was used while F1 was held
+    bool f1Ends_ = false;         // this F1 press ended the latch: its release does nothing
+    uint32_t focusAt_ = 0;
     int maskKeys_[2] = {-1, -1};
     uint32_t lastUpdate_ = 0;
     int lastPlayStep_ = -1;
@@ -235,6 +249,13 @@ private:
     uint32_t countInUntil_ = 0;     // "Counting in" popup end (ms), 0 = none
     bool countInDrawn_ = false;
     int8_t padVoice_[48];
+    // [I] Pad chord entry (padChordEntry): pads held together fill the
+    // target's tracks left to right on its first step.
+    bool padChordEntry(uint8_t pad, uint8_t note);
+    uint64_t chordPads_ = 0;        // held note pads of the chord (bit = pad), 0 = none
+    int8_t chordTrack_ = -1;        // the last track the chord wrote
+    uint8_t chordIns_ = 0;          // the instrument as mapped on the chord's first track
+    uint8_t chordPattern_ = 0;      // the pattern the chord writes
     Picker pop_;                    // column-key popup state (drawn by this screen)
     int noteWin_ = 36;              // Notes popup: lowest shown note (C3)
     int popTop_ = 0;                // list popup: first visible row
@@ -359,6 +380,7 @@ public:
     void draw(Gfx& g) override;
     void onButton(uint8_t id, uint8_t state) override;
     void onPad(uint8_t pad, uint8_t state) override;
+    bool padsPlayNotes() const override { return false; }   // [I] pads only type here
     void onEncoder(int d) override;
 #if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
     bool encoderOnList() const override;
@@ -402,6 +424,7 @@ public:
     void openImport();                  // F5 (spec 06 §5.5 step 1)
     // §5.5 gating: Normal iff 2n < free - 10000, low quality iff n < free - 10000.
     bool importAllowed(bool lowQuality) const;
+    int sdFilesSelected() const;   // files in the SD selection (folders skipped)
     bool over() const { return over_; }
     uint32_t memoryShown() const { return shown_; }   // bytes the memory bar and label show
 
@@ -495,6 +518,7 @@ public:
     int meter[8] = {};      // current bar 0..100
     int meterHold[8] = {};  // peak hold 0..100
     int globalMeter[4][2] = {};   // Global Mixer 3/3: Delay, Reverb, Dry, Line In x L/R, 0..100
+    uint32_t synthTargets_ = 0;   // [OT] the synth slots' edit targets the page last showed
     // Master Limiter gain-reduction meter (spec 06 §4.3): dB of reduction
     // from the engine's mean limiter gain, read every 50 ms; the bar spans
     // 0..kGrRangeDb (OpenTracker's scale).
@@ -570,6 +594,7 @@ public:
     void doNew();
     void doOpenSelected();
     void list();
+    const char* browserPath() const;   // the Open / Save browser's folder
 
     // Project cover preview (spec 05 appendix E1.6, spec 13 §I.3): 0 idle,
     // 1 waiting for the 2 s hold, 2 loaded (drawn), 3 no/invalid image.
@@ -604,6 +629,7 @@ public:
     void draw(Gfx& g) override;
     void onButton(uint8_t id, uint8_t state) override;
     void onPad(uint8_t pad, uint8_t state) override;
+    bool padsPlayNotes() const override { return false; }   // [I] pads only feed the test code
     void onEncoder(int d) override;
 #if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
     bool encoderOnList() const override;
@@ -900,14 +926,16 @@ public:
     // Run the selected effect on Start..End and commit it (keeps one undo).
     bool apply();
     bool undo();
-    bool preview(int note = 60);   // process the selection and play it at `note` (60 = own pitch)
+    // Process the selection and play it at `note` (60 = own pitch). plainIfFull:
+    // without the free memory, play the selection unprocessed (pads, MIDI).
+    bool preview(int note = 60, bool plainIfFull = false);
 
 private:
     void enter();
     void refreshBar();
     void markerDelta(int which, int d);
     void paramDelta(int d);
-    bool fits(uint32_t newFrames, uint32_t extraSamples);
+    bool fits(uint32_t newFrames, uint32_t extraSamples, bool ask = true);
     void lendScratch(int16_t* at, uint32_t samples);   // OT fork
     // OT fork .ptfx: the listing again (start), the code into the top of the
     // free sample memory (preview / apply; false: message shown).
@@ -999,8 +1027,8 @@ private:
     void selection(uint32_t* s0, uint32_t* s1) const;
     const int16_t* data() const;
     const int16_t* dataR() const;          // right lane (stereo take), else nullptr
-    bool stereoInput() const;              // Line In source with Config Line in channel = Stereo
-    const char* sourceName(int src) const; // "Line in ST" / "Line in L" / "Line in R" for Line In
+    bool stereoInput() const;              // Line In with Line in channel = Stereo, or Radio with Radio stereo On
+    const char* sourceName(int src) const; // "Line in ST" / "Line in L" / "Line in R" for Line In, "Radio ST"
     struct View {
         uint32_t off, len;
     } undo_[kUndoLevels] = {};
@@ -1184,6 +1212,7 @@ public:
     const char* name() const override { return "Synth"; }
     void start(int opt) override;   // opt 1..3 = slot (0: keep)
     void stop() override;
+    void update(uint32_t now) override;   // Macros page: an FX CC moved a value
     void draw(Gfx& g) override;
     void onButton(uint8_t id, uint8_t state) override;
     void onPad(uint8_t pad, uint8_t state) override;
@@ -1198,12 +1227,13 @@ public:
     // Slot the Instrument Params key opens from module `active` (the Pattern
     // cursor step's synth instrument, else the current instrument), -1 = not
     // a synth (the sample / MIDI Instrument screen opens).
-    static int entrySlot(App& a, Ui& ui, int active);
+    static int entrySlot(App& a);
 
-    enum class View : uint8_t { Params, Macros, Edit, Browser };
+    enum class View : uint8_t { Params, Macros, Edit, Browser, Presets };
     View view = View::Params;
     int slot = 0;           // 0..2
     int param = 0;          // Params page: F1..F6 (0 model .. 5 delay send)
+    uint32_t shownMacros_ = 0;   // a hash of what the Macros page shows
     int macro = 0;          // Macros page: M1..M6
     int section = 0;        // Edit: section index
     int row = 0;            // Edit: row in the section
@@ -1223,6 +1253,7 @@ public:
     void closeBrowser();      // Cancel: the slot's patch as before the popup
     bool previewHighlighted();   // the highlighted patch into the slot (Preview / pads)
     int previewSel() const { return previewSel_; }
+    int pendingModelForTest() const { return pendingModel_; }
     bool loadSelected();      // Confirm
     void initPatch();         // with the confirmation popup
     void savePatch();         // to the record's name (Save As when "Init" / empty)
@@ -1244,7 +1275,32 @@ private:
     void saveAsNow();         // pendingName_ (after "Overwrite?")
     // Patch edits since the last load / init / save / model change, per slot
     // ("Discard edits?" before Load or a model change).
-    bool edited_[kSynthSlotCount] = {};
+    // [OT] Keyed by edit target: bits 0..2 the slots' own patches, 3.. the
+    // presets (editBit()).
+    uint16_t edited_ = 0;
+    int editBit() const;
+    void clearEdited() { edited_ = uint16_t(edited_ & ~(1u << editBit())); }
+    void forgetPreset(int n) { edited_ = uint16_t(edited_ & ~(1u << (kSynthSlotCount - 1 + n))); }
+    void syncEdited();          // all forgotten after a preset reset (new project, Open)
+    uint32_t shownResets_ = 0;
+    uint8_t shownTarget_ = 0;   // [OT] the edit target / engine the pages last showed
+    int32_t shownEngine_ = 0;
+    // [OT] The edit target of the current event (Pin), and the one an open
+    // question or keyboard is about.
+    int8_t pin_ = -1;
+    uint8_t pendingTarget_ = 0;
+    bool asking_ = false;
+    struct Pin {
+        SynthScreen& s;
+        int8_t was;
+        explicit Pin(SynthScreen& sc, int n = -1);
+        ~Pin();
+    };
+    int tgt() const;
+    SynthSlotRecord targetRecord() const;
+    SynthPatch& targetPatch() const;
+    void askAbout();
+    bool stillAbout();
     int pendingModel_ = -1;
     char pendingName_[kBrowserNameMax + 1] = {};
     void edited();
@@ -1252,9 +1308,17 @@ private:
     void drawMacros(Gfx& g);
     void drawEdit(Gfx& g);
     void drawBrowser(Gfx& g);
+    void drawPresets(Gfx& g);
+    void presetKey(uint8_t id);
+    void endPresetPreview();
+    void loadPresetNow();
+    uint8_t previewPrev_ = 0;   // Presets: what the slot played before the held preview
     void title(Gfx& g, const char* text);
+    // on: the slot's audition note (Enc push, Load Patch F5 / F6); off: that
+    // note and every held pad.
     void audition(bool on, uint8_t note);
-    int padNote_ = -1;      // pad holding the audition, -1 none
+    void padsOff();
+    uint64_t padsHeld_ = 0;   // pads held on this page (each on a synth live track)
     int previewSel_ = -1;   // Load Patch: browser entry playing in the slot, -1 none
     int previewKey_ = -1;   // Load Patch: F5 / F6 holding the Preview note
     int browserTop_ = 0;

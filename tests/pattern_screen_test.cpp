@@ -75,6 +75,36 @@ TEST(fx_value_text_transforms) {
         for (int v = 0; v < 256; v += 17) CHECK(cell(FxId(t), uint8_t(v)).size() == 4);
 }
 
+TEST(z_cell_text_and_help_range) {
+    char b[8];
+    fxCellText(0, uint8_t(kFxPresetCmdBase + 3), b);
+    CHECK_STR(b, "Z  3");
+    fxCellText(0, kFxPresetCmdBase, b);
+    CHECK_STR(b, "Z  0");
+    fxCellText(0, 50, b);
+    CHECK_STR(b, "----");
+    CHECK(std::strlen(fxDescription(kFxSynthPreset)) > 10);
+    CHECK(std::strstr(fxHelpText(kFxSynthPreset), "From") != nullptr);
+}
+
+TEST(z_from_a_pad_and_the_last_fx_type_stays_a_stored_type) {
+    Harness h;
+    App& a = *h.app;
+    pe(h);
+    const uint8_t last = a.project.u8(pf::kLastFxType);
+    h.tap(btn::Rec);
+    h.tap(btn::Fx1);
+    h.down(btn::Fx1);
+    h.pad(43);
+    h.up(btn::Fx1);
+    const StepFx& f = a.pattern().tracks[0].steps[0].fx[fxSlotForColumn(2)];
+    CHECK(isPresetCmd(f.type, f.value));
+    CHECK_EQ(int(a.project.u8(pf::kLastFxType)), int(last));   // other firmware reads this byte
+    pe(h).step = 0;
+    h.pad(5);   // value
+    CHECK_EQ(int(f.value), kFxPresetCmdBase + 5);
+}
+
 TEST(grid_cell_text_two_digit_instrument) {
     Harness h;
     App& a = *h.app;
@@ -270,6 +300,46 @@ TEST(column_key_hold_popup_timings) {
     h.up(btn::Fx1);
 }
 
+// Issue #186: a column key held as a modifier (a pad while it is down, or
+// its hold popup) goes back to the column it came from on release; a tap
+// alone still moves the cursor to that column.
+TEST(column_key_held_as_modifier_returns_to_the_column) {
+    Harness h;
+    App& a = *h.app;
+    PatternScreen& p = pe(h);
+    CHECK_EQ(p.col, 0);
+    // Instr held, a pad picks instrument 6: back to the Note column.
+    h.down(btn::Instr);
+    CHECK_EQ(p.col, 1);
+    h.pad(5);
+    CHECK_EQ(a.currentInstrument(), 5);
+    h.up(btn::Instr);
+    CHECK_EQ(p.col, 0);
+    // The pads play notes again: no instrument change.
+    h.pad(9);
+    CHECK_EQ(a.currentInstrument(), 5);
+    // Held into its popup: back too.
+    h.down(btn::Instr);
+    h.run(220);
+    CHECK(p.popup().isOpen());
+    h.up(btn::Instr);
+    CHECK(!p.popup().isOpen());
+    CHECK_EQ(p.col, 0);
+    // A tap alone moves to the column and stays.
+    h.tap(btn::Instr);
+    CHECK_EQ(p.col, 1);
+    h.tap(btn::Note);
+    CHECK_EQ(p.col, 0);
+    // Fx1 held with a pad from the Instr column: back to Instr.
+    h.tap(btn::Instr);
+    h.tap(btn::Rec);
+    h.down(btn::Fx1);
+    CHECK_EQ(p.col, 2);
+    h.pad(3);
+    h.up(btn::Fx1);
+    CHECK_EQ(p.col, 1);
+}
+
 TEST(fill_rekey_wraps_and_note_defaults) {
     Harness h;
     App& a = *h.app;
@@ -312,6 +382,69 @@ TEST(focus_blocks_note_entry_and_pattern_right) {
     h.tap(btn::Down);
     CHECK_EQ(a.patternNumber(), 1);
     h.up(btn::F1);
+}
+
+TEST(pattern_pads_latch_on_f1_tap) {
+    // F1 tapped alone keeps the Pattern focus: the pads pick patterns with
+    // one finger, the current pattern's pad blinks. F1 again ends it.
+    Harness h;
+    App& a = *h.app;
+    const uint8_t full = uint8_t(a.cfg.padFull() > 31 ? 255 : a.cfg.padFull() * 255 / 31);
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, 0);
+    h.pad(4);
+    CHECK_EQ(a.patternNumber(), 5);
+    h.pad(1);
+    CHECK_EQ(a.patternNumber(), 2);
+    CHECK_EQ(pe(h).focus, 0);
+    int on = 0, off = 0;
+    for (int i = 0; i < 40; ++i) {
+        h.run(10);
+        if (h.leds.level[1] == full) ++on;
+        else if (h.leds.level[1] == 0) ++off;
+    }
+    CHECK(on > 0);
+    CHECK(off > 0);
+    // Play keeps the pads on patterns; a pad then queues the pattern, its
+    // pad lit full while the current one keeps blinking.
+    h.tap(btn::Play);
+    CHECK_EQ(pe(h).focus, 0);
+    h.pad(6);
+    CHECK_EQ(a.seq.queuedPattern(), 7);
+    h.run(10);
+    CHECK_EQ(h.leds.level[6], full);
+    h.tap(btn::Play);
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, -1);
+    // Held F1 with a pad is the stock hold: released, the focus ends.
+    h.down(btn::F1);
+    h.pad(2);
+    h.up(btn::F1);
+    CHECK_EQ(a.patternNumber(), 3);
+    CHECK_EQ(pe(h).focus, -1);
+    // Another F-key ends the latch.
+    h.tap(btn::F1);
+    h.tap(btn::F2);
+    CHECK_EQ(pe(h).focus, -1);
+}
+
+TEST(pattern_latch_ends_through_the_rec_arm_page) {
+    // F1 on the rec-arm page arms a track; the latch it ends must not come
+    // back, so the next F1 tap latches again at once.
+    Harness h;
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, 0);
+    h.down(btn::Shift);
+    h.tap(btn::Rec);
+    CHECK(pe(h).recArmPage);
+    h.tap(btn::F1);
+    h.up(btn::Shift);
+    CHECK(!pe(h).recArmPage);
+    CHECK_EQ(pe(h).focus, -1);
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, 0);
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, -1);
 }
 
 TEST(pattern_up_down_switch_immediately_while_playing) {
@@ -537,4 +670,183 @@ TEST(fx_help_ends_with_the_range) {
     CHECK(std::strstr(p, "From -50 to 50") != nullptr);
     CHECK(std::strstr(fxHelpText(uint8_t(FxId::BitDepth)), "From 4 to 16") != nullptr);
     CHECK(std::strstr(fxHelpText(uint8_t(FxId::None)), "From") == nullptr);   // no range
+}
+
+// Copy with the cursor on one FX column and Paste with it on the other: only the
+// FX crosses over (the note, the instrument and the source column stay). The same
+// column, and a copy from any other column, paste as always.
+namespace {
+struct FxPaste {
+    Harness h;
+    App& a;
+    PatternScreen& p;
+    FxPaste() : a(*h.app), p(pe(h)) {
+        h.tap(btn::Rec);
+        Step& s = cell(0, 0);
+        s.note = 60;
+        s.instrument = 3;
+        s.fx[0] = StepFx{18, 40};
+        s.fx[1] = StepFx{};
+    }
+    Step& cell(int t, int st) { return a.pattern().tracks[t].steps[st]; }
+    void paste() {
+        h.down(btn::Shift);
+        h.tap(btn::Copy);
+        h.up(btn::Shift);
+    }
+    bool same(const StepFx& x, int type, int value) { return x.type == type && x.value == value; }
+};
+}  // namespace
+
+TEST(fx_copy_paste_fx1_to_fx2_on_the_same_step) {
+    FxPaste f;
+    f.h.tap(btn::Fx1);
+    f.h.tap(btn::Copy);
+    f.h.tap(btn::Fx2);
+    f.paste();
+    CHECK(f.same(f.cell(0, 0).fx[1], 18, 40));
+    CHECK(f.same(f.cell(0, 0).fx[0], 18, 40));
+    CHECK_EQ(int(f.cell(0, 0).note), 60);
+    CHECK_EQ(int(f.cell(0, 0).instrument), 3);
+    // Undo takes it back.
+    CHECK(f.a.undoEdit());
+    CHECK(f.same(f.cell(0, 0).fx[1], 0, 0));
+}
+
+TEST(fx_copy_paste_fx2_to_fx1_and_with_the_key_held) {
+    {
+        FxPaste f;
+        f.cell(0, 0).fx[1] = StepFx{5, 9};
+        f.h.tap(btn::Fx2);
+        f.h.tap(btn::Copy);
+        f.h.tap(btn::Fx1);
+        f.paste();
+        CHECK(f.same(f.cell(0, 0).fx[0], 5, 9));
+        CHECK(f.same(f.cell(0, 0).fx[1], 5, 9));
+    }
+    {   // The target column's key held through the paste: the same.
+        FxPaste f;
+        f.h.tap(btn::Fx1);
+        f.h.tap(btn::Copy);
+        f.h.down(btn::Fx2);
+        f.paste();
+        f.h.up(btn::Fx2);
+        CHECK(f.same(f.cell(0, 0).fx[1], 18, 40));
+    }
+}
+
+TEST(fx_copy_paste_to_another_step_and_track_leaves_the_rest) {
+    FxPaste f;
+    f.cell(2, 5).note = 72;
+    f.cell(2, 5).fx[0] = StepFx{7, 7};
+    f.cell(2, 5).fx[1] = StepFx{9, 9};
+    f.h.tap(btn::Fx1);
+    f.h.tap(btn::Copy);
+    f.p.track = 2;
+    f.p.step = 5;
+    f.h.tap(btn::Fx2);
+    f.paste();
+    CHECK(f.same(f.cell(2, 5).fx[1], 18, 40));
+    CHECK(f.same(f.cell(2, 5).fx[0], 7, 7));
+    CHECK_EQ(int(f.cell(2, 5).note), 72);
+    // An empty source column clears the target: a paste overwrites.
+    FxPaste g;
+    g.cell(1, 1).fx[0] = StepFx{4, 4};
+    g.h.tap(btn::Fx2);
+    g.h.tap(btn::Copy);     // step 0's FX 2 is empty
+    g.p.track = 1;
+    g.p.step = 1;
+    g.h.tap(btn::Fx1);
+    g.paste();
+    CHECK(g.same(g.cell(1, 1).fx[0], 0, 0));
+}
+
+TEST(fx_copy_paste_a_selection_across) {
+    FxPaste f;
+    for (int s = 0; s < 3; ++s) f.cell(0, s).fx[0] = StepFx{uint8_t(10 + s), uint8_t(20 + s)};
+    f.cell(0, 3).fx[1] = StepFx{6, 6};
+    f.h.tap(btn::Fx1);
+    f.h.down(btn::Shift);
+    f.h.tap(btn::Down);
+    f.h.tap(btn::Down);
+    f.h.up(btn::Shift);
+    f.h.tap(btn::Copy);
+    f.h.tap(btn::Left);    // collapse the selection
+    f.p.step = 0;
+    f.h.tap(btn::Fx2);
+    f.paste();
+    for (int s = 0; s < 3; ++s) CHECK(f.same(f.cell(0, s).fx[1], 10 + s, 20 + s));
+    CHECK(f.same(f.cell(0, 3).fx[1], 6, 6));   // past the selection: untouched
+}
+
+TEST(fx_copy_paste_same_column_and_other_columns_as_before) {
+    {   // The same column: the whole step.
+        FxPaste f;
+        f.h.tap(btn::Fx1);
+        f.h.tap(btn::Copy);
+        f.p.step = 4;
+        f.paste();
+        CHECK_EQ(int(f.cell(0, 4).note), 60);
+        CHECK(f.same(f.cell(0, 4).fx[0], 18, 40));
+    }
+    {   // From the Note column: the whole step, on an FX column too.
+        FxPaste f;
+        f.h.tap(btn::Note);
+        f.h.tap(btn::Copy);
+        f.p.step = 4;
+        f.h.tap(btn::Fx2);
+        f.paste();
+        CHECK_EQ(int(f.cell(0, 4).note), 60);
+        CHECK(f.same(f.cell(0, 4).fx[0], 18, 40));
+        CHECK(f.same(f.cell(0, 4).fx[1], 0, 0));
+    }
+    {   // To the Note column from an FX column: the whole step.
+        FxPaste f;
+        f.h.tap(btn::Fx1);
+        f.h.tap(btn::Copy);
+        f.p.step = 4;
+        f.h.tap(btn::Note);
+        f.paste();
+        CHECK_EQ(int(f.cell(0, 4).note), 60);
+    }
+}
+
+TEST(fx_copy_paste_the_column_is_forgotten_by_copy_pattern) {
+    // Copy pattern (a menu copy, no cursor column) after an FX copy.
+    FxPaste f;
+    f.h.tap(btn::Fx1);
+    f.h.tap(btn::Copy);
+    SelRect all;
+    all.s0 = 0;
+    all.s1 = 15;
+    all.t0 = 0;
+    all.t1 = kTrackCount - 1;
+    f.a.copyToClipboard(all);
+    f.h.tap(btn::Fx2);
+    f.p.step = 4;
+    f.paste();
+    CHECK_EQ(int(f.cell(0, 4).note), 60);   // the whole step
+}
+
+TEST(stop_clears_the_queued_pattern_on_f1) {
+    Harness h;
+    App& a = *h.app;
+    pe(h);
+    const int num = a.patternNumber();
+    char cur[8];
+    std::snprintf(cur, sizeof(cur), "%d", num);
+    h.tap(btn::Play);
+    h.audio.pump(4);
+    h.down(btn::F1);
+    h.tap(btn::Right);
+    h.up(btn::F1);
+    CHECK(a.seq.isPlaying());
+    CHECK(a.seq.queuedPattern() != 0);
+    h.tap(btn::Play);           // stop
+    CHECK(!a.seq.isPlaying());
+    CHECK_EQ(a.seq.queuedPattern(), 0);
+    for (int k = 0; k < 8; ++k) h.run(100);   // past several 200 ms blinks
+    CHECK_STR(a.ui.bar.label[0].bottom, cur);
+    CHECK_EQ(a.patternNumber(), num);
+    CHECK(!a.ui.bar.label[0].highlight);
 }

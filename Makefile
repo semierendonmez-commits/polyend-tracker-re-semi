@@ -15,7 +15,9 @@
 # make fonts      -> regenerate the committed UI font image (src/core/ui/fonts/font_data.*,
 #                    the firmware's packed font_data_z.inc / font_adv.inc,
 #                    sim/third_party/rom_fonts.inc); needs python3 + Pillow
-VERSION   ?= 2.2.3
+# make export-sinc-table -> regenerate the committed weight table of the 44.1 kHz export
+#                    (src/core/audio/export_sinc_table.inc); needs python3
+VERSION   ?= 2.2.7
 BUILD     := build
 # Image file names must be exactly 24 characters (like the stock
 # "PolyendTracker_1.9.2.ptf"): the device's update bootloader rejected a
@@ -114,6 +116,11 @@ CORE_C    := $(wildcard $(CORE)/*.c)
 CORE_CXX  := $(filter-out $(CORE)/main.cpp,$(wildcard $(CORE)/*.cpp))
 APP_C     := $(shell find src -name '*.c') third_party/fatfs/ff.c third_party/fatfs/ffunicode.c
 APP_CXX   := $(shell find src -name '*.cpp')
+# The display command recorder (src/core/remote) is for the simulator and
+# the host tests only. Built into the image, its copy of the inline IDisplay
+# helpers (speculatively devirtualised towards the recorder) can be the one
+# the linker keeps.
+APP_CXX   := $(filter-out src/core/remote/%,$(APP_CXX))
 ifeq ($(OT_GAMES),0)
 APP_CXX   := $(filter-out src/core/games/%,$(APP_CXX))
 endif
@@ -133,7 +140,7 @@ OBJS      := $(patsubst %,$(BUILD)/%.o,$(CORE_C) $(CORE_CXX) $(APP_C) $(APP_CXX)
 #  - hal: ft81x.cpp (display SPI/DMA), sdhc.cpp (SD transfers), sdram_cache.cpp,
 #    audio_sgtl5000.cpp (I2S DMA ISRs), diag.cpp (USB drain / fault handler ISR),
 #    board.cpp (PORTC ISR), usb_storage.cpp (USB interrupt hook, SD block I/O for the computer).
-OS_DIRS   := src/core/ui/% src/core/app/% src/hal/% src/core/games/% src/core/formats/% \
+OS_DIRS   := src/core/ui/% src/core/app/% src/hal/% src/core/games/% src/core/formats/% src/core/gen/% \
              third_party/fatfs/%
 O2_KEEP   := src/core/app/app.cpp src/core/app/capture.cpp src/core/app/render.cpp \
              src/core/games/session.cpp \
@@ -253,6 +260,15 @@ fonts:
 	python3 -I tools/fonts/pack_fonts.py src/core/ui/fonts
 	$(MAKE) -C sim fonts
 .PHONY: fonts
+
+# Weight table of the 44.1 kHz export conversion (tools/gen_export_sinc.py,
+# audio/export_resampler.h): the generated file is committed, so ordinary
+# builds never run Python. The generated floats may differ in the last bit between
+# Python/libm builds, so tests/export_resampler_test.cpp checks the committed
+# table against the design with a tolerance.
+export-sinc-table:
+	python3 -I tools/gen_export_sinc.py src/core/audio/export_sinc_table.inc
+.PHONY: export-sinc-table
 
 # 2.x hardware-test projects (TESTSONGS.md): build/testsongs/Projects/<name>/.
 # SONGS="1 3" limits the set; songs whose milestone is not built are skipped.

@@ -140,8 +140,9 @@ void PerformanceScreen::start(int opt) {
         keyHeld_[t] = keyUsed_[t] = false;
         trackCcPending_[t] = false;
     }
-    // Step 3: FX enabled on every track. 2.x tracks 9-16 take the FX too
-    // but have no pattern override (the Tracker Mini stores 1-8 only).
+    // Step 3: FX off on every track until its key turns it on (stock 1.9.2,
+    // issue #86 stock check A1). 2.x tracks 9-16 take the
+    // FX too but have no pattern override (the Tracker Mini stores 1-8 only).
     for (int t = 0; t < kTrackCount; ++t) {
         fxOn[t] = !selectKeys();   // Select (stock): no track until a key picks it
         lit[t] = false;
@@ -238,10 +239,11 @@ void PerformanceScreen::edited() {
 // FX apply / revert (spec 12 §E)
 
 // Rebuild every track's performance state from the slots' current values and
-// push it to the engine and the sequencer. 2.x: all 16 tracks; the voice FX
-// (audio::PerfOffsets) exist on the sample tracks 1-8 only, tracks 9-16 take
-// the sequencer side (Volume as velocity offset, Tune as transpose, step
-// repeater, play mode; 2x-01 §5). A slot with cur = 0 is reverted;
+// push it to the engine and the sequencer. 2.x: all 16 tracks; the sample
+// voice FX (audio::PerfOffsets) exist on tracks 1-8; synth notes of every
+// track take the filter, pan and sends (issue #23, Engine::setSynthPerf);
+// every track takes the sequencer side (Volume as velocity offset, Tune as
+// transpose, step repeater, play mode; 2x-01 §5). A slot with cur = 0 is reverted;
 // disabled tracks are reverted; a global FX (Pattern length) is applied once
 // (spec 12 §E.1). FX types are exclusive, so at most one slot per type is
 // normally active; if two are, the higher slot wins.
@@ -322,6 +324,7 @@ void PerformanceScreen::applyAll(bool revertEverything) {
         // generator line plays its steps in Turing order (over Play Mode).
         if (tmKnob && !live::turingActive(t)) playMode = seq::kPlayFirstTuring;
         if (t < kMidiTrackStart) a.engine.setPerf(t, p);
+        a.engine.setSynthPerf(t, p);
         q.setPerfRepeat(t, repeat);
         q.setPerfPlayMode(t, playMode);
         q.setPerfVelocityOffset(t, velOff);
@@ -897,13 +900,12 @@ void PerformanceScreen::refreshBar() {
         else std::snprintf(v, sizeof(v), a.cfg.numbering == 2 ? "Patt: %02X" : "Patt: %d", shownPattern(t));
         // 1.9.2 manual: a highlighted label = FX applied to the track; the
         // text colour shows the mute state (spec 06 §3.3). Here "highlight"
-        // = not lit: Exclude lights the tracks that are off (stock), Select
-        // the tracks picked.
+        // = the red fill: Select (stock) fills the tracks picked, Exclude the
+        // tracks turned off.
         b.set(i, nm, v, !m);
-        b.highlight(i, selectKeys() ? !lit[t] : fxOn[t]);
+        b.highlight(i, selectKeys() ? lit[t] : !fxOn[t]);
         // Drawn by draw(): the stock bar shows no focus frames here
-        // [S snap 021], so "FX on" is the plain stock look and "FX off"
-        // greys the title only [I].
+        // [S snap 021]; "FX on" is the red fill, "FX off" the plain look.
         b.label[i].hidden = true;
     }
 }
@@ -1040,43 +1042,53 @@ void PerformanceScreen::draw(Gfx& g) {
             wg::bottomFade(g, th, nx, 279, 62, 145, bg);   // opaque, no text there
         }
     }
-    // Labels of tracks with performance FX turned off are lit red (stock 1.9.2,
-    // owner photo 2026-10-23: all tracks start enabled and unlit, spec 06 §3.1
-    // step 3; a track key release turns a track off and its label red). One
+    // Labels of tracks with performance FX turned on are lit red (stock 1.9.2,
+    // issue #86 stock check A1-A5: all tracks start off and
+    // plain; a track key release turns a track on and its label red). One
     // batched RECTS list (per-label fills cost ~10 display-list words each).
     {
         bool any = false;
         for (int t = 0; t < 8; ++t) {
-            if (ui_.bar.label[t].highlight) continue;   // highlight = not lit (refreshBar)
+            if (!ui_.bar.label[t].highlight) continue;   // highlight = FX on
             if (!any) g.rectsBegin(th.slot(slot::kFocusFrame));
             any = true;
             g.rectsAdd(100 * t + 3, 424, 95, 56);
         }
         if (any) g.rectsEnd();
     }
-    for (int t = 0; t < 8; ++t) {
-        const BarLabel& l = ui_.bar.label[t];
-        const int cx = wg::labelCentre(t);
-        uint32_t tc = th.slot(l.enabled && l.highlight ? slot::kBottomLabel : slot::kBottomLabelOff);
-        uint32_t vc = th.slot((l.enabled ? slot::kBottomLabel : slot::kBottomLabelOff) + 3);
-        if (!l.highlight) {
-            // On the red fill: white text while audible, black when muted
-            // (manual p.272 text colours).
-            tc = vc = l.enabled ? 0xFFFFFFu : 0x000000u;
+    // Name light grey, pattern number white, with or without the red fill; a
+    // muted track's text is black, so a muted track with its FX off looks
+    // blank (stock 1.9.2, issue #86 stock check A).
+    // All top lines first, then all values: one colour change per line kind,
+    // not per label (the display budget with all 8 labels lit).
+    for (int line = 0; line < 2; ++line)
+        for (int t = 0; t < 8; ++t) {
+            const BarLabel& l = ui_.bar.label[t];
+            const int cx = wg::labelCentre(t);
+            const uint32_t c = l.enabled ? th.slot(slot::kBottomLabel + (line ? 3 : 0)) : 0x000000u;
+            if (line == 0) {
+                g.text(cx, wg::kLabelY1, kFont3, c, l.top, IDisplay::kOptCenter);
+                continue;
+            }
+            const bool queued = pending_[t] || app_.seq.queuedTrackPattern(t) != 0;
+            if (!queued || blinkOn_ || ui_.shift()) g.text(cx, wg::kLabelY2, kFont2, c, l.bottom, IDisplay::kOptCenter);
         }
-        g.text(cx, wg::kLabelY1, kFont3, tc, l.top, IDisplay::kOptCenter);
-        const bool queued = pending_[t] || app_.seq.queuedTrackPattern(t) != 0;
-        if (!queued || blinkOn_ || ui_.shift()) g.text(cx, wg::kLabelY2, kFont2, vc, l.bottom, IDisplay::kOptCenter);
-    }
     drawScenes(g);   // OT fork: Fx1 / Fx2 held
-    if (learn) {   // OT fork MIDI learn: each column's control, the target framed
-        for (int c = 0; c < perf::kSlots; ++c) {
-            const int x = 11 + 65 * c;
-            char nm[12];
-            midiName(app_.cfg.perfMidi[c], nm, sizeof(nm));
-            g.fill(x, 72, 63, 18, c == learnTarget ? th.accent : th.panel2);
-            g.text(x + 31, 81, kFont1, c == learnTarget ? th.bg : th.text, nm, IDisplay::kOptCenter);
-        }
+    if (learn && !sceneKeys()) {   // OT fork MIDI learn: each column's control, the target framed (scenes: drawScenes)
+        // One batched RECTS list for the 12 boxes (per-box fills put the
+        // frame past the display-list guard on top of the stock labels).
+        g.rectsBegin(th.panel2);
+        for (int c = 0; c < perf::kSlots; ++c)
+            if (c != learnTarget) g.rectsAdd(11 + 65 * c, 72, 63, 18);
+        g.rectsEnd();
+        if (learnTarget >= 0 && learnTarget < perf::kSlots) g.fill(11 + 65 * learnTarget, 72, 63, 18, th.accent);
+        for (int pass = 0; pass < 2; ++pass)   // one colour change per kind of text
+            for (int c = 0; c < perf::kSlots; ++c) {
+                if ((c == learnTarget) != (pass == 1)) continue;
+                char nm[12];
+                midiName(app_.cfg.perfMidi[c], nm, sizeof(nm));
+                g.text(11 + 65 * c + 31, 81, kFont1, pass ? th.bg : th.text, nm, IDisplay::kOptCenter);
+            }
     }
 }
 

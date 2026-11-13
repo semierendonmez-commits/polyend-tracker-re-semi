@@ -2,10 +2,12 @@
 // and appendix E; spec 10 §1.5, §3.3, §4 legacy projects) and instrument
 // import/delete (spec 06 §5.4).
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 
 #include "app/app.h"
+#include "app/synth_presets.h"
 #include "app/project_fields.h"
 #include "app/project_io.h"
 #include "app/stream_policy.h"
@@ -153,9 +155,10 @@ int patternFileNumber(const char* n, const char* ext = ".mtp") {
     return eqNoCase(canon, n) ? num : 0;
 }
 
-// Workspace "instrument_NN.pti" / ".mti" (case-insensitive, as the FatFs
-// existence checks they replace): slot NN (1..48) and *mti, else 0.
-int workspaceInstrumentSlot(const char* n, bool* mti) {
+// Workspace "instrument_NN.pti" / ".mti" / ".src" (case-insensitive, as the
+// FatFs existence checks they replace): slot NN (1..48) and *kind (0 .pti,
+// 1 .mti, 2 .src: the slot streams from the project file it names), else 0.
+int workspaceInstrumentSlot(const char* n, int* kind) {
     if (std::strlen(n) != 17) return 0;
     char pre[12];
     std::memcpy(pre, n, 11);
@@ -165,10 +168,68 @@ int workspaceInstrumentSlot(const char* n, bool* mti) {
     if (a < '0' || a > '9' || b < '0' || b > '9') return 0;
     const int num = (a - '0') * 10 + (b - '0');
     if (num < 1 || num > kSampleInstrumentCount) return 0;
-    if (eqNoCase(n + 13, ".pti")) *mti = false;
-    else if (eqNoCase(n + 13, ".mti")) *mti = true;
+    if (eqNoCase(n + 13, ".pti")) *kind = 0;
+    else if (eqNoCase(n + 13, ".mti")) *kind = 1;
+    else if (eqNoCase(n + 13, ".src")) *kind = 2;
     else return 0;
     return num;
+}
+
+// Issue #184: Workspace/instruments/instrument_NN.src, "<data offset>
+// <payload bytes> <path>\n": the slot's samples are read from the project
+// file <path> until the autosave has copied it to instrument_NN.pti (which
+// is incomplete or missing while the marker exists).
+void streamMarkerPath(char* out, size_t cap, int slot) {
+    std::snprintf(out, cap, "%s/instruments/instrument_%02d.src", kWorkspace, slot + 1);
+}
+// instrument_NN.hdr: the header block of a slot whose copy is not made yet
+// (edits saved before the copy; applied over the project file's header).
+void streamHeaderPath(char* out, size_t cap, int slot) {
+    std::snprintf(out, cap, "%s/instruments/instrument_%02d.hdr", kWorkspace, slot + 1);
+}
+// A .pti as long as its own header says (data offset + payload).
+bool ptiComplete(IStorage& f, const char* path, uint8_t* hdr) {
+    IStorage::Handle h = f.open(path, IStorage::kRead);
+    if (h < 0) return false;
+    const int32_t size = f.size(h);
+    const int32_t got = size > 0 ? f.read(h, hdr, pti::kHeaderBlockSize) : 0;
+    f.close(h);
+    Instrument ins;
+    PtiLoadInfo li;
+    if (got <= 0 || decodePtiHeader(hdr, size_t(got), ins, &li) != FmtStatus::Ok || !ins.lengthFrames) return false;
+    const uint64_t need = uint64_t(li.dataOffset) + uint64_t(ins.lengthFrames) * 2u * (ins.stereo ? 2u : 1u);
+    return uint64_t(size) >= need;
+}
+bool readStreamMarker(IStorage& f, int slot, char* path, size_t cap, uint32_t* dataOff, uint32_t* payload) {
+    char p[64], buf[400];
+    streamMarkerPath(p, sizeof(p), slot);
+    uint32_t got = 0;
+    if (readWholeFile(f, p, reinterpret_cast<uint8_t*>(buf), sizeof(buf) - 1, &got) != FmtStatus::Ok) return false;
+    buf[got] = 0;
+    char* e = nullptr;
+    const unsigned long off = std::strtoul(buf, &e, 10);
+    if (e == buf || *e != ' ') return false;
+    char* q = e + 1;
+    const unsigned long pay = std::strtoul(q, &e, 10);
+    if (e == q || *e != ' ') return false;
+    char* name = e + 1;
+    char* nl = std::strchr(name, '\n');
+    if (!nl || nl == name || size_t(nl - name) >= cap) return false;
+    *nl = 0;
+    std::snprintf(path, cap, "%s", name);
+    if (dataOff) *dataOff = uint32_t(off);
+    if (payload) *payload = uint32_t(pay);
+    return true;
+}
+bool writeStreamMarker(IStorage& f, int slot, const char* path, uint32_t dataOff, uint32_t payload) {
+    char p[64], buf[400];
+    streamMarkerPath(p, sizeof(p), slot);
+    const int n = std::snprintf(buf, sizeof(buf), "%lu %lu %s\n", static_cast<unsigned long>(dataOff),
+                                static_cast<unsigned long>(payload), path);
+    if (n <= 0 || n >= int(sizeof(buf))) return false;
+    if (writeWholeFile(f, p, reinterpret_cast<const uint8_t*>(buf), uint32_t(n)) == FmtStatus::Ok) return true;
+    f.remove(p);
+    return false;
 }
 
 // One scan of a project folder's instruments/, samples/ and patterns/
@@ -183,10 +244,14 @@ struct SlotScan {
     bool hasMti[kSampleInstrumentCount];
     bool hasWav[kSampleInstrumentCount];
     int8_t ptiName[kSampleInstrumentCount];   // collected-name index of the slot's .pti, -1 none
+    uint8_t src[(kSampleInstrumentCount + 7) / 8];   // Workspace: instrument_NN.src (issue #184)
     uint8_t patBits[(kPatternCount + 8) / 8];
     uint8_t patTmp[(kPatternCount + 8) / 8];   // pattern_NN.mtp.tmp (interrupted write)
     // Synth slot patches in the folder root (spec 21 §2): N.patch, N.patch.tmp.
     bool patch[kSynthSlotCount], patchTmp[kSynthSlotCount];
+    // [OT] presets/<n>.patch (n = 1..8), .patch.tmp; presetsDir: the folder exists.
+    bool preset[kSynthPresetCount], presetTmp[kSynthPresetCount];
+    bool presetsDir;
     bool namesFile;
     bool collect;      // collect instrument file names into `names`
     bool workspace;    // Workspace naming (instrument_NN.pti)
@@ -202,8 +267,13 @@ bool scanInstrFn(const IStorage::DirEntry& e, void* ctx) {
     s->instrBytes += e.size;
     ++s->files;
     if (s->workspace) {
-        bool mti = false;
-        if (int n = workspaceInstrumentSlot(e.name, &mti)) {
+        int kind = 0;
+        if (int n = workspaceInstrumentSlot(e.name, &kind)) {
+            if (kind == 2) {
+                s->src[(n - 1) >> 3] = uint8_t(s->src[(n - 1) >> 3] | (1u << ((n - 1) & 7)));
+                return true;
+            }
+            const bool mti = kind == 1;
             (mti ? s->hasMti : s->hasPti)[n - 1] = true;
             // The payload too (the memory checks and Auto streaming's
             // over-budget test counted 0 for every Workspace instrument).
@@ -262,13 +332,24 @@ int patchFileSlot(const char* n, bool* tmp) {
 }
 bool scanRootFn(const IStorage::DirEntry& e, void* ctx) {
     auto* s = static_cast<SlotScan*>(ctx);
-    if (e.isDir) return true;
+    if (e.isDir) {
+        if (eqNoCase(e.name, "presets")) s->presetsDir = true;
+        return true;
+    }
     bool tmp = false;
     const int k = patchFileSlot(e.name, &tmp);
     if (k < 0) return true;
     (tmp ? s->patchTmp : s->patch)[k] = true;
     s->patBytes += e.size;
     ++s->files;
+    return true;
+}
+bool scanPresetFn(const IStorage::DirEntry& e, void* ctx) {
+    auto* s = static_cast<SlotScan*>(ctx);
+    const char* n = e.name;
+    if (e.isDir || n[0] < '1' || n[0] > char('0' + kSynthPresetCount)) return true;
+    if (eqNoCase(n + 1, ".patch")) s->preset[n[0] - '1'] = true;
+    else if (eqNoCase(n + 1, ".patch.tmp")) s->presetTmp[n[0] - '1'] = true;
     return true;
 }
 inline bool bitOf(const uint8_t* b, int n) { return (b[n >> 3] >> (n & 7)) & 1; }
@@ -296,6 +377,22 @@ void scanSlots(IStorage& f, const char* dir, SlotScan& s, bool workspace = false
         f.listDir(p, scanPatFn, &s);
         // Folder root: the synth slot patches (N.patch).
         f.listDir(dir, scanRootFn, &s);
+        if (s.presetsDir) {
+            std::snprintf(p, sizeof(p), "%s/presets", dir);
+            f.listDir(p, scanPresetFn, &s);
+        }
+    }
+}
+
+// Issue #184: a Workspace slot with a marker counts its project file's
+// payload (its .pti there is incomplete or missing).
+void markerPayloads(IStorage& f, SlotScan& s) {
+    char path[340];
+    for (int i = 0; i < kSampleInstrumentCount; ++i) {
+        uint32_t pay = 0;
+        if (!bitOf(s.src, i) || !readStreamMarker(f, i, path, sizeof(path), nullptr, &pay)) continue;
+        s.hasPti[i] = true;
+        s.ptiPayload[i] = pay;
     }
 }
 
@@ -311,6 +408,11 @@ bool writeAtomic(IStorage& f, const char* path, const uint8_t* buf, uint32_t len
     }
     if (f.exists(path) && !f.remove(path)) return false;
     return f.rename(tmp, path);
+}
+
+// n = 1..8.
+void presetPath(char* out, size_t cap, const char* dir, int n, const char* suffix = "") {
+    std::snprintf(out, cap, "%s/presets/%d.patch%s", dir, n, suffix);
 }
 
 void patchPath(char* out, size_t cap, const char* dir, int s, const char* suffix = "") {
@@ -356,7 +458,8 @@ bool writePatchAtomic(IStorage& f, const char* path, const uint8_t* buf, uint32_
 // Extra field (written last by writePatchAtomic) and has the full expected
 // size: it re-encodes to exactly its own `len` bytes (encBuf: scratch of
 // kPatchMaxFileSize bytes). A file cut right after Extra loses only the [OT]
-// extension parameters (field 16, after Extra): it plays mono.
+// fields after it: the extension parameters (field 16: it plays mono) and a
+// preset's mix (field 17: the preset keeps the slot's).
 bool completePatch(const uint8_t* b, uint32_t len, SynthPatch* scratchPatch, uint8_t* encBuf) {
     if (!len || decodePatch(b, len, scratchPatch) != PatchStatus::kOk || !scratchPatch->extraPresent) return false;
     size_t n = 0;
@@ -530,7 +633,9 @@ bool App::projectExists(const char* folder, const char* name) {
 }
 
 bool App::newProject() {
-    // spec 05 appendix E3: flush a running job first.
+    // spec 05 appendix E3: flush a running job first (no copies of streamed
+    // instruments: the Workspace goes).
+    if (pj_.op == JobOp::Autosave) pj_.copies = StreamCopies::kNone;
     finishJob();
     // spec 05 appendix E3 NEW PROJECT: update recents with the current project.
     recentsLeaveCurrent(*this);
@@ -539,6 +644,8 @@ bool App::newProject() {
     allVoicesOff();
     IStorage& f = fs();
     removeTree(kWorkspace);
+    std::memset(srcMarker_, 0, sizeof(srcMarker_));
+    std::memset(copyFailed_, 0, sizeof(copyFailed_));
     if (!f.mkdir(kWorkspace)) return false;
     f.mkdir("Workspace/instruments");
     f.mkdir("Workspace/patterns");
@@ -562,6 +669,7 @@ bool App::newProject() {
     resetPatternStore();
     std::memset(extKeep_, 0, sizeof(extKeep_));
     loadNotice_[0] = 0;
+    resetSynthPresets();
     setPresent(1, true);
     assemblePattern(1, pattern());
     attachSequencer();
@@ -621,6 +729,8 @@ enum Stage : uint8_t {
     kABegin, kAPatterns, kANames, kAInstr, kAProject, kAFinish,
     kSDirs, kSPatterns, kSNames, kSCleanList, kSClean, kSInstr, kSFinish,
     kLPatch, kAPatch, kSPatch,   // Tracker Mini synth slot patches (spec 21 §7)
+    kLPresets, kAPresets, kSPresets,   // [OT] presets/<n>.patch (app/synth_presets.cpp)
+    kACopy,   // streamed instruments: project file -> Workspace (issue #184)
 };
 // Patterns of a Workspace load that were not in the 16-track layout: the
 // autosave rewrites them as 0x3030 (not "unsaved": the content is the same).
@@ -711,6 +821,8 @@ public:
         return s->seek(h, pos);
     }
     int32_t size(Handle h) override { return s->size(h); }
+    bool reserve(Handle h, uint32_t bytes) override { return dirOp([&] { return s->reserve(h, bytes); }); }
+    bool truncate(Handle h) override { return s->truncate(h); }
     void close(Handle h) override {
         ProfScope p(g_ticks.open);
         s->close(h);
@@ -876,6 +988,9 @@ void App::jobEnd() {
     void* ctx = pj_.ctx;
     lastJobOk_ = ok;
     lastJobErrors_ = pj_.loadErrors;
+    // [OT] A job other than the autosave may have written the store directly
+    // (load, import): every Z chase summary is rebuilt from what it left.
+    if (pj_.op != JobOp::Autosave) chase::invalidateAll();
     pj_ = ProjectJob{};
     g_prof.running = false;
     if (popup) ui.progressDone();
@@ -937,8 +1052,9 @@ bool App::serviceProjectJob() {
         if ((elapsed && pj_.stage != stage) || left < 500) break;
         // A file create in a large folder is the longest unit: give it a pass
         // of its own.
-        const bool create = pj_.fromProject && ((pj_.stage == kLPatterns && pj_.phase == 1) ||
-                                                (pj_.stage == kLSlots && pj_.phase == 6));
+        const bool create = (pj_.fromProject && ((pj_.stage == kLPatterns && pj_.phase == 1) ||
+                                                 (pj_.stage == kLSlots && (pj_.phase == 6 || pj_.phase == 8)))) ||
+                            (pj_.stage == kACopy && pj_.phase == 0);
         if (create && elapsed) break;
         g_unitBudgetUs = left;
     }
@@ -956,6 +1072,12 @@ bool App::serviceProjectJob() {
 }
 
 void App::finishJob() {
+    // A blocking caller does not wait for copies of streamed instruments.
+    if (pj_.op == JobOp::Autosave) pj_.copies = StreamCopies::kNone;
+    runJob();
+}
+
+void App::runJob() {
     while (serviceProjectJob()) {
         // Blocking callers (boot, power-off): keep the popup moving
         // (spec 05 §1.3: progress refresh every > 50 ms).
@@ -969,7 +1091,7 @@ void App::finishJob() {
 // One chunk of a file copy. Returns true when the copy is finished (or
 // failed: *failed set). The target is created or truncated (FatFs
 // FA_CREATE_ALWAYS); chunks end on kJobChunk-aligned offsets.
-bool App::jobCopyUnit(const char* from, const char* to, uint32_t& cost, bool* failed) {
+bool App::jobCopyUnit(const char* from, const char* to, uint32_t& cost, bool* failed, bool reserve) {
     IStorage& f = g_pfs;
     if (pj_.phase == 0) {
         pj_.in = f.open(from, IStorage::kRead);
@@ -989,6 +1111,8 @@ bool App::jobCopyUnit(const char* from, const char* to, uint32_t& cost, bool* fa
         pj_.len = sz > 0 ? uint32_t(sz) : 0;
         pj_.pos = 0;
         pj_.phase = 1;
+        // A contiguous file when the card has the run (a stream can bind it).
+        if (reserve && pj_.len) f.reserve(pj_.out, pj_.len);
         cost += kJobSmallCost;
         pj_.done += kJobSmallCost;
     }
@@ -1198,25 +1322,65 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
     auto endSlot = [&]() {
         jobCloseFiles();
         pj_.phase = pj_.wphase = 0;
-        pj_.slotFromWorkspace = false;
         return true;
     };
-    // Open copies the project's file into the Workspace while loading; a slot
-    // whose stream bind fell back restarts from that finished copy instead.
-    const bool fromProject = pj_.fromProject && !pj_.slotFromWorkspace;
+    // Issue #184: a Workspace slot with a marker loads from the project file
+    // it names, like Open: streamed from there, or copied while loading.
+    const bool marked = !pj_.fromProject && bitOf(g_scan.src, slot);
+    // Open copies the project's file into the Workspace while loading, or,
+    // when the slot streams, streams it from there (copied later).
+    const bool fromProject = pj_.fromProject || marked;
     uint8_t* bankBytes = reinterpret_cast<uint8_t*>(bank.tail());
+    auto sourcePath = [&](char* out, size_t cap) {
+        if (marked) return readStreamMarker(f, slot, out, cap, nullptr, nullptr);
+        // spec 10 §4.2 step 4: the slot's first "<N> <name>.pti", else
+        // the legacy instrument_NN.mti.
+        if (g_scan.ptiName[slot] >= 0) std::snprintf(out, cap, "%s/instruments/%.63s", pj_.dir, g_list[g_scan.ptiName[slot]]);
+        else if (g_scan.hasMti[slot]) mtiPath(out, cap, pj_.dir, slot + 1);
+        else return false;
+        return true;
+    };
+    // The marker's project file is gone: the slot loads empty, and the
+    // Workspace no longer names it.
+    auto sourceMissing = [&]() {
+        jobCloseFiles();
+        f.remove(path);
+        dropStreamMarker(slot);
+        instruments[slot].setDefault();
+        instrPresent[slot] = false;
+        pj_.kind[slot] = 0;
+        pj_.modes[slot] = instruments[slot].playMode;
+        if (!loadNotice_[0])
+            std::snprintf(loadNotice_, sizeof(loadNotice_), "Instrument %u: project file missing", unsigned(uint8_t(slot + 1)));
+        pj_.phase = pj_.wphase = 0;
+        return true;
+    };
 
     if (pj_.phase == 0) {
         // spec 10 §3.3 steps 1-2.
         pj_.modes[slot] = instruments[slot].playMode;
         pj_.kind[slot] = 0;
+        pj_.streamThis = pj_.copyBad = false;
         char src[340];
         if (fromProject) {
-            // spec 10 §4.2 step 4: the slot's first "<N> <name>.pti", else
-            // the legacy instrument_NN.mti.
-            if (g_scan.ptiName[slot] >= 0) std::snprintf(src, sizeof(src), "%s/instruments/%.63s", pj_.dir, g_list[g_scan.ptiName[slot]]);
-            else if (g_scan.hasMti[slot]) mtiPath(src, sizeof(src), pj_.dir, slot + 1);
-            else return true;
+            if (!sourcePath(src, sizeof(src))) {
+                if (!marked) return true;
+                // A damaged marker (cut while written): a complete Workspace
+                // file loads as usual, else the slot stays empty.
+                cost += kJobSmallCost;
+                const bool keep = ptiComplete(f, path, mem_.scratch);
+                dropStreamMarker(slot);
+                g_scan.src[slot >> 3] = uint8_t(g_scan.src[slot >> 3] & ~(1u << (slot & 7)));
+                if (keep) {
+                    g_scan.hasPti[slot] = true;
+                    return false;   // again, from the Workspace file
+                }
+                f.remove(path);
+                if (!loadNotice_[0])
+                    std::snprintf(loadNotice_, sizeof(loadNotice_), "Instrument %u could not be restored", unsigned(uint8_t(slot + 1)));
+                return true;
+            }
+            if (marked) setBitOf(srcMarker_, slot, true);
         } else {
             if (!g_scan.hasPti[slot]) {
                 cost += kJobProbeCost;
@@ -1234,6 +1398,7 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
         pj_.done += kJobSmallCost;
         pj_.in = f.open(src, IStorage::kRead);
         if (pj_.in < 0) {
+            if (marked) return sourceMissing();
             ++pj_.loadErrors;
             return true;
         }
@@ -1262,6 +1427,22 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
                 pj_.modes[slot] = ins.playMode;
             }
         }
+        if (marked && pj_.kind[slot] != 1) return sourceMissing();
+        if (marked) {
+            // Header edits saved before the copy (instrument_NN.hdr).
+            char hp[64];
+            streamHeaderPath(hp, sizeof(hp), slot);
+            uint32_t hg = 0;
+            Instrument h;
+            if (readWholeFile(f, hp, mem_.scratch, pti::kHeaderBlockSize, &hg) == FmtStatus::Ok &&
+                decodePtiHeader(mem_.scratch, hg, h) == FmtStatus::Ok) {
+                h.lengthFrames = instruments[slot].lengthFrames;
+                h.stereo = instruments[slot].stereo;
+                instruments[slot] = h;
+                pj_.modes[slot] = h.playMode;
+            }
+            cost += kJobSmallCost;
+        }
         if (pj_.kind[slot] == 1) {
             const uint32_t off = pj_.dataOff[slot];
             const uint32_t payload = uint32_t(size) > off ? uint32_t(size) - off : 0;
@@ -1273,6 +1454,7 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
                 instrPresent[slot] = false;
                 ++pj_.loadErrors;
                 pj_.kind[slot] = 0;
+                pj_.streamThis = false;
                 if (!fromProject) return endSlot();
             } else {
                 pj_.srcFrames = lay.frames;
@@ -1282,7 +1464,7 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
                 pj_.nRanges = 1;
                 pj_.ranges[0] = {off, count * 2, 0};
                 planStreamRanges(slot, lay.frames, lay.useStereo, off);   // SD streaming: head-only ranges
-                if (fromProject) {
+                if (fromProject && !pj_.streamThis) {
                     // Payload bytes already in the header block (short header).
                     for (int r = 0; r < pj_.nRanges; ++r) {
                         const ProjectJob::BankRange& g = pj_.ranges[r];
@@ -1296,12 +1478,15 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
                     if (pj_.pos != first && !f.seek(pj_.in, first)) return clearSlot(true);
                     pj_.pos = first;
                     pj_.len = last.fileOff + last.len;
+                    // Issue #184: a streamed slot is read in place, not copied
+                    // (the progress counted its copy).
+                    if (pj_.fromProject && pj_.streamThis) pj_.done += 2u * uint64_t(size) - pj_.capLen;
                 }
             }
         }
         // Open: the Workspace copy is created in a unit of its own (a FatFs
         // create scans the folder once per "~N" short-name candidate).
-        pj_.phase = fromProject ? 6 : 1;
+        pj_.phase = fromProject && !pj_.streamThis ? 6 : 1;
         return false;
     }
 
@@ -1363,11 +1548,13 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
                 ++pj_.loadErrors;
                 f.close(pj_.out);
                 pj_.out = -1;
+                pj_.copyBad = true;
             }
             pj_.pos += got;
-            cost += fromProject ? 2 * got : got;
-            pj_.done += fromProject ? 2 * got : got;
+            cost += pj_.out >= 0 ? 2 * got : got;
+            pj_.done += pj_.out >= 0 ? 2 * got : got;
             if (got < want) {
+                pj_.copyBad = true;
                 // Short file / read error: the rest of the samples reads as
                 // zero (as loadInstrumentFile; a half sample counts as missing).
                 for (int r = 0; r < pj_.nRanges && pj_.capLen; ++r) {
@@ -1383,7 +1570,16 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
         }
         if (moved && pj_.out >= 0) return false;   // close the copy in the next unit
         if (pj_.out >= 0) g_unitClose = true;
+        const bool copied = pj_.out >= 0 && !pj_.copyBad;
         jobCloseFiles();
+        // Issue #184: the Workspace copy of a marked slot is complete; it
+        // takes the slot's header (edits kept in instrument_NN.hdr).
+        if (marked && copied) {
+            Instrument hi = instruments[slot];
+            hi.lengthFrames = pj_.srcFrames;
+            hi.stereo = pj_.srcStereo;
+            if (pj_.kind[slot] != 1 || saveInstrumentHeader(f, path, hi) == FmtStatus::Ok) dropStreamMarker(slot);
+        }
         if (pj_.kind[slot] == 1) {
             ProfScope c(g_ticks.commit);
             if (!kLittleEndian) {
@@ -1416,18 +1612,43 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
     }
 
     // SD streaming: bind the head-only slot's stream (FAT chain walk + self-check).
+    // Open (issue #184): from the project's own file; the Workspace copy is
+    // made by the autosave later.
     if (pj_.phase == 7) {
         cost += kJobSmallCost;
-        if (bindStreamSlot(slot, path)) {
-            instrPresent[slot] = true;
+        char src[340];
+        const bool onSource = fromProject && sourcePath(src, sizeof(src));
+        if ((onSource || !fromProject) && bindStreamSlot(slot, onSource ? src : path)) {
             pj_.streamThis = false;
+            if (onSource) setBitOf(streamSrc_, slot, true);
+            if (pj_.fromProject) {
+                pj_.phase = 8;   // the marker (a file create: a unit of its own)
+                return false;
+            }
+            instrPresent[slot] = true;
             return endSlot();
         }
-        // Fallback: the slot reloads whole from its Workspace copy.
+        // Fallback: the slot reloads whole (Open: and is copied while loading).
         bank.remove(slot);
         pj_.noStream[slot / 8] = uint8_t(pj_.noStream[slot / 8] | (1u << (slot % 8)));
         pj_.streamThis = false;
-        pj_.slotFromWorkspace = true;
+        pj_.phase = 0;
+        return false;
+    }
+    if (pj_.phase == 8) {
+        cost += kJobSmallCost;
+        char src[340];
+        const uint32_t off = pj_.dataOff[slot];
+        const uint32_t payload = pj_.fileSize[slot] > off ? pj_.fileSize[slot] - off : 0;
+        if (sourcePath(src, sizeof(src)) && writeStreamMarker(f, slot, src, off, payload)) {
+            setBitOf(srcMarker_, slot, true);
+            instrPresent[slot] = true;
+            return endSlot();
+        }
+        // No marker, no deferred copy: the slot loads whole while copying.
+        streamUnbind(slot);
+        bank.remove(slot);
+        pj_.noStream[slot / 8] = uint8_t(pj_.noStream[slot / 8] | (1u << (slot % 8)));
         pj_.phase = 0;
         return false;
     }
@@ -1497,6 +1718,147 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
     if (!jobPtiWriteUnit(slot, path, cost, &failed)) return false;
     if (failed) ++pj_.loadErrors;
     pj_.phase = 0;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Issue #184: deferred copies of streamed instruments. Open streams a long
+// instrument from the project's own file; the autosave copies that file to
+// the Workspace (all of them while nothing plays, an edited one at once),
+// removes the marker, then moves the stream to the copy.
+
+void App::dropStreamMarker(int slot) {
+    char p[64];
+    streamHeaderPath(p, sizeof(p), slot);
+    fs().remove(p);
+    streamMarkerPath(p, sizeof(p), slot);
+    if (fs().remove(p) || !fs().exists(p)) setBitOf(srcMarker_, slot, false);
+}
+
+void App::streamFilePath(int slot, char* out, size_t cap) {
+    if (!streamCopyPending(slot) || !readStreamMarker(fs(), slot, out, cap, nullptr, nullptr))
+        workspaceInstrumentPath(out, cap, kWorkspace, slot + 1);
+}
+
+// The whole sample of `slot` from `path` into the bank in place of its head
+// (read after the last instrument first: the head stays until it is in).
+bool App::loadWholeFrom(int slot, const char* path) {
+    int16_t* at = bank.tail();
+    Instrument ins;
+    PtiSampleLayout lay;
+    if (loadInstrumentFile(fs(), path, ins, at, uint32_t(bank.freeSamples()), true, &lay) != FmtStatus::Ok) return false;
+    allVoicesOff();
+    const uint32_t n = ins.lengthFrames * (ins.stereo ? 2u : 1u);
+    const Instrument prev = instruments[slot];
+    streamUnbind(slot);
+    bank.remove(slot);
+    std::memmove(bank.tail(), at, size_t(n) * sizeof(int16_t));
+    bank.commitTail(slot, ins.lengthFrames, ins.stereo);
+    refreshStreamSources();
+    Instrument keep = prev;
+    keep.lengthFrames = bank.frames(slot);
+    keep.stereo = bank.stereo(slot);
+    instruments[slot] = keep;
+    return true;
+}
+
+// The stream of `slot` reads its finished Workspace copy from here on (the
+// same bytes: the binding changes between two refills, in the main loop).
+// A copy that cannot stream loads whole; without the memory the stream stays
+// on the project file (a Save into that folder replaces the file: the user
+// is told to open the project again).
+void App::rebindToWorkspace(int slot, const char* wsPath) {
+    const int k = stream_.streamOf[slot];
+    if (k < 0 || !hal_.streamReader) {
+        setBitOf(streamSrc_, slot, false);
+        return;
+    }
+    uint8_t* hdr = mem_.scratch;
+    uint32_t got = 0;
+    Instrument ins;
+    PtiLoadInfo li;
+    audio::StreamSource& s = stream_.src[k];
+    audio::StreamBindInfo info;
+    if (readWholeFile(fs(), wsPath, hdr, pti::kHeaderBlockSize, &got) == FmtStatus::Ok &&
+        decodePtiHeader(hdr, got, ins, &li) == FmtStatus::Ok &&
+        hal_.streamReader->bind(s, wsPath, li.dataOffset, s.headR != nullptr, &info)) {
+        setBitOf(streamSrc_, slot, false);
+        return;
+    }
+    if (!capture.active() && loadWholeFrom(slot, wsPath)) return;
+    if (pj_.op == JobOp::Save) {
+        char msg[64];
+        std::snprintf(msg, sizeof(msg), "Instrument %u: open the project again to play it", unsigned(uint8_t(slot + 1)));
+        ui.notify(msg, 4000);
+    }
+}
+
+bool App::jobStreamCopyUnit(uint32_t& cost) {
+    IStorage& f = g_pfs;
+    // The periodic autosave copies only while nothing plays, and does not
+    // try again after a project file was found missing.
+    if (pj_.copies == StreamCopies::kIdle && !copyIdle()) pj_.copies = StreamCopies::kNone;
+    auto wanted = [&](int i) {
+        if (!bit(streamSrc_, i) || pj_.copies == StreamCopies::kNone) return false;
+        // Copied before, still on the project file: bind again.
+        if (!bit(srcMarker_, i)) return true;
+        return pj_.copies == StreamCopies::kAll || !bit(copyFailed_, i);
+    };
+    char ws[340];
+    int i = pj_.idx;
+    if (pj_.phase != 0 && !wanted(i)) {
+        // Given up (playback started, New / Open): the marker still names the
+        // project file; the next copy starts over.
+        jobCloseFiles();
+        pj_.phase = 0;
+        ++pj_.idx;
+        return true;
+    }
+    if (pj_.phase == 0) {
+        while (i < kSampleInstrumentCount && !wanted(i)) ++i;
+        pj_.idx = i;
+        if (i >= kSampleInstrumentCount) return false;
+    }
+    workspaceInstrumentPath(ws, sizeof(ws), kWorkspace, i + 1);
+    if (!bit(srcMarker_, i)) {
+        cost += kJobSmallCost;
+        rebindToWorkspace(i, ws);
+        ++pj_.idx;
+        return true;
+    }
+    char src[340] = "";
+    if (pj_.phase == 0 && !readStreamMarker(f, i, src, sizeof(src), nullptr, nullptr)) {
+        cost += kJobSmallCost;
+        ++pj_.loadErrors;
+        ++pj_.idx;
+        return true;
+    }
+    bool failed = false;
+    if (!jobCopyUnit(src, ws, cost, &failed, pj_.copies >= StreamCopies::kIdle)) return true;
+    ++pj_.idx;
+    if (failed || pj_.pos < pj_.len) {
+        // The project file went away (or the card is full): the stream keeps
+        // the marker; a restart then loads the slot empty.
+        f.remove(ws);
+        ++pj_.loadErrors;
+        if (!bit(copyFailed_, i) || pj_.copies == StreamCopies::kAll) {
+            char msg[48];
+            std::snprintf(msg, sizeof(msg), "Instrument %u: project file missing", unsigned(uint8_t(i + 1)));
+            ui.notify(msg, 4000);
+        }
+        setBitOf(copyFailed_, i, true);
+        return true;
+    }
+    g_unitClose = true;
+    // The Workspace file is whole, with the slot's header: it is the
+    // instrument from here on.
+    if (saveInstrumentHeader(f, ws, instruments[i]) != FmtStatus::Ok) {
+        ++pj_.loadErrors;
+        return true;
+    }
+    setBitOf(copyFailed_, i, false);
+    dropStreamMarker(i);
+    if (!bit(srcMarker_, i)) rebindToWorkspace(i, ws);
     return true;
 }
 
@@ -1594,7 +1956,7 @@ bool App::loadPatternBytes(int num, const uint8_t* file, uint32_t len, uint8_t* 
     ctx.beatSliceReference = project.beatSliceReference();
     Track* ext = reinterpret_cast<Track*>(mem_.scratch + kExtOff);
     PatternLoadInfo li;
-    clearExtTracks(num);
+    clearExtTracks(num);   // also drops the Z chase summary
     PatternStock& st = storedStock(num);
     decodePattern16(file, len, st, ext, &ctx, &li);
     bool fit = true;
@@ -1651,7 +2013,12 @@ bool App::resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile) {
     if (haveFile) {
         const PatchStatus st = len > kPatchMaxFileSize ? PatchStatus::kTooLarge : decodePatch(buf, len, tmp);
         if (st == PatchStatus::kOk && tmp->engine == engine) {
+            // [OT] A preset's mix, name and polyphony are not the slot's
+            // (fields 17-19): the next save writes the slot's file again
+            // without them.
+            if (tmp->mixCount || tmp->presetNameLen || tmp->polyPresent) patchDirty_[s] = true;
             patches_[s] = *tmp;
+            patchStripPreset(patches_[s]);
             patchSrc_[s] = PatchSource::File;
             return true;
         }
@@ -1666,6 +2033,7 @@ bool App::resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile) {
         if (readWholeFile(fs(), path, mem_.scratch, kPatchMaxFileSize + 1, &got) == FmtStatus::Ok && got <= kPatchMaxFileSize &&
             decodePatch(mem_.scratch, got, tmp) == PatchStatus::kOk && tmp->engine == engine) {
             patches_[s] = *tmp;
+            patchStripPreset(patches_[s]);
             patchSrc_[s] = PatchSource::Library;
             return true;
         }
@@ -1703,6 +2071,47 @@ bool App::savePatch(int s, const char* dir) {
 // decodes the copied bytes; a Workspace load reads Workspace/N.patch. An
 // orphan N.patch.tmp that is complete stands in for a missing file (and is
 // renamed back in the Workspace); any other leftover .tmp is deleted.
+// Preset n (1..8) into memory. Open copies its file to the Workspace first; a
+// file that does not decode leaves the entry empty and stays on the card.
+void App::loadPresetUnit(int n, uint32_t& cost) {
+    if (!g_scan.preset[n - 1] && !g_scan.presetTmp[n - 1]) return;
+    IStorage& f = g_pfs;
+    const char* dir = pj_.fromProject ? pj_.dir : kWorkspace;
+    char src[340], tmp[340], dst[340];
+    presetPath(src, sizeof(src), dir, n);
+    presetPath(tmp, sizeof(tmp), dir, n, ".tmp");
+    presetPath(dst, sizeof(dst), kWorkspace, n);
+    if (pj_.fromProject) f.mkdir("Workspace/presets");
+    uint8_t* b = mem_.scratch;
+    constexpr uint32_t kCap = kPatchMaxFileSize + 1;
+    uint32_t len = 0;
+    bool have = false;
+    if (g_scan.preset[n - 1]) {
+        if (pj_.fromProject) {
+            have = copySmallFile(f, src, dst, b, kExtOff, kCap, len, cost) == 1;
+            if (len > kCap) len = kCap;
+        } else {
+            have = readWholeFile(f, src, b, kCap, &len) == FmtStatus::Ok;
+        }
+        if (!have) ++pj_.loadErrors;
+        if (g_scan.presetTmp[n - 1] && !pj_.fromProject) f.remove(tmp);   // the old file is intact
+    } else {
+        auto* chk = reinterpret_cast<SynthPatch*>(mem_.scratch + kPatchOff);
+        if (readWholeFile(f, tmp, b, kCap, &len) == FmtStatus::Ok && len <= kPatchMaxFileSize &&
+            completePatch(b, len, chk, mem_.scratch + kOutOff)) {
+            have = pj_.fromProject ? writeWholeFile(f, dst, b, len) == FmtStatus::Ok : f.rename(tmp, src);
+        } else if (!pj_.fromProject) {
+            f.remove(tmp);
+        }
+    }
+    SynthPatch& p = presets::table()[n - 1];
+    if (have && (len > kPatchMaxFileSize || decodePatch(b, len, &p) != PatchStatus::kOk)) {
+        std::memset(&p, 0, sizeof(p));
+        if (!loadNotice_[0]) std::snprintf(loadNotice_, sizeof(loadNotice_), "Preset %d is damaged", n);
+    }
+    cost += kJobSmallCost + len;
+}
+
 void App::loadPatchUnit(int s, uint32_t& cost) {
     IStorage& f = g_pfs;
     const char* dir = pj_.fromProject ? pj_.dir : kWorkspace;
@@ -1794,12 +2203,16 @@ bool App::jobUnit(uint32_t& cost) {
             std::memset(extKeep_, 0, sizeof(extKeep_));
             std::memset(g_upgrade, 0, sizeof(g_upgrade));
             loadNotice_[0] = 0;
+            resetSynthPresets();
             for (int s = 0; s < kSynthSlotCount; ++s) {
                 patchDirty_[s] = false;
                 patchSrc_[s] = PatchSource::None;
             }
             engineDirty_ = true;
             applyStreamOption();   // clears the bank; carves the stream rings when on
+            std::memset(streamSrc_, 0, sizeof(streamSrc_));
+            std::memset(srcMarker_, 0, sizeof(srcMarker_));
+            std::memset(copyFailed_, 0, sizeof(copyFailed_));
             for (int i = 0; i < kSampleInstrumentCount; ++i) {
                 instruments[i].setDefault();
                 instrPresent[i] = false;
@@ -1858,6 +2271,14 @@ bool App::jobUnit(uint32_t& cost) {
             // Synth slot patches (spec 21 §7.2), after project.mt (records).
             if (pj_.idx < kSynthSlotCount) {
                 loadPatchUnit(pj_.idx++, cost);
+                return true;
+            }
+            pj_.stage = kLPresets;
+            pj_.idx = 1;
+            return true;
+        case kLPresets:
+            if (pj_.idx <= kSynthPresetCount) {
+                loadPresetUnit(pj_.idx++, cost);
                 return true;
             }
             pj_.stage = kLPatterns;
@@ -2077,8 +2498,16 @@ bool App::jobUnit(uint32_t& cost) {
                 }
                 cost += kJobSmallCost;
             }
-            pj_.stage = kAInstr;
+            pj_.stage = kACopy;
             pj_.idx = 0;
+            pj_.phase = 0;
+            return true;
+        case kACopy:
+            if (!jobStreamCopyUnit(cost)) {
+                pj_.stage = kAInstr;
+                pj_.idx = 0;
+                pj_.phase = 0;
+            }
             return true;
         case kAInstr: {
             int i = pj_.idx;
@@ -2087,6 +2516,18 @@ bool App::jobUnit(uint32_t& cost) {
                 pj_.idx = i;
                 if (i >= kSampleInstrumentCount) {
                     pj_.stage = kAProject;
+                    return true;
+                }
+                // Issue #184: no complete Workspace file yet (the copy is not
+                // made): the header goes to instrument_NN.hdr.
+                if (streamCopyPending(i)) {
+                    uint8_t hdr[pti::kHeaderBlockSize];
+                    encodePtiHeader(instruments[i], hdr);
+                    streamHeaderPath(dst, sizeof(dst), i);
+                    if (writeWholeFile(f, dst, hdr, sizeof(hdr)) == FmtStatus::Ok) instrHeaderDirty_[i] = instrSampleDirty_[i] = false;
+                    else ++pj_.loadErrors;
+                    cost += kJobSmallCost;
+                    ++pj_.idx;
                     return true;
                 }
                 pj_.sampleDirty = instrSampleDirty_[i];
@@ -2098,6 +2539,7 @@ bool App::jobUnit(uint32_t& cost) {
             workspaceInstrumentPath(dst, sizeof(dst), kWorkspace, i + 1);
             if (pj_.wphase == 0 && !instrPresent[i]) {
                 if (f.exists(dst)) f.remove(dst);
+                if (bitOf(srcMarker_, i)) dropStreamMarker(i);
                 cost += kJobSmallCost;
                 ++pj_.idx;
                 return true;
@@ -2116,6 +2558,8 @@ bool App::jobUnit(uint32_t& cost) {
                 if (failed) {
                     instrSampleDirty_[i] = true;
                     ++pj_.loadErrors;
+                } else if (!instrSampleDirty_[i] && bitOf(srcMarker_, i)) {
+                    dropStreamMarker(i);   // the Workspace file is whole now
                 }
                 ++pj_.idx;
             }
@@ -2149,7 +2593,8 @@ bool App::jobUnit(uint32_t& cost) {
             int k = pj_.idx;
             while (k < kSynthSlotCount && !patchDirty_[k]) ++k;
             if (k >= kSynthSlotCount) {
-                pj_.stage = kAFinish;
+                pj_.stage = kAPresets;
+                pj_.idx = 1;
                 return true;
             }
             pj_.idx = k + 1;
@@ -2161,10 +2606,46 @@ bool App::jobUnit(uint32_t& cost) {
             cost += kJobSmallCost + kPatchMaxFileSize / 4;
             return true;
         }
+        case kAPresets: {
+            // Workspace/presets/<n>.patch of each changed preset.
+            int n = pj_.idx;
+            uint8_t& dirty = presets::dirty();
+            while (n <= kSynthPresetCount && !((dirty >> (n - 1)) & 1)) ++n;
+            if (n > kSynthPresetCount) {
+                pj_.stage = kAFinish;
+                return true;
+            }
+            pj_.idx = n + 1;
+            presetPath(dst, sizeof(dst), kWorkspace, n);
+            bool ok = true;
+            if (synthPresetUsed(n)) {
+                f.mkdir("Workspace/presets");
+                uint8_t* out = mem_.scratch + kOutOff;
+                size_t len = 0;
+                ok = encodePatch(presets::table()[n - 1], out, kPatchMaxFileSize, &len) == PatchStatus::kOk &&
+                     writePatchAtomic(f, dst, out, uint32_t(len), out + kPatchMaxFileSize);
+            } else if (f.exists(dst)) {
+                ok = f.remove(dst);
+            }
+            if (ok) dirty = uint8_t(dirty & ~(1u << (n - 1)));
+            else ++pj_.loadErrors;
+            cost += kJobSmallCost + kPatchMaxFileSize / 4;
+            return true;
+        }
         case kAFinish:
             if (pj_.op == JobOp::Save) {
                 // spec 05 appendix E3: op 0x0d continues with stage 4.
                 if (pj_.loadErrors) {
+                    jobFail();
+                    return false;
+                }
+                // Issue #184: an instrument whose Workspace file is not whole
+                // would replace the project's own file with nothing.
+                for (int i = 0; i < kSampleInstrumentCount; ++i) {
+                    if (!instrPresent[i] || !bit(srcMarker_, i)) continue;
+                    char msg[48];
+                    std::snprintf(msg, sizeof(msg), "Instrument %u not copied: not saved", unsigned(uint8_t(i + 1)));
+                    ui.notify(msg, 4000);
                     jobFail();
                     return false;
                 }
@@ -2326,8 +2807,37 @@ bool App::jobUnit(uint32_t& cost) {
                 cost += kJobSmallCost + kPatchMaxFileSize / 4;
                 return true;
             }
-            pj_.stage = kSFinish;
+            pj_.stage = kSPresets;
+            pj_.idx = 1;
+            pj_.phase = 0;
             return true;
+        case kSPresets: {
+            // The Workspace's presets go with the project; a cleared one leaves it.
+            const int n = pj_.idx;
+            if (n > kSynthPresetCount) {
+                pj_.stage = kSFinish;
+                return true;
+            }
+            presetPath(src, sizeof(src), kWorkspace, n);
+            presetPath(dst, sizeof(dst), pj_.dir, n);
+            if (pj_.phase == 0 && !f.exists(src)) {
+                if (f.exists(dst)) f.remove(dst);
+                cost += kJobProbeCost;
+                ++pj_.idx;
+                return true;
+            }
+            if (pj_.phase == 0) {
+                std::snprintf(dst, sizeof(dst), "%s/presets", pj_.dir);
+                f.mkdir(dst);
+                presetPath(dst, sizeof(dst), pj_.dir, n);
+            }
+            bool failed = false;
+            if (jobCopyUnit(src, dst, cost, &failed)) {
+                if (failed) ++pj_.loadErrors;
+                ++pj_.idx;
+            }
+            return true;
+        }
         case kSFinish:
             if (pj_.loadErrors) {
                 jobFail();
@@ -2369,6 +2879,7 @@ bool App::startLoadWorkspace(JobDoneFn done, void* ctx) {
     pj_.ctx = ctx;
     // One scan of Workspace/instruments and Workspace/patterns.
     scanSlots(g_pfs, kWorkspace, g_scan, true, nullptr, 0, true);
+    markerPayloads(g_pfs, g_scan);
     pj_.overBudget = scanSampleBytes(g_scan) > bank.capacityBytes();   // SD streaming (Auto)
     estimateJobTotal();
     jobBeginLoad();
@@ -2406,6 +2917,7 @@ bool App::startOpenProject(const char* folder, const char* name, JobDoneFn done,
     if (!name || !name[0] || std::strlen(name) > mt::kNameMax) return false;
     const char* fold = folder && folder[0] ? folder : kProjectsDir;
     if (std::strlen(fold) > mt::kFolderMax) return false;
+    if (pj_.op == JobOp::Autosave) pj_.copies = StreamCopies::kNone;   // the Workspace is replaced
     finishJob();
     IStorage& f = fs();
     char src[340], dir[sizeof(pj_.dir)];
@@ -2458,11 +2970,16 @@ bool App::openProject(const char* folder, const char* name) {
     return lastJobOk_ && lastJobErrors_ == 0;
 }
 
-bool App::startAutosave() {
+bool App::startAutosave(StreamCopies copies) {
     if (pj_.op != JobOp::None) return false;
     lastAutosave_ = millis();
+    if (copies == StreamCopies::kIdle && !copyIdle()) copies = StreamCopies::kNone;
     bool any = projectDirty_ || namesDirty_ || forkDirty_;
+    // Issue #184: instruments still streaming from their project file.
+    for (int i = 0; i < kSampleInstrumentCount && !any && copies != StreamCopies::kNone; ++i)
+        any = streamCopyPending(i) && (copies == StreamCopies::kAll || !bit(copyFailed_, i));
     for (int s = 0; s < kSynthSlotCount && !any; ++s) any = patchDirty_[s];
+    any = any || synthPresetDirty();
     for (int i = 0; i < 32 && !any; ++i) any = patDirty_[i] != 0;
     for (int i = 0; i < kSampleInstrumentCount && !any; ++i) any = instrHeaderDirty_[i] || instrSampleDirty_[i];
     // The edited pattern may differ from the store without a dirty mark yet.
@@ -2473,14 +2990,31 @@ bool App::startAutosave() {
     pj_ = ProjectJob{};
     pj_.op = JobOp::Autosave;
     pj_.stage = kABegin;
+    pj_.copies = copies;
     return true;
 }
 
-void App::autosave() {
+void App::autosave(StreamCopies copies) {
     // Blocking flush (power-off, Config, tests): finish whatever runs, then
     // write every dirty item now.
+    if (pj_.op == JobOp::Autosave && pj_.copies > copies) pj_.copies = copies;
     finishJob();
-    if (startAutosave()) finishJob();
+    if (startAutosave(copies)) {
+        if (copies == StreamCopies::kAll) {
+            // Every streamed instrument is copied: a progress popup.
+            uint64_t total = 0;
+            char p[340];
+            for (int i = 0; i < kSampleInstrumentCount; ++i) {
+                uint32_t pay = 0;
+                if (streamCopyPending(i) && readStreamMarker(fs(), i, p, sizeof(p), nullptr, &pay)) total += pay;
+            }
+            pj_.popup = total != 0;
+            pj_.title = "Copying instruments";
+            pj_.total = total ? total : 1;
+            jobProgress();
+        }
+        runJob();
+    }
     lastAutosave_ = millis();
 }
 
@@ -2513,6 +3047,7 @@ bool App::startSaveProjectAs(const char* nameOrPath, JobDoneFn done, void* ctx) 
     pj_.op = JobOp::Save;
     pj_.popup = true;
     pj_.title = "Saving project";
+    pj_.copies = StreamCopies::kAll;   // issue #184: streamed instruments copied first
     std::snprintf(pj_.dir, sizeof(pj_.dir), "%s/%s", folder, name);
     pj_.onDone = done;
     pj_.ctx = ctx;
@@ -2566,11 +3101,13 @@ bool saveProjectInto(App& a, const char* folder, const char* name) {
 // Memory pre-check, recents, card removal
 
 namespace {
-// The folder scan of the memory pre-check (one copy in SDRAM).
+// The folder scan of the memory pre-checks (scanForMemory, workspaceFitsMemory):
+// one copy in SDRAM. Each fills it and reads it before returning, so they
+// share it; the running job's scan is g_scan.
+OT_SDRAM_BSS SlotScan g_memScan;
 const SlotScan& scanForMemory(App& a, const char* dir) {
-    OT_SDRAM_BSS static SlotScan s;
-    scanSlots(a.fs(), dir, s);
-    return s;
+    scanSlots(a.fs(), dir, g_memScan);
+    return g_memScan;
 }
 }  // namespace
 
@@ -2589,8 +3126,9 @@ bool projectFitsMemory(App& a, const char* folder, const char* name) {
 }
 
 bool workspaceFitsMemory(App& a) {
-    OT_SDRAM_BSS static SlotScan s;   // the Workspace names its files instrument_NN.pti
-    scanSlots(a.fs(), kWorkspace, s, true);
+    SlotScan& s = g_memScan;
+    scanSlots(a.fs(), kWorkspace, s, true);   // the Workspace names its files instrument_NN.pti
+    markerPayloads(a.fs(), s);
     const uint32_t bank = a.mem().sampleBankSamples;
     const bool on = a.cfg.streamMode != 0 && a.hal().streamReader && bank >= 2u * audio::kStreamRegionSamples;
     const uint64_t cap = uint64_t(bank - (on ? audio::kStreamRegionSamples : 0u)) * sizeof(int16_t);
@@ -2823,20 +3361,32 @@ bool App::copyInstrument(int src, int dst) {
     finishJob();   // the bank moves under a running instrument write
     if (!instrPresent[src]) return false;
     allVoicesOff();
-    streamUnbind(dst);
-    if (streamed(src)) {
-        // A streamed source: a full RAM copy from its Workspace file, never
-        // a copy of the head.
-        bank.remove(dst);
+    // A refused copy leaves the target as it was (a streamed one keeps its
+    // stream and its project file); one that fails after it was dropped
+    // leaves an empty slot.
+    auto emptyTarget = [&]() {
         refreshStreamSources();
+        instruments[dst].setDefault();
+        instrPresent[dst] = false;
+        markInstrumentDirty(dst, true);
+        return false;
+    };
+    if (streamed(src)) {
+        // A streamed source: a full RAM copy from its file (read after the
+        // last instrument first), never a copy of the head.
         char path[340];
-        workspaceInstrumentPath(path, sizeof(path), kWorkspace, src + 1);
+        streamFilePath(src, path, sizeof(path));
         Instrument ins;
         PtiSampleLayout lay;
-        if (loadInstrumentFile(fs(), path, ins, bank.tail(), uint32_t(bank.freeSamples()), true, &lay) != FmtStatus::Ok) {
+        int16_t* at = bank.tail();
+        if (loadInstrumentFile(fs(), path, ins, at, uint32_t(bank.freeSamples()), true, &lay) != FmtStatus::Ok) {
             ui.notify("Not enough memory to copy the sample");
             return false;
         }
+        const uint32_t n = ins.lengthFrames * (ins.stereo ? 2u : 1u);
+        streamUnbind(dst);
+        bank.remove(dst);
+        std::memmove(bank.tail(), at, size_t(n) * sizeof(int16_t));
         bank.commitTail(dst, ins.lengthFrames, ins.stereo);
         refreshStreamSources();
         Instrument copy = instruments[src];
@@ -2847,7 +3397,14 @@ bool App::copyInstrument(int src, int dst) {
         markInstrumentDirty(dst, true);
         return true;
     }
-    if (!bank.copy(src, dst)) return false;
+    const uint64_t need = uint64_t(bank.frames(src)) * (bank.stereo(src) ? 2u : 1u);
+    const uint64_t own = bank.loaded(dst) ? uint64_t(bank.frames(dst)) * (bank.stereo(dst) ? 2u : 1u) : 0;
+    if (need > uint64_t(bank.freeSamples()) + own) {
+        ui.notify("Not enough memory to copy the sample");
+        return false;
+    }
+    streamUnbind(dst);
+    if (!bank.copy(src, dst)) return emptyTarget();
     refreshStreamSources();
     instruments[dst] = instruments[src];
     instrPresent[dst] = true;
@@ -2860,28 +3417,15 @@ bool App::loadStreamedIntoMemory(int slot) {
     finishJob();
     allVoicesOff();
     char path[340];
-    workspaceInstrumentPath(path, sizeof(path), kWorkspace, slot + 1);
-    // Read the whole sample after the last instrument first (the head stays
-    // until the read succeeded), then drop the head and move it down.
-    int16_t* at = bank.tail();
-    Instrument ins;
-    PtiSampleLayout lay;
-    if (loadInstrumentFile(fs(), path, ins, at, uint32_t(bank.freeSamples()), true, &lay) != FmtStatus::Ok) {
+    streamFilePath(slot, path, sizeof(path));
+    const bool pending = streamCopyPending(slot);
+    if (!loadWholeFrom(slot, path)) {
         ui.notify("Not enough memory to load the sample");
         return false;
     }
-    const uint32_t n = ins.lengthFrames * (ins.stereo ? 2u : 1u);
-    const Instrument prev = instruments[slot];
-    streamUnbind(slot);
-    bank.remove(slot);
-    std::memmove(bank.tail(), at, size_t(n) * sizeof(int16_t));
-    bank.commitTail(slot, ins.lengthFrames, ins.stereo);
-    refreshStreamSources();
-    Instrument keep = prev;
-    keep.lengthFrames = bank.frames(slot);
-    keep.stereo = bank.stereo(slot);
-    instruments[slot] = keep;
-    markInstrumentDirty(slot);   // header only: the file is unchanged
+    // Header only when the Workspace file is whole; from the project file
+    // (no Workspace copy yet) the autosave writes it from memory.
+    markInstrumentDirty(slot, pending);
     return true;
 }
 

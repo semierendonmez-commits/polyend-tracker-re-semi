@@ -505,43 +505,102 @@ TEST(bit_depth_quantiser_is_mid_tread) {
     CHECK(std::fabs(mean) < 1.0 / 256.0);
 }
 
-// --- filter (spec 04 §4.4) ----------------------------------------------------
+// --- sample filter (2.x: zero-delay-feedback SVF, soft output stage) ---------
 
 namespace {
-float svfGain(int type, float fc, float f, float res = 0.0f) {
-    Svf s;
-    const float fm = svfFmult(fc), dp = svfDamp(res);
-    s.fm = fm;
-    s.dp = dp;
+// RMS gain of the sample filter for a sine at f (after the transient).
+float sfGain(int type, float fc, float f, float res = 0.0f, float amp = 0.05f) {
+    SampleFilter s;
+    const FiltCoef c = sampleFilterCoef(fc, res);
+    s.c = c;
     float x[kBlock];
-    float peak = 0.0f;
-    uint32_t n = 0;
-    for (int b = 0; b < 120; ++b) {
-        for (uint32_t i = 0; i < kBlock; ++i, ++n) x[i] = 0.25f * std::sin(2.0f * kPiF * f * float(n) / audio::kSampleRate);
-        s.process(x, kBlock, type, fm, dp);
-        if (b >= 60) peak = std::fmax(peak, peakOf(x, kBlock));
+    double acc = 0.0;
+    uint32_t n = 0, cnt = 0;
+    for (int b = 0; b < 240; ++b) {
+        for (uint32_t i = 0; i < kBlock; ++i, ++n)
+            x[i] = amp * std::sin(2.0f * kPiF * f * float(n % 441000u) / audio::kSampleRate);
+        s.process(x, kBlock, type, c);
+        if (b >= 120)
+            for (uint32_t i = 0; i < kBlock; ++i, ++cnt) acc += double(x[i]) * x[i];
     }
-    return peak / 0.25f;
+    return float(std::sqrt(acc / cnt) / (amp / std::sqrt(2.0)));
 }
+float dB(float g) { return 20.0f * std::log10(g + 1e-9f); }
 }  // namespace
 
-TEST(filter_response) {
+TEST(sample_filter_response_is_tuned_and_flat) {
     initTables();
-    const float fc = 1000.0f;
-    CHECK_NEAR(svfGain(0, fc, 100.0f), 1.0f, 0.03);
-    CHECK_NEAR(svfGain(0, fc, fc), 0.707f, 0.08);       // ~ -3 dB at cutoff (q = 0.7)
-    CHECK(svfGain(0, fc, 8000.0f) < 0.03f);             // 12 dB/oct
-    CHECK_NEAR(svfGain(1, fc, 8000.0f), 1.0f, 0.1);
-    CHECK_NEAR(svfGain(1, fc, fc), 0.707f, 0.08);
-    CHECK(svfGain(1, fc, 100.0f) < 0.03f);
-    CHECK(svfGain(2, fc, fc) > 0.5f);
-    CHECK(svfGain(2, fc, 50.0f) < 0.1f);
-    // Resonance raises the gain at cutoff (q = 5 -> ~ +14 dB).
-    CHECK(svfGain(0, fc, fc, 4.3f) > 3.5f);
-    // Mapped cutoff c = 0.5 -> 20 * 2^(238/50) Hz.
-    const float c05 = cutoffHz(0.5f);
-    CHECK_NEAR(c05, 20.0f * std::exp2(238.0f / 50.0f), 0.01);
-    CHECK_NEAR(svfGain(0, c05, c05), 0.707f, 0.08);
+    const float top = cutoffHz(1.0f);   // the knob's maximum
+    CHECK_NEAR(cutoffHz(0.5f), 20.0f * std::exp2(238.0f / 50.0f), 0.01);   // the knob's mapping
+    // LP at the knob's maximum keeps the top of the spectrum (analog 2-pole:
+    // -0.9 dB at 10 kHz, -3.2 dB at 15 kHz).
+    CHECK(dB(sfGain(0, top, 10000.0f)) > -1.6f);
+    CHECK(dB(sfGain(0, top, 15000.0f)) > -4.5f);
+    // HP passband is flat up to the top.
+    CHECK(dB(sfGain(1, 1000.0f, 15000.0f)) > -0.5f);
+    CHECK(dB(sfGain(1, 1000.0f, 19000.0f)) > -0.5f);
+    // -3 dB at the cutoff, 12 dB/octave, for LP and HP.
+    CHECK_NEAR(dB(sfGain(0, 1000.0f, 1000.0f)), -3.1f, 0.4);
+    CHECK_NEAR(dB(sfGain(0, 1000.0f, 5000.0f)), -28.0f, 1.5);
+    CHECK_NEAR(dB(sfGain(1, 5000.0f, 1000.0f)), -28.0f, 1.5);
+    CHECK_NEAR(dB(sfGain(0, 1000.0f, 100.0f)), 0.0f, 0.2);
+    // Resonance: the peak sits at the cutoff with gain Q, also high up.
+    CHECK_NEAR(dB(sfGain(0, 1000.0f, 1000.0f, 4.3f)), 14.0f, 0.5);
+    CHECK_NEAR(dB(sfGain(0, 10000.0f, 10000.0f, 4.3f)), 14.0f, 1.0);
+    CHECK_NEAR(dB(sfGain(1, 5000.0f, 5000.0f, 4.3f)), 14.0f, 0.7);
+    // BP keeps its gain: Q at the centre (-3 dB at Q 0.7, +14 dB at Q 5).
+    CHECK_NEAR(dB(sfGain(2, 2000.0f, 2000.0f)), -3.1f, 0.5);
+    CHECK_NEAR(dB(sfGain(2, 2000.0f, 2000.0f, 4.3f)), 14.0f, 0.7);
+    CHECK(dB(sfGain(2, 2000.0f, 200.0f)) < -20.0f);
+}
+
+TEST(sample_filter_loud_resonance_saturates_smoothly) {
+    initTables();
+    // A loud sine on a Q 5 peak: the output stays below full scale (never
+    // flat-topped at the clamp) and stays loud; quiet signals pass unchanged.
+    SampleFilter s;
+    const FiltCoef c = sampleFilterCoef(2000.0f, 4.3f);
+    s.c = c;
+    float x[kBlock];
+    float peak = 0.0f;
+    uint32_t n = 0, pinned = 0;
+    for (int b = 0; b < 200; ++b) {
+        for (uint32_t i = 0; i < kBlock; ++i, ++n) x[i] = 0.5f * std::sin(2.0f * kPiF * 2000.0f * float(n) / audio::kSampleRate);
+        s.process(x, kBlock, 0, c);
+        if (b >= 100)
+            for (uint32_t i = 0; i < kBlock; ++i) {
+                const float a = std::fabs(x[i]);
+                peak = std::fmax(peak, a);
+                if (a >= 0.999f) ++pinned;
+            }
+    }
+    CHECK(peak > 0.9f);
+    CHECK_EQ(pinned, 0u);
+    CHECK_EQ(sampleFilterSat(0.5f), 0.5f);
+    CHECK_EQ(sampleFilterSat(-0.89f), -0.89f);
+    CHECK(sampleFilterSat(1.0f) < 1.0f && sampleFilterSat(1.0f) >= 0.945f);   // < 0.5 dB at full scale
+    CHECK(sampleFilterSat(100.0f) < 1.0f);
+    CHECK_EQ(sampleFilterSat(-3.0f), -sampleFilterSat(3.0f));
+}
+
+TEST(sample_filter_coefficient_ramp_is_smooth) {
+    initTables();
+    // A cutoff sweep within one block: no step larger than the signal allows.
+    SampleFilter s;
+    s.c = sampleFilterCoef(200.0f, 2.0f);
+    float x[kBlock];
+    float prev = 0.0f, maxStep = 0.0f;
+    uint32_t n = 0;
+    for (int b = 0; b < 100; ++b) {
+        for (uint32_t i = 0; i < kBlock; ++i, ++n) x[i] = 0.2f * std::sin(2.0f * kPiF * 440.0f * float(n) / audio::kSampleRate);
+        s.process(x, kBlock, 0, sampleFilterCoef(b % 2 ? 8000.0f : 200.0f, 2.0f));
+        for (uint32_t i = 0; i < kBlock; ++i) {
+            CHECK(std::isfinite(x[i]));
+            maxStep = std::fmax(maxStep, std::fabs(x[i] - prev));
+            prev = x[i];
+        }
+    }
+    CHECK(maxStep < 0.25f);
 }
 
 // --- delay (spec 04 §5.1) -----------------------------------------------------
@@ -1017,7 +1076,8 @@ TEST(deterministic_render_hash) {
     // Golden value (host x86-64 SSE float); update deliberately when the DSP changes.
     // 1.9.9: bit depth rounds to nearest (was 0x4e126ff813060a1b with the floor).
 #if defined(__x86_64__)
-    CHECK_EQ(ha, 0xe2e2f8dd73d3e8d6ull);   // spec 07: Q9 delay filter, Q5 bipolar LFOs
+    // 2.x: the sample filter is a zero-delay-feedback SVF (was 0xe2e2f8dd73d3e8d6).
+    CHECK_EQ(ha, 0x9c3b7ff0ccccd5e8ull);   // spec 07: Q9 delay filter, Q5 bipolar LFOs
 #else
     std::puts("  x86-64 render golden skipped on this host architecture");
 #endif
@@ -1108,9 +1168,111 @@ TEST(export_stems_wav_device_rate) {
 }
 
 namespace {
-// Export a held ACD sine and check the WAV, then the instrument that the
-// Render & Load import (wavImport with stereo on) makes from it.
-void checkSynthExport(bool resampleTo44100) {
+// Two engines are prepared the same way (same sample, same notes from the
+// per-block callback) so that two renders of the same material can be compared.
+struct ExportScript {
+    Rig* rig;
+    uint32_t blocks;
+    static void prepare(Rig& rig) {
+        rig.load(0, sine(20000, 330.0f), PlayMode::OneShot);
+        rig.load(1, sine(20000, 110.0f, 0.6f), PlayMode::OneShot);
+        rig.ins[0].reverbSend = 60;   // a reverb tail and a delay echo in the stems
+        rig.ins[0].delaySend = 60;
+    }
+    static bool running(void* c) {
+        ExportScript* x = static_cast<ExportScript*>(c);
+        if (x->blocks == 0) x->rig->note(0, 0, 60);
+        if (x->blocks == 5) x->rig->note(1, 1, 48, kFxReverbSend, 100, kFxPanning, 20);
+        return ++x->blocks <= 50;
+    }
+};
+
+const char* const kStemFiles[StemBlock::kStems] = {"track1", "track2", "track3", "track4", "track5",
+                                                   "track6", "track7", "track8", "reverb", "delay",
+                                                   "master", "synth_1", "synth_2", "synth_3"};
+
+uint32_t le32(const std::vector<uint8_t>& f, size_t o) {
+    return uint32_t(f[o]) | (uint32_t(f[o + 1]) << 8) | (uint32_t(f[o + 2]) << 16) | (uint32_t(f[o + 3]) << 24);
+}
+}  // namespace
+
+// The 44.1 kHz conversion treats the master like one stem: the master of a
+// stems export equals the master-only export of the same material, byte for
+// byte (same engine state, same notes, both with resampleTo44100).
+TEST(export_master_equals_stems_master) {
+    Rig a, b;
+    ExportScript::prepare(a);
+    ExportScript::prepare(b);
+    MemStorage fs;
+    ExportScript ca{&a, 0}, cb{&b, 0};
+    CHECK_EQ(a.eng->exportWav(fs, "Export/p/stems", true, 1000, ExportScript::running, &ca, true), 50);
+    CHECK_EQ(b.eng->exportWav(fs, "Export/p/master.wav", false, 1000, ExportScript::running, &cb, true), 50);
+    const auto& stemMaster = fs.files["Export/p/stems/master.wav"];
+    const auto& master = fs.files["Export/p/master.wav"];
+    CHECK_EQ(master.size(), 44u + 6397u * 4u);
+    CHECK_EQ(stemMaster.size(), master.size());
+    if (stemMaster.size() != master.size() || master.size() < 44) return;
+    CHECK_EQ(le32(master, 40), 6397u * 4u);
+    CHECK_EQ(le32(stemMaster, 40), 6397u * 4u);
+    CHECK(std::memcmp(stemMaster.data() + 44, master.data() + 44, master.size() - 44) == 0);
+    int nonzero = 0;
+    for (size_t i = 44; i < master.size(); ++i) nonzero += master[i] != 0;
+    CHECK(nonzero > 1000);   // not equal by both being silent
+    // The other stems of the same export are not copies of the master.
+    CHECK(fs.files["Export/p/stems/track1.wav"] != stemMaster);
+}
+
+// resampleTo44100 = false writes what the engine renders, block by block, and
+// only the header names 44117 Hz (spec 04 §6.1). Compared with a manual
+// beginOffline / renderOfflineBlock loop on an identically prepared engine.
+TEST(export_device_rate_writes_the_rendered_blocks) {
+    for (int stems = 0; stems < 2; ++stems) {
+        Rig a, b;
+        ExportScript::prepare(a);
+        ExportScript::prepare(b);
+        MemStorage fs;
+        ExportScript ca{&a, 0}, cb{&b, 0};
+        const int nw = stems ? StemBlock::kStems : 1;
+        const char* path = stems ? "Export/p/stems" : "Export/p/master.wav";
+        CHECK_EQ(a.eng->exportWav(fs, path, stems != 0, 1000, ExportScript::running, &ca, false), 50);
+
+        // The manual loop: the same `running` sequence, one block per true.
+        std::vector<std::vector<int16_t>> ref(nw);
+        std::unique_ptr<StemBlock> stemBuf(new StemBlock);
+        int16_t master[kBlock * 2];
+        b.eng->beginOffline();
+        while (ExportScript::running(&cb)) {
+            b.eng->renderOfflineBlock(master, stems ? stemBuf.get() : nullptr);
+            for (int i = 0; i < nw; ++i) {
+                const int16_t* src = stems ? stemBuf->data[i] : master;
+                ref[i].insert(ref[i].end(), src, src + kBlock * 2);
+            }
+        }
+        b.eng->endOffline();
+
+        int nonzero = 0;
+        for (int i = 0; i < nw; ++i) {
+            const std::string name = stems ? std::string(path) + "/" + kStemFiles[i] + ".wav" : std::string(path);
+            const auto& f = fs.files[name];
+            CHECK_EQ(f.size(), 44u + 50u * kBlock * 4u);
+            if (f.size() != 44u + 50u * kBlock * 4u) continue;
+            CHECK_EQ(le32(f, 24), 44117u);
+            CHECK_EQ(le32(f, 28), 176468u);
+            CHECK_EQ(le32(f, 40), 50u * kBlock * 4u);
+            CHECK_EQ(ref[i].size(), size_t(50u * kBlock * 2u));
+            if (ref[i].size() != size_t(50u * kBlock * 2u)) continue;
+            CHECK(std::memcmp(f.data() + 44, ref[i].data(), ref[i].size() * 2) == 0);
+            for (size_t k = 0; k < ref[i].size(); ++k) nonzero += ref[i][k] != 0;
+        }
+        CHECK(nonzero > 1000);   // there was something to compare
+    }
+}
+
+namespace {
+constexpr uint32_t kSynthExportBlocks = 2600;   // A sustained note for a little over four bars at 130 BPM.
+
+// Exports a held ACD sine (synth slot 0, C4) as one mono-in-stereo file.
+void exportSynthSine(MemStorage& fs, bool resampleTo44100) {
     Rig rig;
     SynthPatch patch;
     CHECK(patchInit(kSynthEngineAcd, &patch));
@@ -1123,7 +1285,7 @@ void checkSynthExport(bool resampleTo44100) {
     record.polyphony = 1;
     synth.setSlotRecord(0, record);
 
-    constexpr uint32_t kBlocks = 2600;  // A sustained note for a little over four bars at 130 BPM.
+    constexpr uint32_t kBlocks = kSynthExportBlocks;
     struct Ctx {
         AudioEngine* engine;
         uint32_t blocks = 0;
@@ -1139,9 +1301,24 @@ void checkSynthExport(bool resampleTo44100) {
         return ++c.blocks <= kBlocks;
     };
 
-    MemStorage fs;
     CHECK_EQ(rig.eng->exportWav(fs, "Export/synth", true, kBlocks, running, &ctx, resampleTo44100),
              int32_t(kBlocks));
+}
+
+// Largest |sample| of a 16-bit WAV (44-byte header).
+int wavPeak(const std::vector<uint8_t>& wav, size_t skipFrames = 0) {
+    int peak = 0;
+    for (size_t o = 44 + skipFrames * 4; o + 1 < wav.size(); o += 2)
+        peak = std::max(peak, std::abs(int(int16_t(uint16_t(wav[o]) | (uint16_t(wav[o + 1]) << 8)))));
+    return peak;
+}
+
+// Export a held ACD sine and check the WAV, then the instrument that the
+// Render & Load import (wavImport with stereo on) makes from it.
+void checkSynthExport(bool resampleTo44100) {
+    constexpr uint32_t kBlocks = kSynthExportBlocks;
+    MemStorage fs;
+    exportSynthSine(fs, resampleTo44100);
     const auto& wav = fs.files["Export/synth/synth_1.wav"];
     constexpr size_t kHeaderBytes = 44;
     const uint32_t deviceFrames = kBlocks * kBlock;
@@ -1183,6 +1360,18 @@ void checkSynthExport(bool resampleTo44100) {
     CHECK_EQ(clipped, 0);
     CHECK(std::fabs(mean / expectedFrames) < 20.0);
     CHECK(maxStep < peak / 5);  // No single-sample jumps characteristic of a resampling glitch.
+    if (resampleTo44100) {
+        // No ringing or clipping from the conversion: the converted file does not
+        // peak higher than the device-rate render of the same material (+ 1 % and
+        // 1 LSB for the other sampling instants). The first 32 frames (the filter
+        // length) are left out, so a harder onset's overshoot cannot trip it.
+        MemStorage raw;
+        exportSynthSine(raw, /*resampleTo44100=*/false);
+        const int rawPeak = wavPeak(raw.files["Export/synth/synth_1.wav"], 32);
+        CHECK(rawPeak > 1000);
+        CHECK(wavPeak(wav, 32) <= rawPeak + rawPeak / 100 + 1);
+        std::printf("  synth export: peak %d converted, %d device rate\n", peak, rawPeak);
+    }
 
     // The import takes a 44100 Hz file as is and converts a 44117 Hz file
     // (spec 02 §8.1). The header rate is not the device rate (44117.647 Hz),

@@ -127,12 +127,15 @@ uint32_t wavResampledFrames(uint32_t srcFrames, uint32_t srcRate) {
 
 int16_t wavDecodeSample(const uint8_t* p, uint16_t format, uint16_t bits) {
     if (format == wav::kFormatFloat) {
-        // (int16)(int)(x * 32767) (spec 07 Q8): truncation; |x| > 1 wraps
-        // through the int16 cast instead of saturating. NaN and values
-        // outside the int32 range (undefined in C) give 0 (OpenTracker guard).
+        // (int16)(int)(x * 32767) (spec 07 Q8): truncation. Past full scale
+        // (|x| > 1, common in float exports) it is held at the int16 limits:
+        // stock wraps it through the cast, which turns hot files into noise.
+        // NaN gives 0.
         const float x = rdF32(p) * 32767.0f;
-        if (!(x > -2147483648.0f && x < 2147483648.0f)) return 0;
-        return int16_t(uint16_t(uint32_t(int32_t(x))));
+        if (x != x) return 0;
+        if (x >= 32767.0f) return 32767;
+        if (x <= -32768.0f) return -32768;
+        return int16_t(x);
     }
     switch (bits) {
         case 8: return int16_t((int(p[0]) - 128) * 256);
@@ -575,8 +578,34 @@ bool WavWriter::open(IStorage& fs, const char* path, uint16_t channels) {
     return true;
 }
 
+void WavWriter::setBuffer(uint8_t* buf, uint32_t bytes) {
+    bytes &= ~511u;
+    buf_ = bytes >= 1024 ? buf : nullptr;
+    cap_ = buf_ ? bytes : 0;
+    fill_ = 0;
+    limit_ = cap_ ? cap_ - wav::kHeaderSize : 0;   // the first chunk ends on a sector
+}
+
+bool WavWriter::flush() {
+    if (!fill_) return true;
+    const bool ok = fs_->write(h_, buf_, fill_) == int32_t(fill_);
+    fill_ = 0;
+    limit_ = cap_;
+    return ok;
+}
+
 bool WavWriter::write(const int16_t* interleaved, uint32_t frames) {
     if (h_ < 0) return false;
+    if (buf_) {
+        const size_t total = size_t(frames) * channels_;
+        for (size_t i = 0; i < total; ++i) {
+            wrU16(buf_ + fill_, uint16_t(interleaved[i]));
+            fill_ += 2;
+            if (fill_ >= limit_ && !flush()) return false;
+        }
+        frames_ += frames;
+        return true;
+    }
     uint8_t buf[256];
     size_t total = size_t(frames) * channels_;
     size_t i = 0;
@@ -591,9 +620,11 @@ bool WavWriter::write(const int16_t* interleaved, uint32_t frames) {
 
 bool WavWriter::close() {
     if (h_ < 0) return false;
+    const bool flushed = !buf_ || flush();
+    buf_ = nullptr;
     uint8_t hdr[wav::kHeaderSize];
     wavMakeHeader(hdr, channels_, frames_ * channels_ * 2u);
-    bool ok = fs_->seek(h_, 0) && fs_->write(h_, hdr, sizeof(hdr)) == int32_t(sizeof(hdr));
+    bool ok = flushed && fs_->seek(h_, 0) && fs_->write(h_, hdr, sizeof(hdr)) == int32_t(sizeof(hdr));
     fs_->close(h_);
     h_ = -1;
     return ok;

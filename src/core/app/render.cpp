@@ -247,7 +247,7 @@ bool App::exportRunning(void* ctx) {
     }
     ++j.blocks;
     if ((j.blocks % kPollBlocks) == 0 && pollCancel(a)) return false;
-    if ((j.blocks & 1023) == 0) {
+    if ((j.blocks & 127) == 0) {   // OT fork: every 0.4 s of audio (was 3 s: a slow card looked frozen)
         const int pct = j.kind == ExportKind::Song && j.songLen ? a.seq.songPosition() * 100 / j.songLen
                                                                 : int(j.blocks / 1024 % 100);
         a.ui.progress(g_renderTitle, pct);
@@ -288,8 +288,13 @@ bool App::exportAudio(ExportKind kind, const char* path, const SelRect* sel, boo
                                                   : kExportingSelection;
     ui.progress(g_renderTitle, 0);
     const uint32_t maxBlocks = uint32_t(uint64_t(kMaxSeconds) * 44100 / kBlock);
+    // OT fork: the main-loop scratch holds the write buffers (4 KB a stem, 32
+    // KB for one file) unless a project job is using it; the free sample
+    // memory is not touched (the editor's undo, a recording may be there).
+    if (!jobBusy() && mem_.scratch) engine.setExportWriteBuffer(mem_.scratch, mem_.scratchBytes);
     const int32_t n = engine.exportWav(fs(), path, stems, maxBlocks, &App::exportRunning, this,
                                        /*resampleTo44100=*/cfg.exportRate != 0);   // Config > Export sample rate
+    engine.setExportWriteBuffer(nullptr, 0);
     seq.stop();
     seq.setRendering(false);
     allVoicesOff();

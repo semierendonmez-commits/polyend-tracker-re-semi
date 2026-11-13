@@ -138,9 +138,12 @@ TEST(config_menu_lists_all_options_with_defaults) {
         {"Level meter", 3, 0, 2, 0, 0},
         {"Reverb model", 3, 0, 7, 0, 0},      {"Delay model", 3, 0, 3, 0, 0},
         {"Master colour", 3, 0, 5, 0, 0},
+        {"Radio stereo", 3, 0, 2, 0, 0},                                     // 2.x [I], default Off
         {"Export sample rate", 3, 0, 2, 0, 1},                               // 2.x [I], default 44.1 kHz
         {"Stream from card", 3, 0, 3, 0, 0},                                 // 2.x [I] SD streaming, Off
         {"Stream threshold", 3, 0, 4, 0, 1},                                 // 2.x [I], 10 s
+        {"Pad layout", 3, 0, 2, 0, 0},                                       // Stock
+        {"Note names", 3, 0, 3, 0, 0},                                       // [I] Sharps
         {"Perform track keys", 3, 0, 2, 0, 0},                               // OT fork: Select
     };
     const Want midi[] = {
@@ -174,7 +177,7 @@ TEST(config_menu_lists_all_options_with_defaults) {
         int n;
     };
     const CatWant cats[] = {
-        {"Project Settings", project, 10}, {"General", general, 28}, {"MIDI", midi, 12},
+        {"Project Settings", project, 10}, {"General", general, 31}, {"MIDI", midi, 12},
         {"USB", usb, 1},                   // [I] 2.x (Tracker Mini order)
         {"Metronome", metro, 5},           {"Firmware", firmware, 4}, {"Info", info, 4},
     };
@@ -195,7 +198,7 @@ TEST(config_menu_lists_all_options_with_defaults) {
             if (w.def >= 0) CHECK_EQ(c.optionIndex(k, i), w.def);
         }
     }
-    CHECK_EQ(total, 64);   // stock 42 + 2.x Export theme, CPU meter, Synth voices, Export sample rate, two stream rows, three Info lines, USB Storage; OT fork rows
+    CHECK_EQ(total, 67);   // stock 42 + 2.x Export theme, CPU meter, Synth voices, Radio stereo, Export sample rate, two stream rows, Pad layout, Note names, three Info lines, USB Storage; OT fork rows
     char t[48];
     c.optionText(3, 0, t, sizeof t);   // USB Storage: Off
     CHECK_STR(t, "Off");
@@ -216,8 +219,8 @@ TEST(config_menu_lists_all_options_with_defaults) {
             CHECK_EQ(o.help != nullptr, want);
             helps += o.help != nullptr;
         }
-    CHECK_EQ(helps, 44);   // stock 25 + 2.x Export theme, CPU meter, Synth voices, Export sample rate, two stream rows, USB Storage; OT fork rows
-    CHECK_EQ(configHelpCount(), 44);
+    CHECK_EQ(helps, 47);   // stock 25 + 2.x Export theme, CPU meter, Synth voices, Radio stereo, Export sample rate, two stream rows, Pad layout, Note names, USB Storage; OT fork rows
+    CHECK_EQ(configHelpCount(), 47);
     c.optionText(5, 1, t, sizeof t);
     CHECK(std::strlen(t) > 0);
 }
@@ -433,7 +436,11 @@ TEST(config_help_box_and_pickers) {
     CHECK(c.editing);
     CHECK_EQ(c.picker, 3);
     h.run(50);
-    CHECK(h.disp.lastHasText("16"));     // picker shows 1..16
+    // The picker lists 1..16, 14 rows at a time. (This checked "16" with
+    // lastHasText, which only passed on a row's y coordinate, 316.)
+    CHECK(h.disp.lastHasExactText("1"));
+    CHECK(h.disp.lastHasExactText("14"));
+    CHECK(!h.disp.lastHasExactText("16"));
     // The help text (OpenTracker's wording) is drawn while editing.
     CHECK(h.disp.lastHasText("highlighted"));
     h.tap(btn::F7);

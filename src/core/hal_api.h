@@ -280,6 +280,14 @@ public:
     }
     virtual void bitmapSize(uint8_t handle, uint16_t w, uint16_t h) { (void)handle; (void)w; (void)h; }
 
+    // [I] The text of a glyph run the UI draws as VERTEX2II (Gfx::glyphRun
+    // and textRotatedRun): draws nothing, so a test fake or a display command
+    // recorder can read the string back. (x, y): the run's pen start (a
+    // turned run: its box). Default: ignored.
+    virtual void textHint(int16_t x, int16_t y, uint8_t font, const char* s) {
+        (void)x; (void)y; (void)font; (void)s;
+    }
+
     // --- convenience helpers built on the primitives ---------------------
     // RECTS / LINES vertices go at pixel centres (+8/16): the FT81x draws a
     // RECTS (LINE_WIDTH 16) from 0.5 px before the first vertex to 0.5 px
@@ -462,6 +470,9 @@ public:
     // chars, "" until two matching receptions; the PI code, 0 = none).
     virtual const char* rdsName() const { return ""; }
     virtual uint16_t rdsPi() const { return 0; }
+    // [I] 2.x Config "Radio stereo": stereo reception instead of the stock
+    // forced mono. Applied at once when on, else at the next power-up.
+    virtual void setStereo(bool on) { (void)on; }
 };
 
 // ---------------------------------------------------------------------------

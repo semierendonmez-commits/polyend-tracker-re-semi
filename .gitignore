@@ -2,3 +2,4 @@ sim/build/
 build/
 tools/make_demo/make_demo
 dist/
+__pycache__/

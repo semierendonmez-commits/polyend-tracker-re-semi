@@ -175,6 +175,39 @@ TEST(record_edits_apply_live) {
     (void)s;
 }
 
+TEST(macro_label_shows_the_fx_override) {
+    // User report: an FX CC moved M1 (its bar yellow) while the label under F1
+    // kept the page value. The label follows the bar, and Stop returns it.
+    Harness h;
+    App& a = *h.app;
+    openSlot(h, 1);
+    h.tap(btn::InstrParams);   // Synth Macros 2/2
+    audio::SynthBank& bank = a.engine.synth();
+    SynthSlotRecord r = a.synthSlot(1);
+    r.macros[0] = 0;
+    a.setSynthSlotRecord(1, r);
+    h.audio.pump(1);
+    const int page = int(a.synthSlot(1).macros[0]);
+    char want[8];
+    bank.macroFx(1, 0, 100);
+    h.audio.pump(1);
+    h.run(40);
+    const bool bi = a.synthPatch(1).macros[0].bipolar;
+    std::snprintf(want, sizeof(want), "%d", bi ? 100 - 63 : 100);
+    CHECK_STR(a.ui.bar.label[0].bottom, want);
+    bank.macroFx(1, 0, 40);     // and it keeps moving, with no key pressed
+    h.audio.pump(1);
+    h.run(40);
+    std::snprintf(want, sizeof(want), "%d", bi ? 40 - 63 : 40);
+    CHECK_STR(a.ui.bar.label[0].bottom, want);
+    bank.transportStop();
+    h.audio.pump(1);
+    h.run(40);
+    std::snprintf(want, sizeof(want), "%d", bi ? page - 63 : page);
+    CHECK_STR(a.ui.bar.label[0].bottom, want);
+    CHECK_EQ(int(a.synthSlot(1).macros[0]), page);   // the page value was never written
+}
+
 TEST(macro_edit_takes_over_from_fx_override) {
     // User report: after an FX CC a set M1 during playback, M1 stayed yellow
     // and turning it did nothing until Stop. A hand edit (encoder, Up/Down,
@@ -634,11 +667,12 @@ TEST(pads_audition_the_slot) {
     openSlot(h, 1);
     h.push(InputEvent::kPadDown, 5);
     h.audio.pump(4);
-    CHECK(a.engine.synth().voiceOfTrack(audio::kSynthAuditionTrack) != nullptr);
+    // A held pad takes a synth live track (pads play chords: synth_pad_chord_test).
+    CHECK(a.engine.synth().voiceOfTrack(audio::kSynthLiveTrack0) != nullptr);
     CHECK(a.engine.synth().voicesOf(1) == 1);
     h.push(InputEvent::kPadUp, 5);
     h.audio.pump(4);
-    const audio::SynthVoice* v = a.engine.synth().voiceOfTrack(audio::kSynthAuditionTrack);
+    const audio::SynthVoice* v = a.engine.synth().voiceOfTrack(audio::kSynthLiveTrack0);
     CHECK(v == nullptr || !v->gate);
 }
 
@@ -1433,6 +1467,37 @@ TEST(stop_cuts_synth_voices) {
     CHECK_EQ(a.engine.synth().busyRecords(), 0);
 }
 
+// Issue #117: in edit mode the note encoder on a synth step held the note
+// forever. Stock re-triggers the edited row (spec 06 §1.6 Encoder, Note
+// column), so the note gets one step and then the patch's release.
+TEST(note_encoder_on_a_synth_step_releases) {
+    Harness h;
+    App& a = *h.app;
+    audio::synthParamSet(a.synthPatch(1), 17, 1.0f);    // held tone
+    audio::synthParamSet(a.synthPatch(1), 18, 0.01f);   // short release
+    a.markSynthPatchDirty(1);
+    Step& st = a.pattern().tracks[0].steps[0];
+    st.note = 60;
+    st.instrument = 65;
+    a.patternEdited();
+    h.tap(btn::Rec);
+    CHECK(a.editMode);
+    h.enc(1);
+    CHECK_EQ(int(a.pattern().tracks[0].steps[0].note), 61);
+    bool sounded = false;
+    for (int i = 0; i < 10; ++i) {
+        h.audio.pump(4);
+        h.run(10);
+        sounded = sounded || a.engine.synth().sounding() > 0;
+    }
+    CHECK(sounded);
+    for (int i = 0; i < 200; ++i) {   // ~2 s: one step at 130 BPM, then the release
+        h.audio.pump(4);
+        h.run(10);
+    }
+    CHECK_EQ(a.engine.synth().sounding(), 0);
+}
+
 TEST(synth_edit_wheel_hint_lists_and_values) {
     // The simulator flips its wheel on lists (Ui::encoderOnList): in Edit
     // Patch the enum rows (Filter Type, LFO Waveform) are lists, value rows
@@ -1460,6 +1525,46 @@ TEST(synth_edit_wheel_hint_lists_and_values) {
     }
     CHECK(lists >= 1);
     CHECK(values >= 2);
+}
+
+// Tester report (3.0 preview, 2026-11-02): the wheel scrolled the wrong
+// way on every On / Off row (Sync, Reset, Oversampling, ...) and on a
+// macro's Off / On row: they are drawn as two-item lists like the enum
+// rows, so they are lists for the wheel hint too.
+TEST(synth_edit_wheel_hint_on_off_rows_are_lists) {
+    Harness h;
+    App& a = *h.app;
+    int onOff = 0, macroRows = 0;
+    for (SynthModel m : {SynthModel::ACD, SynthModel::FAT, SynthModel::VAP, SynthModel::WTFM}) {
+        openSlot(h, 1, m);
+        SynthScreen& s = synth(a);
+        if (s.view != SynthScreen::View::Params) h.tap(btn::InstrParams);
+        h.tap(btn::F8);
+        CHECK(s.view == SynthScreen::View::Edit);
+        const synthui::Section* sec = nullptr;
+        const int n = synthui::sections(s.engine(), &sec);
+        for (int i = 0; i < n; ++i) {
+            s.section = i;
+            if (sec[i].macro >= 0) {
+                s.row = 1;   // Off / On (bipolar)
+                CHECK(a.ui.encoderOnList());
+                s.row = 0;   // Name: Edit key
+                CHECK(!a.ui.encoderOnList());
+                ++macroRows;
+                continue;
+            }
+            for (int r = 0; r < sec[i].count; ++r) {
+                s.row = r;
+                const synthui::ParamUi* u = synthui::paramUi(s.engine(), sec[i].params[r]);
+                const bool list = u && (u->fmt == synthui::kFmtEnum || u->fmt == synthui::kFmtOnOff);
+                CHECK_EQ(a.ui.encoderOnList(), list);
+                onOff += u && u->fmt == synthui::kFmtOnOff;
+            }
+        }
+        h.tap(btn::Pattern);
+    }
+    CHECK(onOff >= 5);
+    CHECK(macroRows >= 1);
 }
 
 TEST(instr_hold_chooser_on_the_synth_page) {
@@ -1576,4 +1681,244 @@ TEST(macro_names_hide_control_bytes) {
     for (const std::string& l : h.disp.last) raw |= l.find('\r') != std::string::npos;
     CHECK(!raw);
     CHECK_EQ(int(a.synthPatch(1).macros[0].nameLen), 7);   // stored as read
+}
+
+// --- [OT] Edit what you hear: a slot on a preset shows and edits the preset ---
+
+namespace {
+// A model other than ACD that this build plays.
+int otherPlayable() {
+    for (int m = 0; m < kSynthModelCount; ++m)
+        if (SynthModel(m) != SynthModel::ACD && audio::synthEngineFor(synthEngineId(SynthModel(m)))) return m;
+    return 0;
+}
+void cursorAt(App& a, int step) { static_cast<PatternScreen*>(a.ui.screen(kModPattern))->step = step; }
+// Preset 1 stored from slot 2 (another model, polyphony 3, -6 dB, name
+// "Bell"); slot 1 (ACD) open on its page, then on preset 1.
+void slotOnPreset(Harness& h) {
+    App& a = *h.app;
+    a.setSynthModel(2, otherPlayable());
+    SynthSlotRecord r = a.synthSlot(2);
+    std::snprintf(r.patchName, sizeof(r.patchName), "Bell");
+    r.polyphony = 3;
+    r.gainDb = -6.0f;
+    a.setSynthSlotRecord(2, r);
+    a.storeSynthPreset(1, 2);
+    // A Z1 for Synth 2 at step 4, the cursor after it: the stopped chase.
+    Step& st = a.pattern().tracks[0].steps[4];
+    st.note = 60;
+    st.instrument = uint8_t(kFirstSynthInstrument + 1);
+    st.fx[1] = StepFx{0, uint8_t(kFxPresetCmdBase + 1)};
+    a.patternEdited();
+    openSlot(h, 1);
+    cursorAt(a, 6);
+    h.run(4);
+    CHECK_EQ(a.synthEditTarget(1), 1);
+}
+}  // namespace
+
+TEST(params_page_shows_and_edits_the_preset_the_slot_is_on) {
+    Harness h;
+    App& a = *h.app;
+    slotOnPreset(h);
+    const char* model = synthModelName(SynthModel(otherPlayable()));
+    char title[48];
+    std::snprintf(title, sizeof(title), "Synth 2 (%s) P1", model);
+    CHECK(frameHas(h, title));
+    CHECK_STR(a.ui.bar.label[0].bottom, model);
+    CHECK_STR(a.ui.bar.label[1].bottom, "3");
+    CHECK_STR(a.ui.bar.label[2].bottom, "-6.00 dB");
+    CHECK(frameHas(h, "Bell"));
+    // Gain and polyphony edits go to the preset; the record keeps its own.
+    const SynthSlotRecord own = a.synthSlot(1);
+    h.tap(btn::F3);
+    h.enc(2);
+    CHECK(patchMix(a.synthPreset(1), kPatchMixGain) == -5.0f);
+    CHECK(a.synthSlot(1).gainDb == own.gainDb);
+    h.tap(btn::F2);
+    h.tap(btn::Down);
+    CHECK_EQ(int(a.synthPreset(1).poly), 2);
+    CHECK(a.synthSlot(1).polyphony == own.polyphony);
+    CHECK(a.synthPresetDirty());
+    CHECK_EQ(a.synthPresetActive(1), 1);
+    // The cursor before the Z: the slot's own values again.
+    cursorAt(a, 2);
+    h.run(4);
+    CHECK_EQ(a.synthEditTarget(1), 0);
+    CHECK(frameHas(h, "Synth 2 (ACD)"));
+    CHECK(!frameHas(h, title));
+    CHECK_STR(a.ui.bar.label[0].bottom, "ACD");
+    char g[24];
+    synthui::gainText(own.gainDb, g, sizeof(g));
+    CHECK_STR(a.ui.bar.label[2].bottom, g);
+}
+
+TEST(edit_patch_edits_the_preset_and_marks_it_dirty) {
+    Harness h;
+    App& a = *h.app;
+    slotOnPreset(h);
+    a.autosave();
+    CHECK(!a.synthPresetDirty());
+    CHECK_EQ(a.synthPresetActive(1), 1);
+    const SynthPatch ownBefore = a.synthPatch(1);
+    const SynthPatch preBefore = a.synthPreset(1);
+    h.tap(btn::F8);   // Edit Patch
+    CHECK(synth(a).view == SynthScreen::View::Edit);
+    CHECK_EQ(a.synthPresetActive(1), 1);
+    CHECK(frameHas(h, "Edit Patch: Bell"));
+    int moved = 0;
+    for (int i = 0; i < 6 && !moved; ++i) {
+        h.enc(1);
+        moved = std::memcmp(&preBefore, &a.synthPreset(1), sizeof(SynthPatch)) != 0;
+        if (!moved) h.tap(btn::Down);
+    }
+    CHECK(moved);
+    CHECK(a.synthPresetDirty());
+    CHECK(!a.synthPatchDirty(1));
+    CHECK(std::memcmp(&ownBefore, &a.synthPatch(1), sizeof(SynthPatch)) == 0);
+    CHECK_EQ(a.synthPresetActive(1), 1);
+}
+
+TEST(mixer_strip_shows_and_edits_the_preset_gain) {
+    Harness h;
+    App& a = *h.app;
+    slotOnPreset(h);
+    h.tap(btn::Master);
+    h.tap(btn::Master);
+    h.tap(btn::Master);
+    CHECK(frameHas(h, "Synth 2 P1"));
+    CHECK(frameHas(h, "-6.00 dB"));
+    const float own = a.synthSlot(1).gainDb;
+    h.down(btn::F6);
+    h.tap(btn::Up);
+    h.up(btn::F6);
+    CHECK(patchMix(a.synthPreset(1), kPatchMixGain) == -5.5f);
+    CHECK(a.synthSlot(1).gainDb == own);
+    cursorAt(a, 2);
+    h.run(20);
+    CHECK_EQ(a.synthEditTarget(1), 0);
+    CHECK(!frameHas(h, "Synth 2 P1"));
+    CHECK(frameHas(h, "Synth 2"));
+}
+
+TEST(store_from_a_slot_on_p1_into_p2_copies_p1) {
+    Harness h;
+    App& a = *h.app;
+    slotOnPreset(h);
+    h.tap(btn::InstrParams);   // Synth Macros
+    h.tap(btn::F8);            // Presets
+    h.tap(btn::Down);          // P2
+    h.tap(btn::F1);            // empty: stored at once
+    CHECK(a.synthPresetUsed(2));
+    CHECK_EQ(int(a.synthPreset(2).engine), int(a.synthPreset(1).engine));
+    CHECK_STR(a.synthPreset(2).presetName, "Bell");
+    CHECK_EQ(int(a.synthPreset(2).poly), 3);
+}
+
+TEST(a_question_or_keyboard_closes_when_the_target_moves) {
+    Harness h;
+    App& a = *h.app;
+    slotOnPreset(h);
+    SynthScreen& s = synth(a);
+    // An edit of P1's patch, then a model change: "Discard edits?".
+    h.tap(btn::F8);   // Edit Patch
+    h.enc(1);
+    h.tap(btn::F8);   // Back
+    const int32_t eng = a.synthPreset(1).engine;
+    h.tap(btn::F1);
+    h.tap(btn::Up);
+    CHECK(a.ui.askOpen());
+    cursorAt(a, 2);   // the slot leaves P1 while the question is open
+    h.run(4);
+    CHECK(!a.ui.askOpen());
+    CHECK_EQ(s.pendingModelForTest(), -1);
+    CHECK_EQ(int(a.synthPreset(1).engine), int(eng));
+    CHECK_EQ(int(a.synthSlot(1).model), int(SynthModel::ACD));
+    // Save As's keyboard on P1 closes the same way.
+    cursorAt(a, 6);
+    h.run(4);
+    CHECK_EQ(a.synthEditTarget(1), 1);
+    h.tap(btn::F8);   // Edit Patch
+    h.tap(btn::F2);   // Save As
+    CHECK(a.ui.kb.isOpen());
+    cursorAt(a, 2);
+    h.run(4);
+    CHECK(!a.ui.kb.isOpen());
+}
+
+TEST(store_and_clear_of_a_preset_forget_its_edits_and_open_forgets_all) {
+    Harness h;
+    App& a = *h.app;
+    slotOnPreset(h);
+    h.tap(btn::F8);   // Edit Patch
+    h.enc(1);         // P1 edited
+    h.tap(btn::F8);   // Back
+    // Clear P1 from the Presets page, store it again from the own patch.
+    cursorAt(a, 2);
+    h.run(4);
+    h.tap(btn::InstrParams);
+    h.tap(btn::F8);   // Presets, P1
+    h.tap(btn::F3);
+    h.tap(btn::F8);   // Yes
+    CHECK(!a.synthPresetUsed(1));
+    h.tap(btn::F1);   // empty: stored at once
+    CHECK(a.synthPresetUsed(1));
+    h.tap(btn::F8);   // back to Macros
+    h.tap(btn::InstrParams);   // Params
+    cursorAt(a, 6);
+    h.run(4);
+    CHECK_EQ(a.synthEditTarget(1), 1);
+    h.tap(btn::F1);
+    h.tap(btn::Down);   // another model: no question, P1 has no edits now
+    CHECK(!a.ui.askOpen());
+    // An edit of the own patch, then a new project: no question either.
+    cursorAt(a, 2);
+    h.run(4);
+    a.setSynthModel(1, int(SynthModel::ACD));
+    h.tap(btn::F8);   // Edit Patch
+    h.enc(1);
+    h.tap(btn::F8);   // Back
+    CHECK(a.newProject());
+    openSlot(h, 1);
+    h.tap(btn::F1);
+    h.tap(btn::Down);
+    CHECK(!a.ui.askOpen());
+}
+
+TEST(store_onto_the_preset_the_slot_plays_does_nothing) {
+    Harness h;
+    App& a = *h.app;
+    slotOnPreset(h);
+    const SynthPatch before = a.synthPreset(1);
+    h.tap(btn::InstrParams);
+    h.tap(btn::F8);   // Presets, P1
+    h.tap(btn::F1);
+    CHECK(!a.ui.askOpen());
+    CHECK(std::memcmp(&before, &a.synthPreset(1), sizeof(SynthPatch)) == 0);
+    CHECK(!frameHas(h, "Preset stored"));
+}
+
+TEST(a_held_preset_preview_keeps_the_edit_section) {
+    Harness h;
+    App& a = *h.app;
+    a.setSynthModel(2, otherPlayable());
+    a.storeSynthPreset(2, 2);   // another engine than slot 1's
+    openSlot(h, 1);
+    SynthScreen& s = synth(a);
+    h.tap(btn::F8);   // Edit Patch
+    h.tap(btn::Right);
+    h.tap(btn::Right);
+    const int sec = s.section;
+    CHECK(sec > 0);
+    h.tap(btn::F8);   // Back
+    h.tap(btn::InstrParams);
+    h.tap(btn::F8);   // Presets
+    h.tap(btn::Down);   // P2
+    h.down(btn::F5);
+    h.run(4);
+    CHECK_EQ(a.synthPresetActive(1), 2);
+    CHECK_EQ(s.section, sec);
+    h.up(btn::F5);
+    h.run(4);
+    CHECK_EQ(s.section, sec);
 }

@@ -130,9 +130,18 @@ struct Config {
     // Themes/<name>.txt, empty = a stock theme. While it is set, `theme`
     // holds the file's base. Extension record bytes 7..27 (record v5).
     char themeFile[21] = {};
-    // Extension record byte 5: an option of later 2.x builds this one does
-    // not know yet; read and written back unchanged (its default).
-    uint8_t extKeep[1] = {0};
+    // [I] 2.x Config > General "Radio stereo" Off / On: the tuner leaves its
+    // stock forced mono and the Sample Recorder takes the Radio source in two
+    // lanes. Extension record byte 5.
+    uint8_t radioStereo = 0;
+    // Config > General "Pad layout": 0 Stock (the project's Notes layout),
+    // 1 Piano (two keyboards an octave apart: white keys along a row, black
+    // keys in the row above; the pad lights draw the keys). Extension record
+    // byte 32.
+    uint8_t padLayout = 0;
+    // [I] Config > General "Note names" (ui/notes.h NoteSpelling): 0 Sharps,
+    // 1 Flats, 2 Auto (from the project key). Extension record byte 33.
+    uint8_t noteNames = 0;
 
     // --- the stock config image --------------------------------------------
     static constexpr uint32_t kImageSize = 0xF4;   // spec 05 §5.4 version word 0xf4
@@ -157,19 +166,23 @@ struct Config {
     // ignores it: "OTX" magic, version, payload length, payload, 8-bit sum of
     // the payload. A missing or bad record leaves the defaults.
     static constexpr uint32_t kExtOffset = kImageSize;
-    // Record v6 (semi fork): the upstream v5 payload first, unchanged, so an
+    // Record v7 (semi fork): the upstream v5 payload first, unchanged, so an
     // upstream image reads its own fields from it -- cpuMeter, synthVoices,
-    // streamMode, streamThreshold, extKeep[1], exportRate, themeFile[21] --
-    // then the fork's 22 bytes (kForkExtOffset): sliceDetector, uiTheme,
-    // bbReseed, sliceThru, uiFont, scaleLock, screenSaver, levelMeter,
-    // reverbModel, delayModel, satDrive, satMixInv, satToneInv, limCeiling,
-    // limLink, satColor, 6 reserved. The semi fork's older record (v1 with a
-    // 24-byte payload) had the fork bytes at payload offset 2: still read.
-    static constexpr uint8_t kExtVersion = 6;
-    static constexpr uint32_t kUpstreamExtPayload = 6 + 21;
+    // streamMode, streamThreshold, radioStereo, exportRate, themeFile[21],
+    // padLayout, noteNames -- then the fork's 22 bytes: sliceDetector,
+    // uiTheme, bbReseed, sliceThru, uiFont, scaleLock, screenSaver,
+    // levelMeter, reverbModel, delayModel, satDrive, satMixInv, satToneInv,
+    // limCeiling, limLink, satColor, perfCcOut, perfKeys, 4 reserved.
+    // Still read: v6 (semi.1..semi.6 on 2.2.3: the upstream v4 payload of 27
+    // bytes, then the fork bytes) and the older v1 (fork bytes at payload
+    // offset 2).
+    static constexpr uint8_t kExtVersion = 7;
+    static constexpr uint32_t kUpstreamExtPayload = 6 + 21 + 2;
+    static constexpr uint32_t kV6UpstreamExtPayload = 6 + 21;
     static constexpr uint32_t kForkExtBytes = 22;
     static constexpr uint32_t kExtPayload = kUpstreamExtPayload + kForkExtBytes;
-    // Where the semi.1..semi.6 scenes record sat (after the 24-byte v1 record).
+    // Where the oldest fork scenes record sat (after a 24-byte v1 record);
+    // newer ones follow the record they were saved with.
     static constexpr uint32_t kOldScenesOffset = kImageSize + 5 + 24 + 1;
     static constexpr uint32_t kExtSize = 5 + kExtPayload + 1;
     void toExt(uint8_t* out) const;                          // kExtSize bytes

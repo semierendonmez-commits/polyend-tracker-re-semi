@@ -75,10 +75,20 @@ public:
     // FX CC a..f (macro 0..5) on a synth step: override of the slot's page
     // value until Stop.
     virtual void synthMacroFx(uint8_t slot, uint8_t macro, uint8_t value) { (void)slot; (void)macro; (void)value; }
+    // [OT] Z: slot plays preset n (1..8) or its own patch (0) until the next
+    // Z, a loop end or Stop. Runs before the same step's synthNoteOn. False:
+    // refused (an empty preset, out of range), the slot plays on as it was;
+    // a repeat of the slot's current preset counts as taken.
+    virtual bool synthPreset(uint8_t slot, uint8_t n) { (void)slot; (void)n; return false; }
+    // [OT] Whether synthPreset(slot, n) would take n (0 always): asked from
+    // the audio context, before the Z that sends it.
+    virtual bool synthPresetTakes(uint8_t n) { (void)n; return false; }
     // Transport stop: macro overrides return to the page values.
     virtual void synthTransportStop() {}
-    // OT fork sidechain: a MIDI note started on `track` (tracks 9-16 have no
-    // engine voice; the sidechain's trigger source still sees the note).
+    // OT fork sidechain: a note started on `track` that the engine does not
+    // play (a MIDI note; a sample note on tracks 9-16, which have no engine
+    // voice; any note of a muted Trigger source: "ghost" notes) still starts
+    // the sidechain's Trigger envelope.
     virtual void sidechainTrigger(uint8_t track) { (void)track; }
 };
 
@@ -124,6 +134,16 @@ public:
     virtual void markPatternDirty() {}
     // External Start chooses song play when the Song screen is active (spec 03 §4.3).
     virtual bool songScreenActive() { return false; }
+    // [OT] Z chase, main loop only (never the audio block): what the Z
+    // commands before a start position leave the synth slots on. Song mode:
+    // playlist positions 0..songPos-1, then steps 0..lastStepInclusive of
+    // `pattern`; pattern mode: those steps only (-1 = none). preset[s] comes
+    // in as 0 (own patch) and lastInstr[t] as 0xFF (no note seen): the
+    // default leaves both, the app fills in what the pattern data says.
+    virtual void synthChase(bool songMode, int songPos, uint8_t pattern, int lastStepInclusive,
+                            uint8_t preset[kSynthSlotCount], uint8_t lastInstr[kTrackCount]) {
+        (void)songMode; (void)songPos; (void)pattern; (void)lastStepInclusive; (void)preset; (void)lastInstr;
+    }
 };
 
 }  // namespace ot

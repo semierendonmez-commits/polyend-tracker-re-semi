@@ -14,6 +14,7 @@
 #include "app/pattern_ops.h"
 #include "app/project_io.h"
 #include "app/stream_policy.h"
+#include "app/synth_chase.h"
 #include "app/undo.h"
 #include "audio/engine.h"
 #include "hal_api.h"
@@ -168,6 +169,7 @@ public:
     static constexpr uint16_t kAuditionSampleEditor = 0x63;  // sample editor preview
     static constexpr uint16_t kAuditionMidiIn = 0x100;       // + MIDI note number
     static constexpr uint16_t kAuditionNone = 0xFFFF;
+    static constexpr uint16_t kAuditionPads = 48;            // ids 0..47: the pads (kPadCount)
     // Tracks the audition search scans (stock 12; 2.x: all 16, so note entry
     // on tracks 13..16 sounds like on 9..12, 2x-01 §2.6).
     static constexpr int kAuditionTracks = kTrackCount;
@@ -288,7 +290,9 @@ public:
     bool redoEdit();
 
     // Clipboard (spec 06 §1.4 Copy / §1.11).
-    void copyToClipboard(const SelRect& r);
+    // col: the cursor's column at the copy (Pattern screen, 2 / 3 = FX 1 / 2), -1 none.
+    void copyToClipboard(const SelRect& r, int col = -1);
+    int clipColumn() const { return clipCol_; }
     bool clipboardValid() const { return clipValid_; }
     const SelRect& clipRect() const { return clipRect_; }
     const Pattern& clipboard() const { return *mem_.clipboard; }
@@ -302,7 +306,7 @@ public:
     void setStepJump(int v);
     bool trackMuted(int t) const;
     void setTrackMute(int t, bool m);
-    uint8_t padNote(uint8_t pad);                 // current scale map, slice-aware
+    uint8_t padNote(uint8_t pad);                 // current scale map, slice-aware; PadNotes::kNoNote = piano gap
     void refreshPadNotes();
     void applySequencerSettings();
 
@@ -444,7 +448,9 @@ public:
     void syncRecorderSettings();
     bool unsavedChanges() const { return unsaved_; }
     bool neverSaved() const { return neverSaved_; }
-    void autosave();                              // writes dirty items to Workspace now
+    // Writes dirty items to Workspace now; `copies`: the streamed
+    // instruments copied from their project file first (issue #184).
+    void autosave(StreamCopies copies = StreamCopies::kNone);
     uint32_t lastAutosave() const { return lastAutosave_; }
 
     // ---- synth slots (Tracker Mini, spec 21 §3.3, §7; docs/MINI_PLAN.md §1)
@@ -458,6 +464,54 @@ public:
     SynthPatch& synthPatch(int s) { return patches_[s < 0 || s >= kSynthSlotCount ? 0 : s]; }
     const SynthPatch& synthPatch(int s) const { return patches_[s < 0 || s >= kSynthSlotCount ? 0 : s]; }
     PatchSource synthPatchSource(int s) const { return s >= 0 && s < kSynthSlotCount ? patchSrc_[s] : PatchSource::None; }
+    // [3.x] The project's synth presets (app/synth_presets.cpp), n = 1..8.
+    const SynthPatch& synthPreset(int n) const;
+    bool synthPresetUsed(int n) const;
+    bool synthPresetDirty() const;
+    int synthPresetActive(int s) const;       // what Z left slot s on, 0 = its own patch
+    void storeSynthPreset(int n, int s);      // slot s's patch into preset n
+    bool loadSynthPreset(int s, int n);       // preset n into slot s, its engine too
+    void clearSynthPreset(int n);
+    // [OT] Edit what you hear (app/synth_presets.cpp): the sound the synth
+    // pages and the Mixer strip of slot s show and edit. While the slot is on
+    // a preset that holds a patch (Z, the chase), that preset (1..), else 0:
+    // the slot's own patch and record. Derived from the bank, no state.
+    int synthEditTarget(int s) const;
+    const SynthPatch& synthTargetPatch(int s) const;
+    SynthPatch& synthTargetPatch(int s);       // edited in place, then markSynthTargetDirty
+    // The slot record as the target shows it: on a preset its model (an
+    // index past the models for an engine no model has), name, polyphony and
+    // mix (each the record's where the preset carries none); macro values
+    // stay the record's.
+    SynthSlotRecord synthTargetRecord(int s) const { return synthTargetRecord(s, synthEditTarget(s)); }
+    // r as edited from synthTargetRecord(s): its mix, polyphony and macro
+    // values; model and name are never taken from r. Own: onto the slot
+    // record; on a preset the mix and polyphony go to the preset (heard,
+    // saved), the macro values to the record.
+    void setSynthTargetRecord(int s, const SynthSlotRecord& r) { setSynthTargetRecord(s, synthEditTarget(s), r); }
+    void markSynthTargetDirty(int s) { markSynthTargetDirty(s, synthEditTarget(s)); }
+    // The same with the target n (0 = own) resolved once by the caller: a Z
+    // or Stop from the audio block between the read and the write must not
+    // send an edit to another sound. A preset n emptied since is ignored.
+    SynthSlotRecord synthTargetRecord(int s, int n) const;
+    void setSynthTargetRecord(int s, int n, const SynthSlotRecord& r);
+    void markSynthTargetDirty(int s, int n);
+    SynthPatch& synthTargetPatch(int s, int n);
+    // Bumped when the presets are reset (new project, open, workspace load).
+    uint32_t synthPresetResets() const;
+    void markSynthPresetDirty(int n);          // heard on the slots that play it, saved by the autosave
+    // Preset n takes src's sound (engine, values, macros) and `name`; it keeps
+    // its mix and polyphony, the slots on it stay on it and get the patch's
+    // macro defaults.
+    void setSynthPresetPatch(int n, const SynthPatch& src, const char* name);
+    // The patch operations of the synth pages on the target (own: as
+    // setSynthModel, initSynthPatch, load / saveSynthLibraryPatch).
+    // n: the target as the caller resolved it (-1: resolved here); a preset
+    // emptied since changes nothing.
+    void setSynthTargetModel(int s, int model, int n = -1);
+    void initSynthTargetPatch(int s, int n = -1);
+    bool loadSynthTargetLibraryPatch(int s, const char* name, int n = -1);
+    bool saveSynthTargetLibraryPatch(int s, const char* name, int n = -1);
     void markSynthPatchDirty(int s) {
         if (s < 0 || s >= kSynthSlotCount) return;
         patchDirty_[s] = true;
@@ -481,7 +535,9 @@ public:
     // record name = name.
     bool saveSynthLibraryPatch(int s, const char* name);
     // Load Patch popup preview (Tracker+ 1.0; docs/SYNTH_UX_MINI_VS_OT.md
-    // row 24): Patches/<MODEL>/<name>.patch plays in slot s (its patch and
+    // row 24), on the edit target ([OT] a preset's entry is kept and put back
+    // the same way, its mix and polyphony play on):
+    // Patches/<MODEL>/<name>.patch plays in slot s (its patch and
     // the audio-side record with the patch's macro defaults) while the
     // project record, the patch source and the dirty flag stay as they were
     // (no autosave of a previewed patch). The first preview keeps a copy of
@@ -510,7 +566,10 @@ public:
     bool startSaveProjectAs(const char* nameOrPath, JobDoneFn done = nullptr, void* ctx = nullptr);
     bool startSaveProject(JobDoneFn done = nullptr, void* ctx = nullptr);
     bool startLoadWorkspace(JobDoneFn done = nullptr, void* ctx = nullptr);
-    bool startAutosave();                         // false when nothing is dirty
+    bool startAutosave(StreamCopies copies = StreamCopies::kIdle);   // false when nothing is dirty
+    // Issue #184: the slot streams from its project file and its Workspace
+    // copy is not made yet (Workspace/instruments/instrument_NN.src names it).
+    bool streamCopyPending(int slot) const { return bit(streamSrc_, slot) && bit(srcMarker_, slot); }
     // Games (spec 14 §1.6, OpenTracker): true while the sample memory is lent
     // to the NES emulator; the periodic autosave is held so garbage sample
     // data is never written. The lender reloads the Workspace afterwards.
@@ -530,6 +589,7 @@ public:
     // Run the current job to completion (spec 05 appendix E3: every project
     // API call first flushes an in-progress autosave).
     void finishJob();
+    void runJob();   // finishJob() without limiting the autosave's copies
     // Card removed: drop the job (open handles closed, popup removed).
     void abortJob();
     bool projectExists(const char* folder, const char* name);
@@ -596,6 +656,10 @@ public:
         engine.noteSeqWork(audio::kSeqLiveRecord);
     }
     bool songScreenActive() override { return ui.active() == kModSong; }
+    // [OT] Z chase (app/synth_chase.cpp): the store and the current pattern
+    // read the way the sequencer plays them. Main loop only.
+    void synthChase(bool songMode, int songPos, uint8_t pattern, int lastStepInclusive,
+                    uint8_t preset[kSynthSlotCount], uint8_t lastInstr[kTrackCount]) override;
 
     // Paths
     void workspacePath(char* out, int cap, const char* rel) const;
@@ -685,7 +749,17 @@ private:
     void jobEnd();
     void jobFail();
     void jobCloseFiles();
-    bool jobCopyUnit(const char* from, const char* to, uint32_t& cost, bool* failed);
+    bool jobCopyUnit(const char* from, const char* to, uint32_t& cost, bool* failed, bool reserve = false);
+    // Issue #184: one unit of the autosave's copies (false: none left), the
+    // stream moved to the finished copy, the instrument loaded whole.
+    bool jobStreamCopyUnit(uint32_t& cost);
+    void rebindToWorkspace(int slot, const char* wsPath);
+    bool loadWholeFrom(int slot, const char* path);
+    bool copyIdle() const;
+    void dropStreamMarker(int slot);
+    // The file a streamed slot's samples are read from (its project file
+    // while the copy is pending).
+    void streamFilePath(int slot, char* out, size_t cap);
     bool jobPtiWriteUnit(int slot, const char* path, uint32_t& cost, bool* failed);
     bool jobSamplesUnit(int slot, uint32_t& cost);
     int jobWipeUnit(uint32_t& cost);
@@ -703,6 +777,21 @@ private:
     uint32_t normalizeCePattern(uint8_t* buf, uint32_t len);   // OT fork: CE 1.0 structure 6 -> 5
     bool savePatternUnit(int num);
     void loadPatchUnit(int s, uint32_t& cost);
+    void loadPresetUnit(int n, uint32_t& cost);
+    void leaveSynthPreset(int n);
+    void resetSynthPresets();
+    // Z chase internals (synth_chase.cpp).
+    uint16_t chaseUsed();
+    const chase::Summary& chaseSummary(int num, uint16_t used);
+    void chasePrefix(int pos, uint16_t used, chase::State& io);
+    void chaseAt(bool songMode, int songPos, int lastStepInclusive, chase::State& io);
+    // Stopped (not counting in): the slots on the chase at the pattern-editor
+    // cursor, or at the Song screen's cursor position while that screen
+    // shows, applied when that position or what it reads changes; idle
+    // passes rebuild a few stale summaries.
+    void serviceSynthChase();
+    void chaseReapply(int s);   // stopped: slot s to what the stopped chase last gave it
+    void chaseWarm(uint16_t used);
     bool resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile);
     uint32_t patchCrc(int s);
     bool patchKeptOriginal(int s);
@@ -754,13 +843,18 @@ private:
     int8_t previewSlot_ = -1;
     PatchSource previewSrc_ = PatchSource::None;
     bool previewDirty_ = false;
-    const SynthPatch* readSynthLibraryPatch(int s, const char* name);
+    uint8_t previewPreset_ = 0;   // [OT] the preset the preview plays in (0: the slot's patch)
+    SynthPatch* readSynthLibraryPatch(SynthModel m, const char* name);
+    SynthPatch* scratchSynthPatch();   // the scratch decode slot (nullptr: no scratch)
+    bool writeSynthLibraryPatch(SynthModel m, const SynthPatch& p, const char* name);
     // previewOn voice holding the synth audition track (kNoSynthAudition: none).
     static constexpr uint16_t kNoSynthAudition = 0xFFFF;
     uint16_t synthAudVoice_ = kNoSynthAudition;
-    // MIDI input notes held on the synth live tracks (audio::kSynthLiveTracks;
-    // 0 = free) and the next one to take when all are held.
-    uint16_t synthLive_[4] = {};
+    // MIDI input notes and pads held on the synth live tracks
+    // (audio::kSynthLiveTracks; kAuditionNone = free) and the next one to take
+    // when all are held.
+    uint16_t synthLive_[8] = {kAuditionNone, kAuditionNone, kAuditionNone, kAuditionNone,
+                             kAuditionNone, kAuditionNone, kAuditionNone, kAuditionNone};
     uint8_t synthLiveNext_ = 0;
     float liveBend_ = 0.0f;         // last MIDI input pitch bend (semitones)
     char loadNotice_[64] = {};      // first problem of the last load (one notice)
@@ -771,9 +865,20 @@ private:
     bool recShadowValid_ = false;
     bool instrHeaderDirty_[kSampleInstrumentCount] = {};
     bool instrSampleDirty_[kSampleInstrumentCount] = {};
+    // Issue #184, bit per slot: the stream reads the project's own file;
+    // Workspace/instruments/instrument_NN.src exists (the .pti is incomplete).
+    uint8_t streamSrc_[(kSampleInstrumentCount + 7) / 8] = {};
+    uint8_t srcMarker_[(kSampleInstrumentCount + 7) / 8] = {};
+    uint8_t copyFailed_[(kSampleInstrumentCount + 7) / 8] = {};   // its project file was gone (told once)
+    static bool bit(const uint8_t* b, int n) { return n >= 0 && n < kSampleInstrumentCount && ((b[n >> 3] >> (n & 7)) & 1); }
+    static void setBitOf(uint8_t* b, int n, bool on) {
+        if (on) b[n >> 3] = uint8_t(b[n >> 3] | (1u << (n & 7)));
+        else b[n >> 3] = uint8_t(b[n >> 3] & ~(1u << (n & 7)));
+    }
     bool unsaved_ = false, neverSaved_ = true;
     bool clipValid_ = false;
     SelRect clipRect_;
+    int8_t clipCol_ = -1;
     uint32_t lastAutosave_ = 0;
     uint32_t lastConfigSave_ = 0;
     volatile bool rendering_ = false;

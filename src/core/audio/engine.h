@@ -314,6 +314,17 @@ public:
 
     // Performance FX offsets for track t (spec 06 §3.2/§3.4).
     void setPerf(int track, const PerfOffsets& p) { if (track >= 0 && track < kVoices) voices_[track].setPerf(p); }
+    // The same offsets on the synth notes of track 0..15 (issue #23): the
+    // LP / HP / BP offset in octaves on the synth's own cutoff (the sample
+    // law 20 Hz x 2^(c x 477 / 50): 1.0 = 9.54 octaves), pan and sends.
+    void setSynthPerf(int track, const PerfOffsets& p) {
+        SynthPerf s;
+        if (p.filterType >= 0) s.cutoffOct = p.cutoff * (477.0f / 50.0f);
+        s.pan = p.pan;
+        s.dsend = p.dsend;
+        s.rsend = p.rsend;
+        synth_.setTrackPerf(track, s);
+    }
 
     void stopAll();
     void clearEffects();   // zero delay and reverb memory
@@ -329,13 +340,20 @@ public:
     // and synth_1..3.wav (Mini %s/synth_%d.wav, spec 21 §2; 1-based: U13).
     // Stops after maxBlocks or when running(ctx) returns false.
     // resampleTo44100=false: device-rate samples with 44117 in the header, as
-    // stock (spec 04 §6.1). [I] resampleTo44100=true: the WAVs are resampled to
-    // 44.1 kHz and say 44100. Returns blocks rendered, <0 on I/O error.
+    // stock (spec 04 §6.1). [I] resampleTo44100=true: the WAVs are converted to
+    // 44.1 kHz with a 32-tap fractional-delay FIR (audio/export_resampler.h) and say
+    // 44100. Returns blocks rendered, <0 on I/O error.
     int32_t exportWav(IStorage& fs, const char* path, bool stems, uint32_t maxBlocks, bool (*running)(void*),
                       void* ctx, bool resampleTo44100);
     // Stem block buffer for exportWav (~7 KB; SDRAM on the device). Without
     // one, exportWav allocates it for the export.
     void setExportScratch(StemBlock* s) { exportScratch_ = s; }
+    // OT fork: memory for the export's write buffers (the free sample memory,
+    // lent by the App around an export; nullptr = small writes).
+    void setExportWriteBuffer(uint8_t* p, uint32_t bytes) {
+        exportWbuf_ = p;
+        exportWbufBytes_ = bytes;
+    }
 
     // Meters.
     float limiterGainReduction() const { return limL_.meanGain(); }
@@ -384,6 +402,8 @@ public:
     void synthNoteOff(uint8_t track, NoteOffMode mode) override;
     void synthApplyFx(uint8_t track, uint8_t type, uint8_t value) override;
     void synthMacroFx(uint8_t slot, uint8_t macro, uint8_t value) override;
+    bool synthPreset(uint8_t slot, uint8_t n) override;
+    bool synthPresetTakes(uint8_t n) override;
     void synthTransportStop() override;
 
 private:
@@ -472,6 +492,8 @@ private:
 
     PreBlockFn hook_ = nullptr;
     StemBlock* exportScratch_ = nullptr;
+    uint8_t* exportWbuf_ = nullptr;
+    uint32_t exportWbufBytes_ = 0;
     void* hookCtx_ = nullptr;
     IMidiPort* midi_ = nullptr;
     const int16_t* lineIn_ = nullptr;

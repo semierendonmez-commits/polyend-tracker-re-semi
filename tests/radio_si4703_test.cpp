@@ -286,6 +286,38 @@ TEST(region_change_rewrites_band_bits_before_the_tune) {
     CHECK(!c.rmwViolation);
 }
 
+// ---- 2.x Radio stereo (Config): POWERCFG without MONO --------------------------
+
+TEST(stereo_power_up_clears_the_mono_bit) {
+    FakeChip c;
+    gChip = &c;
+    Si4703Radio r;
+    r.setStereo(true);
+    bringUp(r, c);
+    run(r, c, 1);
+    CHECK_EQ(c.r[0x02], 0xC801);        // 0xE801 without MONO (0x2000)
+    run(r, c, 400);
+    CHECK(!r.busy());
+    CHECK(!c.rmwViolation);
+}
+
+TEST(stereo_switch_while_on_rewrites_only_the_mono_bit) {
+    FakeChip c;
+    gChip = &c;
+    Si4703Radio r;
+    bringUp(r, c);
+    run(r, c, 400);
+    CHECK_EQ(c.r[0x02], 0xE801);
+    const uint16_t ch = c.r[0x03];
+    r.setStereo(true);
+    run(r, c, 50);
+    CHECK_EQ(c.r[0x02], 0xC801);
+    CHECK_EQ(c.r[0x03], ch);            // no retune
+    r.setStereo(false);
+    run(r, c, 50);
+    CHECK_EQ(c.r[0x02], 0xE801);
+    CHECK(!c.rmwViolation);
+}
 // OT fork: RDS is enabled with the region bits and the PS name is decoded from
 // group 0A blocks (two matching receptions per segment), cleared on a tune.
 TEST(rds_ps_name_decoded_and_cleared_on_tune) {
