@@ -390,7 +390,10 @@ const char* scSrcName(char* buf, int src, bool cell = false) {
     else std::snprintf(buf, 10, cell ? "%d" : "Track %d", src);
     return buf;
 }
-const char* const kScModes[2] = {"Trigger", "Follow"};
+// Notes: each note on the source starts the duck (a volume shaper on the
+// kick's notes); Audio: the source's level over the threshold (Ableton's
+// Compressor with its sidechain "Audio From" the source). Were Trigger / Follow.
+const char* const kScModes[2] = {"Notes", "Audio"};
 int scThreshDb(uint8_t t) { return -60 + (int(t > 100 ? 100 : t) * 6 + 5) / 10; }
 // Defaults (audio::SidechainSettings) for Delete.
 constexpr uint8_t kScDefault[8] = {0, 0, 0, 2, 10, 15, 80, 60};
@@ -491,7 +494,7 @@ void MixerScreen::refreshBar() {
         std::snprintf(v, sizeof(v), "%d%%", s.depth);
         b.set(6, "Depth", v);
         if (s.mode) std::snprintf(v, sizeof(v), "%d dB", scThreshDb(s.thresh));
-        else std::snprintf(v, sizeof(v), "Notes");
+        else std::snprintf(v, sizeof(v), "-");
         b.set(7, "Threshold", v, s.mode != 0);
         b.highlight(scParam, true);
         return;
@@ -1237,7 +1240,7 @@ void MixerScreen::drawSidechain(Gfx& g) {
     }
 
     // Source: Shift + pad (rows 1 / 2: tracks 1-8 / 9-16; row 3: Off, Line L / R).
-    g.text(10, 80, kFont3, dim, "Source");
+    g.text(10, 80, kFont3, dim, "Source: pumps");
     g.text(388, 81, kFont1, dim, "Shift + pad (again: Off)", IDisplay::kOptRightX);
     const int src = s.source < audio::SidechainSettings::kSourceCount ? s.source : 0;
     for (int i = 0; i < audio::SidechainSettings::kSourceCount; ++i) {
@@ -1308,7 +1311,7 @@ void MixerScreen::drawSidechain(Gfx& g) {
 
     // Targets, as the pads: filled = this SC's, a dot per SC under the name;
     // a ducking target dims with its envelope.
-    g.text(16, 220, kFont3, dim, "Targets");
+    g.text(16, 220, kFont3, dim, "Targets: get ducked");
     g.text(784, 221, kFont1, dim, "Pad: on / off", IDisplay::kOptRightX);
     const uint16_t mine = s.targets, t0 = a.fork.sc[0].targets, t1 = a.fork.sc[1].targets;
     for (int t = 0; t < audio::kScTargetCount; ++t) {
@@ -1335,7 +1338,7 @@ void MixerScreen::drawSidechain(Gfx& g) {
     // How to: the rest of row 2.
     g.text(236, 358, kFont1, src ? dim : text,
            !src ? "Source Off: Shift + a pad picks one"
-                : mode ? "Follow: the source above the threshold ducks" : "Trigger: each source note ducks, muted too");
+                : mode ? "Audio: its level over the threshold ducks" : "Notes: each source note ducks (muted too)");
 
     // Focus.
     static const int16_t kBox[8][4] = {{5, 33, 394, 77},   {5, 78, 394, 208},  {405, 33, 595, 77},  {405, 79, 793, 207},

@@ -241,7 +241,7 @@ TEST(mixer_frame_budget) {
 }
 
 // OT fork Sidechain 5/5 at its densest: every target on for both SCs (the
-// ducking overlays on each), Follow (the threshold drawn), the depth focused,
+// ducking overlays on each), Audio mode (the threshold drawn), the depth focused,
 // playing.
 TEST(sidechain_page_frame_budget) {
     Rig r;
@@ -261,7 +261,7 @@ TEST(sidechain_page_frame_budget) {
     for (int i = 0; i < 5; ++i) r.h.tap(btn::Master);
     MixerScreen& m = *static_cast<MixerScreen*>(a.ui.screen(kModMaster));
     CHECK_EQ(m.page, 4);
-    r.h.tap(btn::F1);   // SC 2: Follow, the threshold drawn
+    r.h.tap(btn::F1);   // SC 2: Audio mode, the threshold drawn
     r.h.tap(btn::F7);
     r.h.tap(btn::Play);
     r.play(100);
@@ -1420,4 +1420,44 @@ TEST(loader_long_names_budget) {
     h.tap(btn::Right);   // instrument list
     r.measure("sample loader instruments", 300);
     std::printf("  worst: %s, %u words\n", r.worstName.c_str(), unsigned(r.worst));
+}
+
+// User report (2.2.7-semi.3): the screen went black after F1 in the Generate
+// popup, about half the time. A 128-step dense pattern: the preview draws a
+// rect per step for notes, accents, FX ticks and OFFs, on two lanes for the
+// two-track generators, F1 cycling through every generator (and their random
+// draws: the encoder push) while playing.
+TEST(generate_popup_128_steps_every_generator) {
+    WorstRig r;
+    Harness& h = r.h;
+    App& a = r.a;
+    for (auto& tr : a.pattern().tracks) tr.lastStep = 127;
+    for (int t = 0; t < kTrackCount; ++t)
+        for (int s = 0; s < kStepCount; s += 3) a.pattern().tracks[t].steps[s].note = kNoteOff;
+    a.patternEdited();
+    r.screen(btn::Pattern, "pattern 128 dense");
+    h.tap(btn::Rec);
+    h.tap(btn::F8);
+    h.tap(btn::F8);
+    h.tap(btn::F3);
+    PatternScreen& pe = *static_cast<PatternScreen*>(a.ui.screen(kModPattern));
+    CHECK(pe.genOpen);
+    h.tap(btn::Play);
+    for (int lap = 0; lap < 2; ++lap)
+        for (int k = 0; k < gen::kKindCount; ++k) {
+            // Two lanes where a generator has them.
+            if (pe.genKind == gen::kCallResponse) pe.genVals[pe.genKind][3] = 2;
+            if (pe.genKind == gen::kGrids) pe.genVals[pe.genKind][9] = 0;
+            if (pe.genKind == gen::kMarbles) pe.genVals[pe.genKind][8] = 3;
+            h.tap(btn::EncPush);   // a new draw with them
+            for (int d = 0; d < 4; ++d) {
+                char nm[64];
+                std::snprintf(nm, sizeof(nm), "Generate 128 %s draw %d", gen::kind(pe.genKind).name, d);
+                r.measure(nm);
+                h.tap(btn::EncPush);
+            }
+            h.tap(btn::F1);   // the generator field selected: F1 again steps it
+        }
+    h.tap(btn::Play);
+    std::printf("generate 128 steps: worst %u words (%s)\n", unsigned(r.worst), r.worstName.c_str());
 }

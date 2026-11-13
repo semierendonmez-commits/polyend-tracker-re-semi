@@ -15,7 +15,24 @@ Image: `PolyendTrackerOTs227.ptf` (installs like the upstream image, see Install
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
-### Latest update (2.2.7-semi.2): a new Sidechain page
+### Latest update (2.2.7-semi.3): fixes from user reports
+
+- **Generate, black screen after F1**: on a 128-step pattern full of notes and FX, the preview
+  column (Call+Resp on two tracks above all) drew a rect per step and overflowed the display
+  list. The preview now draws one row per two steps at most and joins the FX ticks: the worst
+  frame went from over the limit to about 1780 of 1940 words.
+- **Sample Editor pads never run the effect**: a pad played the selection *through* the selected
+  effect, so every press brought up "Processing" (it looked like Apply). Pads now play the
+  sample, or Preview's result once Preview has made it; MIDI notes too.
+- **Stop ends the F1 pattern latch**: after F1 tapped alone and a queued pattern, Stop now
+  clears the queue *and* the latch, so F1 is no longer left armed.
+- **Sidechain words** as in a DAW: the modes are **Notes** (each source note ducks) and
+  **Audio** (the source's level over the threshold, as a compressor's sidechain), were Trigger /
+  Follow; the page says "Source: pumps" and "Targets: get ducked".
+- Stems: checked again with Tempo FX at both export rates; every stem has the master's length
+  and rate, and each hit sits within 5 frames of the master's (a test now guards it).
+
+### Previous update (2.2.7-semi.2): a new Sidechain page
 
 - **Master 5/5 Sidechain, redrawn**: SC 1 / SC 2 side by side with their source and a live
   envelope bar; the **Source** as a grid laid out like Shift + the pads; **Mode** and
@@ -26,11 +43,11 @@ and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**
   Line L, Line R; the source's own pad again turns it off. While Shift is held the pads show
   the sources (the current one lit).
 - **Delete** puts the focused value back to its default (on F1: clears the SC's targets).
-- The focused value is framed on the bottom bar too; Threshold is grey in Trigger mode.
+- The focused value is framed on the bottom bar too; Threshold is grey in Notes mode.
 - 4 KB of flash freed for what comes next (the Sample Editor's effect table keeps only the
   parameters each effect has); nothing changes in use.
 
-### Previous update (2.2.7-semi.1): on OpenTracker 2.2.7, fixes from user reports
+### Earlier update (2.2.7-semi.1): on OpenTracker 2.2.7, fixes from user reports
 
 - **Merged upstream OpenTracker 2.2.4 to 2.2.7** (synth presets and the Z FX, the new
   sample filter, piano pad layout, note names, Radio stereo, 44.1 kHz export with a 32-tap
@@ -42,7 +59,7 @@ and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**
 - **Stems export** writes each file in 4 KB chunks instead of 256 bytes: with 14 files open the
   card wrote one sector of each in turn, so a 2.5 minute song took about an hour and looked
   frozen. About 35 times fewer card writes now, and the progress bar moves every 0.4 s of audio.
-- **Sidechain ghost notes**: in Trigger mode a muted source track still triggers the ducking
+- **Sidechain ghost notes**: in Notes mode a muted source track still triggers the ducking
   without making a sound, and sample notes on tracks 9-16 (no sample voice on the original
   Tracker) trigger it too. Put the "ghost" kick on its own track and mute it.
 - To fit 2.2.7 next to the fork: 18 pattern undo steps (was 20) and 9 file undo steps (was 10).
@@ -225,7 +242,8 @@ Everything of the semi fork, now on the upstream 2.2.3 code (2.2.3-beta2, 51 ups
 | ![Theme: Glitch](screenshots/2.2.1-semi/theme-glitch.png) | |
 
 - **Master 5/5 Sidechain:** two sidechains (SC 1 / SC 2), each with its own source (track 1..16
-  or line in L / R), mode (**Trigger** on notes, **Follow** on audio with a threshold),
+  or line in L / R), mode (**Notes**: each source note ducks; **Audio**: the source's level over a threshold, as a
+  compressor's sidechain),
   attack / hold / release / depth, and its own **targets**: tracks 1..8, synth slots 1..3,
   delay and reverb returns, line in. The pads toggle the targets, Shift + pad picks the source
   track; nothing is ducked unless it is a target. Saved with the project (`otfork.bin`).

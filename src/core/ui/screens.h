@@ -932,7 +932,9 @@ public:
     bool undo();
     // Process the selection and play it at `note` (60 = own pitch). plainIfFull:
     // without the free memory, play the selection unprocessed (pads, MIDI).
-    bool preview(int note = 60, bool plainIfFull = false);
+    // readyOnly (pads, MIDI notes): never run the effect; play the processed
+    // preview if Preview made one for this selection and effect, else the sample.
+    bool preview(int note = 60, bool plainIfFull = false, bool readyOnly = false);
 
 private:
     void enter();

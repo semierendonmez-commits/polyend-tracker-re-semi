@@ -3,6 +3,7 @@
 // one-level undo, and the length limits.
 #include <cmath>
 #include <cstdio>
+#include <algorithm>
 #include <cstring>
 
 #include "test.h"
@@ -381,13 +382,47 @@ TEST(editor_preview_follows_moved_markers) {
     const uint32_t len = a.bank.frames(0);
     const uint32_t s0 = uint32_t(uint64_t(e.startM) * len / 65535), s1 = uint32_t(uint64_t(e.endM) * len / 65535);
     CHECK_EQ(a.engine.previewBufferAvail(), s1 - s0);   // the whole new selection
-    const int16_t* played = a.bank.tail();
+    const int16_t* played = a.engine.previewBufferLeft();
     const int16_t* cur = a.bank.data(0);
     bool same = true;
     for (uint32_t i = 0; same && i < 200; ++i) same = played[i] == cur[s0 + i];
     CHECK(same);                                       // from the new start
     h.push(InputEvent::kPadUp, 0);
     h.run(10);
+}
+
+// User report (2.2.7-semi.3): a pad on the effect page ran the effect (the
+// Processing popup at every press, as if it applied it). Pads now play the
+// sample until Preview has made the effect's result, then that result; the
+// sample itself is never changed by a pad.
+TEST(editor_pads_never_run_the_effect) {
+    Harness h;
+    App& a = *h.app;
+    const auto src = addNoise(h, "n.wav", 20000);
+    CHECK(a.importSample("n.wav", 0));
+    a.setCurrentInstrument(0);
+    h.tap(btn::SampleEditor);
+    EditorScreen& e = ed(h);
+    e.effect = 3;   // Amplifier
+    const std::vector<int16_t> before(a.bank.data(0), a.bank.data(0) + a.bank.frames(0));
+    h.push(InputEvent::kPadDown, 0);
+    h.run(10);
+    CHECK(e.previewPlaying);
+    CHECK_EQ(e.previewState, 0);                                   // nothing processed
+    CHECK(a.engine.previewBufferLeft() == a.bank.data(0) + 0);     // the sample itself
+    h.push(InputEvent::kPadUp, 0);
+    h.run(10);
+    CHECK(std::equal(before.begin(), before.end(), a.bank.data(0)));
+    // Preview makes the result; a pad then plays it.
+    CHECK(e.preview());
+    CHECK_EQ(e.previewState, 1);
+    h.push(InputEvent::kPadDown, 0);
+    h.run(10);
+    CHECK(a.engine.previewBufferLeft() == a.bank.tail());
+    h.push(InputEvent::kPadUp, 0);
+    h.run(10);
+    CHECK(std::equal(before.begin(), before.end(), a.bank.data(0)));
+    (void)src;
 }
 
 // 2.x: pads play the edit preview at their note (pad -> note map, note 60 =

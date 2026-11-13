@@ -228,7 +228,7 @@ TEST(sidechain_master_page) {
     h.tap(btn::Delete);
     CHECK_EQ(a.fork.sc[0].targets, 0);
     CHECK_EQ(a.fork.sc[0].source, 4);
-    // The bar shows the focused column; Threshold is grey in Trigger mode.
+    // The bar shows the focused column; Threshold is grey in Notes mode.
     CHECK(a.ui.bar.label[0].highlight);
     CHECK(!a.ui.bar.label[6].highlight);
     CHECK(!a.ui.bar.label[7].enabled);

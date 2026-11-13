@@ -6,7 +6,9 @@
 //    files open and wrote one sector of each in turn) with the same bytes;
 //  - the config record v7 (upstream 2.2.7's v5 payload + the fork bytes)
 //    reads a semi.1..semi.6 v6 record with the scenes and MIDI learn after it.
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -252,4 +254,97 @@ TEST(config_v6_record_read_by_v7) {
     CHECK_EQ(r2.noteNames, 1);
     CHECK_EQ(int(r2.scenes[1][1]), 7);
     CHECK_EQ(int(r2.perfMidi[3][1]), 21);
+}
+
+// User report (2.2.7-semi.3): stems "not lining up", at 44.1 kHz and with a
+// Tempo FX in the song. Clicks on four tracks, the tempo changed twice: every
+// stem has the master's length and rate, each click sits where the master has
+// it (to a few frames), at both export rates.
+namespace {
+std::vector<int16_t> wavLeft(const std::vector<uint8_t>& f, uint32_t* rate) {
+    WavInfo in;
+    std::vector<int16_t> out;
+    if (!wavParseHeader(f.data(), f.size(), in) || in.channels != 2 || in.bitsPerSample != 16) return out;
+    *rate = in.sampleRate;
+    const uint32_t n = in.dataSize / 4;
+    out.resize(n);
+    for (uint32_t i = 0; i < n; ++i) {
+        const uint8_t* p = f.data() + in.dataOffset + i * 4;
+        out[i] = int16_t(uint16_t(p[0] | (p[1] << 8)));
+    }
+    return out;
+}
+// Frames where the level first rises over `thr` after 2000 quiet frames.
+std::vector<uint32_t> onsets(const std::vector<int16_t>& s, int thr) {
+    std::vector<uint32_t> o;
+    uint32_t quiet = 2000;
+    for (uint32_t i = 0; i < s.size(); ++i) {
+        if (std::abs(int(s[i])) > thr) {
+            if (quiet >= 2000) o.push_back(i);
+            quiet = 0;
+        } else {
+            ++quiet;
+        }
+    }
+    return o;
+}
+}  // namespace
+
+TEST(stems_line_up_with_the_master_through_tempo_changes) {
+    for (uint8_t rate : {uint8_t(1), uint8_t(0)}) {
+        Harness h;
+        App& a = *h.app;
+        a.cfg.exportRate = rate;
+        std::vector<int16_t> click(400);
+        for (int i = 0; i < 400; ++i) click[i] = int16_t(i < 200 ? 20000 : 0);
+        addWav(h, "c.wav", click);
+        CHECK(a.importSample("c.wav", 0));
+        Pattern& p = a.pattern();
+        for (auto& tr : p.tracks) tr.lastStep = 63;
+        for (int t = 0; t < 4; ++t)
+            for (int s = t * 2; s < 64; s += 8) {
+                p.tracks[t].steps[s].note = 60;
+                p.tracks[t].steps[s].instrument = 0;
+            }
+        p.tracks[5].steps[16].fx[0].type = uint8_t(FxId::Tempo);
+        p.tracks[5].steps[16].fx[0].value = 174;
+        p.tracks[5].steps[40].fx[0].type = uint8_t(FxId::Tempo);
+        p.tracks[5].steps[40].fx[0].value = 90;
+        a.patternEdited();
+        h.fs.mkdir("Export");
+        CHECK(a.exportAudio(App::ExportKind::Pattern, "Export/st", nullptr, true));
+        uint32_t mr = 0;
+        const auto master = wavLeft(h.fs.files["Export/st/master.wav"], &mr);
+        CHECK(!master.empty());
+        CHECK_EQ(mr, rate ? 44100u : 44117u);
+        const auto mo = onsets(master, 2000);
+        CHECK(mo.size() >= 32);   // (+ the first step again in the tail)
+        std::vector<uint32_t> all;
+        for (int t = 0; t < 4; ++t) {
+            char nm[40];
+            std::snprintf(nm, sizeof(nm), "Export/st/track%d.wav", t + 1);
+            uint32_t r = 0;
+            const auto st = wavLeft(h.fs.files[nm], &r);
+            CHECK_EQ(r, mr);
+            CHECK_EQ(st.size(), master.size());
+            const auto o = onsets(st, 2000);
+            CHECK(o.size() >= 8);
+            all.insert(all.end(), o.begin(), o.end());
+        }
+        std::sort(all.begin(), all.end());
+        CHECK_EQ(all.size(), mo.size());
+        int worst = 0;
+        for (size_t i = 0; i < all.size() && i < mo.size(); ++i) {
+            const int d = std::abs(int(all[i]) - int(mo[i]));
+            worst = d > worst ? d : worst;
+        }
+        std::printf("  rate %s: %zu frames, worst stem/master onset gap %d frames\n", rate ? "44.1" : "device",
+                    master.size(), worst);
+        CHECK(worst <= 8);
+        for (const char* other : {"reverb.wav", "delay.wav", "synth_1.wav", "synth_2.wav", "synth_3.wav", "track8.wav"}) {
+            uint32_t r = 0;
+            const auto st = wavLeft(h.fs.files[std::string("Export/st/") + other], &r);
+            CHECK_EQ(st.size(), master.size());
+        }
+    }
 }

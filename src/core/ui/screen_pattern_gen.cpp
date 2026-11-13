@@ -406,29 +406,61 @@ void PatternScreen::drawGenPreview(Gfx& g, int x, int y, int w, int h) {
     if (hi < lo) lo = hi = 60;
     const int span = hi - lo;
     const int bw = laneW > 30 ? 10 : 6;
+    const int rh = rowH > 2 ? rowH - 1 : 1;
+    // One rect per row and kind at most: with two steps per row (over 64
+    // steps) the row shows its first note; FX ticks and OFF dashes of
+    // consecutive rows join into one rect. A 128-step preview on two lanes
+    // drew a rect per step and pass and overflowed the display list over a
+    // dense pattern (user report: black screen after F1 to Call+Resp).
     for (int ln = 0; ln < lanes; ++ln) {
         const Track& tr = pp.tracks[ln == 0 ? genPrevT0_ : genPrevT1_];
         const int lx = x + 2 + ln * laneW;
         if (ln) g.fill(lx - 1, y + 2, 1, h - 4, th.grid);
-        // Normal notes, then accents (brighter), then FX ticks and OFF dashes.
-        for (int pass = 0; pass < 3; ++pass) {
-            g.rectsBegin(pass == 0 ? th.track[0] : (pass == 1 ? th.text : th.track[2]));
-            for (int i = 0; i < n; ++i) {
+        // The row's step to draw: its first note (-1: none), and whether a
+        // step of the row has FX / an OFF.
+        auto rowNote = [&](int r, bool& fx, bool& off) {
+            int pick = -1;
+            fx = off = false;
+            for (int k = 0; k < per; ++k) {
+                const int i = r * per + k;
+                if (i >= n) break;
                 const Step& st = tr.steps[genPrevS0_ + i];
-                const int ry = y + 2 + (i / per) * rowH;
-                const int rh = rowH > 2 ? rowH - 1 : 1;
+                if (st.fx[0].type || st.fx[1].type) fx = true;
+                if (st.note == kNoteOff) off = true;
+                if (pick < 0 && st.note >= 0) pick = i;
+            }
+            return pick;
+        };
+        // Normal notes, then accents (brighter).
+        for (int pass = 0; pass < 2; ++pass) {
+            g.rectsBegin(pass == 0 ? th.track[0] : th.text);
+            for (int r = 0; r < rows; ++r) {
+                bool fx, off;
+                const int i = rowNote(r, fx, off);
+                if (i < 0) continue;
+                const Step& st = tr.steps[genPrevS0_ + i];
                 const bool accent = (st.fx[0].type == 18 && st.fx[0].value >= 100) ||
                                     (st.fx[1].type == 18 && st.fx[1].value >= 100);
-                if (pass < 2 && st.note >= 0 && accent == (pass == 1)) {
-                    const int nx = lx + (span > 0 ? (key(st) - lo) * (laneW - bw - 2) / span : (laneW - bw) / 2);
-                    g.rectsAdd(nx, ry, bw, rh);
-                } else if (pass == 2) {
-                    if (st.note == kNoteOff) g.rectsAdd(lx + 2, ry + rh / 2, laneW - 6, 1);
-                    if (st.fx[0].type || st.fx[1].type) g.rectsAdd(lx + laneW - 4, ry, 2, rh);
-                }
+                if (accent != (pass == 1)) continue;
+                const int nx = lx + (span > 0 ? (key(st) - lo) * (laneW - bw - 2) / span : (laneW - bw) / 2);
+                g.rectsAdd(nx, y + 2 + r * rowH, bw, rh);
             }
             g.rectsEnd();
         }
+        // FX ticks (runs) and OFF dashes (rows without a note).
+        g.rectsBegin(th.track[2]);
+        int runAt = -1;
+        for (int r = 0; r <= rows; ++r) {
+            bool fx = false, off = false;
+            const int i = r < rows ? rowNote(r, fx, off) : -1;
+            if (fx && runAt < 0) runAt = r;
+            if (!fx && runAt >= 0) {
+                g.rectsAdd(lx + laneW - 4, y + 2 + runAt * rowH, 2, (r - runAt) * rowH - (rowH > 2 ? 1 : 0));
+                runAt = -1;
+            }
+            if (off && i < 0) g.rectsAdd(lx + 2, y + 2 + r * rowH + rh / 2, laneW - 6, 1);
+        }
+        g.rectsEnd();
     }
     // Sections (Call+Resp form).
     for (int k = 0; k < genPrev_.nSec; ++k) {

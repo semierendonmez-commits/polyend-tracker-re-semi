@@ -413,7 +413,13 @@ TEST(pattern_pads_latch_on_f1_tap) {
     CHECK_EQ(a.seq.queuedPattern(), 7);
     h.run(10);
     CHECK_EQ(h.leds.level[6], full);
+    // Stop ends the latch with the queue: F1 is not left armed.
     h.tap(btn::Play);
+    CHECK_EQ(a.seq.queuedPattern(), 0);
+    CHECK_EQ(pe(h).focus, -1);
+    CHECK(!a.ui.bar.label[0].highlight);
+    h.tap(btn::F1);   // and the next tap latches again
+    CHECK_EQ(pe(h).focus, 0);
     h.tap(btn::F1);
     CHECK_EQ(pe(h).focus, -1);
     // Held F1 with a pad is the stock hold: released, the focus ends.

@@ -397,7 +397,7 @@ bool EditorScreen::undo() {
     return true;
 }
 
-bool EditorScreen::preview(int note, bool plainIfFull) {
+bool EditorScreen::preview(int note, bool plainIfFull, bool readyOnly) {
     App& a = app_;
     if (inert || !a.bank.loaded(slot_)) return false;
     stopPreview();
@@ -424,8 +424,12 @@ bool EditorScreen::preview(int note, bool plainIfFull) {
     // the further Start moved, the more was missing at the end).
     if (s0 != prevS0_ || s1 != prevS1_ || effect != prevEffect_) previewState = 0;
     const uint32_t scratch = 2u * sfx::scratchFloats(effect, prm()) + 2u + plugReserve_;   // OT fork
-    if (!fits(outSel, keep + scratch, !plainIfFull)) {
-        if (!plainIfFull) return false;
+    // Pads and MIDI notes never start the effect (user report: a pad on the
+    // effect page "applied" it, the Processing popup coming up at every
+    // press); they play what Preview made, else the sample as stock pads do.
+    const bool plain = readyOnly && previewState == 0;
+    if (plain || !fits(outSel, keep + scratch, !plainIfFull)) {
+        if (!plain && !plainIfFull) return false;
         // No room for the processed preview: play the selection as it is,
         // from the sample itself (stock pads play the sample).
         const int16_t* cur = a.bank.data(slot_) + s0;
@@ -471,15 +475,14 @@ bool EditorScreen::preview(int note, bool plainIfFull) {
 }
 
 void EditorScreen::onPad(uint8_t pad, uint8_t state) {
-    // Pads audition the sample being edited, like the Preview button: the
-    // processed selection (crop and the current effect, not applied), cut
-    // when the pad is released. Before, pads played the instrument through
-    // the Sample Playback points and envelope, so an edit was only heard
-    // after the job finished (user report) [I]. 2.x: at the pad's note
-    // (App::padNote, note 60 = own pitch), as the recorder pads play.
+    // Pads audition the sample being edited: the selection, processed if
+    // Preview has made the current effect's result (not applied), cut when the
+    // pad is released. A pad never runs the effect itself (2.2.7-semi.3, user
+    // report). 2.x: at the pad's note (App::padNote, note 60 = own pitch), as
+    // the recorder pads play.
     if (state == kPress) {
         const uint8_t n = app_.padNote(pad);
-        if (n != PadNotes::kNoNote && preview(n, true)) padPreview_ = pad;   // piano layout gaps play nothing
+        if (n != PadNotes::kNoNote && preview(n, true, true)) padPreview_ = pad;   // piano layout gaps play nothing
     } else if (state == kRelease && previewPlaying && padPreview_ == int(pad)) {
         padPreview_ = -1;
         stopPreview();
@@ -494,7 +497,7 @@ bool EditorScreen::onMidiNote(uint8_t note, uint8_t velocity, bool on) {
     // and velocity are not used), and that note's note-off stops it.
     (void)velocity;
     if (on) {
-        if (preview(60, true)) midiNote_ = note;
+        if (preview(60, true, true)) midiNote_ = note;
     } else if (previewPlaying && midiNote_ == int(note)) {
         stopPreview();
         refreshBar();

@@ -434,11 +434,16 @@ audio (was 3 s).
 - **Master 5/5 Sidechain**: two sidechains, **SC 1** and **SC 2** (F1 switches),
   each with its own source, envelope and targets, saved with the project
   (`otfork.bin` next to `project.mt`; stock firmware ignores it).
-  - **Source** (F2): Track 1..16 or Line in L / R. **Mode** (F3): **Trigger**
-    (a note on the source track starts the envelope: sample, synth or MIDI
-    notes) or **Follow** (the source's audio above the **Threshold**, F8,
-    -60..0 dB; tracks 1..8 and the line input).
-  - **Ghost notes** (Trigger): a muted source track still runs its steps
+  - In Ableton's words: the **Source** is the sidechain input ("Audio From",
+    the kick that pumps), the **Targets** are the tracks the compressor sits
+    on (what gets ducked).
+  - **Source** (F2): Track 1..16 or Line in L / R. **Mode** (F3): **Notes**
+    (each note on the source track starts the envelope: sample, synth or MIDI
+    notes; like a volume shaper on the kick's notes) or **Audio** (the
+    source's audio above the **Threshold**, F8, -60..0 dB, as a compressor's
+    sidechain; tracks 1..8 and the line input). Notes / Audio were called
+    Trigger / Follow before 2.2.7-semi.3.
+  - **Ghost notes** (Notes mode): a muted source track still runs its steps
     silently and triggers the ducking, so a kick that is only there to pump
     the mix can sit on its own muted track. Sample notes on tracks 9..16
     (no sample voice on the original Tracker) trigger too, as do notes with
@@ -454,7 +459,7 @@ audio (was 3 s).
     source's own pad again = Off. While Shift is held the pads show the
     sources (the current one lit).
   - **Delete** sets the focused value to its default (Attack 2 ms, Hold 50 ms,
-    Release 150 ms, Depth 80 %, Threshold -24 dB, Source Off, Trigger); on F1
+    Release 150 ms, Depth 80 %, Threshold -24 dB, Source Off, Notes); on F1
     it clears the SC's targets.
   - The page (2.2.7-semi.2): top left SC 1 / SC 2 with their source and live
     envelope, and the Source grid laid out as Shift + the pads; top right

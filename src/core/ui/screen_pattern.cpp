@@ -1064,7 +1064,11 @@ void PatternScreen::transport() {
             // follows the playhead while playing), as on stock 1.9.2.
         }
     }
-    if (!patternLatch_) focus = -1;   // the latched Pattern pads stay on
+    // The latched Pattern pads stay on through Play; Stop ends the latch with
+    // the queued pattern (user report: F1 stayed armed after stopping a
+    // queued pattern).
+    if (!s.isPlaying()) patternLatch_ = false;
+    if (!patternLatch_) focus = -1;
 }
 
 void PatternScreen::focusArrow(uint8_t id) {
